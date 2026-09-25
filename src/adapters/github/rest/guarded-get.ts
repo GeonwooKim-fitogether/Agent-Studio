@@ -1,0 +1,100 @@
+/**
+ * GitHub REST API 에 GET 만 보내는 관문.
+ *
+ * REST 어댑터의 모든 요청은 이 함수를 지난다. 요청을 보내기 **전에** 두 가지를 확인하고, 어기면 오류를 낸다.
+ *   1. 메서드가 GET 인가 — POST · PATCH · PUT · DELETE 는 한 번도 네트워크로 나가지 않는다.
+ *   2. 주소가 https://api.github.com 인가 — 다른 호스트, http, 주소 안의 계정 정보는 거절한다.
+ * 리디렉션도 자동으로 따라가지 않고, 새 주소를 같은 관문에 다시 통과시킨 뒤에만 따라간다.
+ *
+ * 토큰은 Authorization 헤더에만 싣는다. 오류 메시지에는 메서드 · 경로 · 상태 코드만 담고,
+ * 헤더와 응답 본문은 담지 않는다 — 토큰이 로그나 화면에 새어 나갈 길을 막기 위해서다.
+ */
+
+export const GITHUB_API_ORIGIN = "https://api.github.com";
+const MAX_REDIRECTS = 3;
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+/** 관문이 요청을 막았을 때의 오류. 요청은 네트워크로 나가지 않았다. */
+export class GitHubRequestBlockedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GitHubRequestBlockedError";
+  }
+}
+
+/** GitHub 가 요청을 거절했거나 네트워크가 실패했을 때의 오류. */
+export class GitHubReadError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GitHubReadError";
+  }
+}
+
+export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
+
+export interface GuardedGetOptions {
+  readonly token: string;
+  readonly fetch: FetchLike;
+}
+
+/** 관문을 거친 GET 요청 함수를 만든다. 두 번째 인자의 method 는 관문 시험을 위해 받을 뿐, GET 이 아니면 막힌다. */
+export function createGuardedGet(options: GuardedGetOptions) {
+  const { token, fetch: fetchImpl } = options;
+
+  return async function guardedGet(url: string, init: { readonly method?: string } = {}): Promise<unknown> {
+    let target = assertAllowed(init.method ?? "GET", url);
+
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+      let response: Response;
+      try {
+        response = await fetchImpl(target.href, {
+          method: "GET",
+          redirect: "manual",
+          headers: {
+            Accept: "application/vnd.github+json",
+            Authorization: `Bearer ${token}`,
+            "X-GitHub-Api-Version": "2022-11-28",
+          },
+        });
+      } catch {
+        // 원래 오류 객체를 그대로 싣지 않는다. 그 안에 요청 정보가 들어 있을 수 있기 때문이다.
+        throw new GitHubReadError(`GitHub 에 닿지 못했다 (GET ${target.pathname})`);
+      }
+
+      if (REDIRECT_STATUSES.has(response.status)) {
+        const location = response.headers.get("location");
+        if (location === null) throw new GitHubReadError(`GitHub 가 이동할 주소 없이 ${response.status} 를 돌려줬다 (GET ${target.pathname})`);
+        target = assertAllowed("GET", new URL(location, target).href);
+        continue;
+      }
+      if (!response.ok) {
+        throw new GitHubReadError(`GitHub 가 요청을 거절했다: ${response.status} (GET ${target.pathname})`);
+      }
+      try {
+        return await response.json();
+      } catch {
+        throw new GitHubReadError(`GitHub 응답을 JSON 으로 읽지 못했다 (GET ${target.pathname})`);
+      }
+    }
+    throw new GitHubReadError(`리디렉션이 ${MAX_REDIRECTS}번을 넘었다`);
+  };
+}
+
+function assertAllowed(method: string, url: string): URL {
+  if (method.toUpperCase() !== "GET") {
+    throw new GitHubRequestBlockedError(`GET 이외의 요청은 보내지 않는다 (요청된 메서드: ${method.toUpperCase()})`);
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new GitHubRequestBlockedError("주소를 해석할 수 없어 요청하지 않는다");
+  }
+  if (parsed.username !== "" || parsed.password !== "") {
+    throw new GitHubRequestBlockedError("주소에 계정 정보가 든 요청은 보내지 않는다");
+  }
+  if (parsed.origin !== GITHUB_API_ORIGIN) {
+    throw new GitHubRequestBlockedError(`${GITHUB_API_ORIGIN} 이외의 주소로는 요청하지 않는다 (요청된 곳: ${parsed.origin})`);
+  }
+  return parsed;
+}
