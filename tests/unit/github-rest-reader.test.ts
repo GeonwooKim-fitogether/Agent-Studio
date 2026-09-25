@@ -156,6 +156,17 @@ describe("REST 읽기 어댑터", () => {
         user: { login: "local-dev" },
         head: { ref: "fix/session", sha: sha("b"), repo: null }, // 복제본이 지워지면 GitHub 가 head.repo 를 null 로 준다
       },
+      {
+        number: 18,
+        title: "외부 기여",
+        body: "studio-work-a1b2c3",
+        state: "open",
+        merged_at: null,
+        html_url: "https://github.com/demo-org/payments/pull/18",
+        updated_at: "2026-09-24T10:00:00Z",
+        user: { login: "outsider" },
+        head: { ref: "patch-1", sha: sha("d"), repo: { id: 990001, full_name: "outsider/payments" } }, // 복제본
+      },
     ]),
     [`https://api.github.com/repos/demo-org/payments/commits/${sha("a")}/check-runs?per_page=100`]: json({
       total_count: 2,
@@ -172,6 +183,8 @@ describe("REST 읽기 어댑터", () => {
       { state: "CHANGES_REQUESTED", user: { login: "kim" } },
       { state: "COMMENTED", user: { login: "kim" } },
     ]),
+    [`https://api.github.com/repos/demo-org/payments/commits/${sha("d")}/check-runs?per_page=100`]: json({ check_runs: [] }),
+    "https://api.github.com/repos/demo-org/payments/pulls/18/reviews?per_page=100": json([]),
     "https://api.github.com/repos/demo-org/payments/pulls/15/reviews?per_page=100": json([
       { state: "APPROVED", user: { login: "lee" } },
     ]),
@@ -200,6 +213,7 @@ describe("REST 읽기 어댑터", () => {
         body: "studio-work-a1b2c3",
       }),
       expect.objectContaining({ repoId: 710001, number: 15, headRepoId: null, state: "merged", checks: "none", review: "approved", body: "" }),
+      expect.objectContaining({ repoId: 710001, number: 18, headRepoId: 990001 }), // 복제본의 저장소 ID 를 그대로 옮긴다
     ]);
   });
 
@@ -208,7 +222,7 @@ describe("REST 읽기 어댑터", () => {
     const reader = createGitHubRestReader({ token: TOKEN, repos: ["demo-org/payments"], fetch });
     for (const repo of await reader.listRepositories()) await reader.listPullRequests(repo);
 
-    expect(calls.length).toBe(6); // 저장소 1 + PR 목록 1 + (검사 1 + 리뷰 1) × PR 2
+    expect(calls.length).toBe(8); // 저장소 1 + PR 목록 1 + (검사 1 + 리뷰 1) × PR 3
     for (const call of calls) {
       expect(call.method).toBe("GET");
       expect(new URL(call.url).origin).toBe("https://api.github.com");

@@ -17,10 +17,13 @@ import {
   prKey,
   type Repository,
   type ReviewDecision,
+  isValidPrRef,
   StudioError,
   type UnlinkRecord,
+  withoutNul,
   type Work,
 } from "../../../domain/model";
+import { isValidWorkId } from "../../../domain/work-marker";
 import type { StudioSeed, StudioStore } from "../../../ports/studio-store";
 
 export type { StudioSeed } from "../../../ports/studio-store";
@@ -38,6 +41,9 @@ export function createMemoryStore(seed: StudioSeed = {}): StudioStore {
   const previews: PreviewRecord[] = copies(seed.previews ?? []);
   const unlinks = new Map((seed.unlinks ?? []).map((u) => [prKey(u), copy(u)]));
 
+  const rejectIfBadRef = (ref: PrRef) => {
+    if (!isValidPrRef(ref)) throw new StudioError("invalid_input", "PR 을 가리키는 값이 올바르지 않다.");
+  };
   const rejectIfLinked = (ref: PrRef) => {
     if (links.has(prKey(ref))) throw new StudioError("already_linked", "이 PR 은 이미 업무에 연결돼 있다.");
   };
@@ -69,11 +75,14 @@ export function createMemoryStore(seed: StudioSeed = {}): StudioStore {
       return work && copy(work);
     },
     async createWorkWithLink(work, link) {
-      // 확인을 모두 마친 뒤에 쓴다. 하나라도 걸리면 아무것도 쓰지 않는다.
+      // 확인을 모두 마친 뒤에 쓴다. 하나라도 걸리면 아무것도 쓰지 않는다. 확인 순서는 포트 주석과 PostgreSQL 구현과 같다.
+      rejectIfBadRef(link);
+      if (link.workId !== work.id) throw new StudioError("invalid_input", "연결이 새 업무를 가리키지 않는다.");
+      if (!isValidWorkId(work.id)) throw new StudioError("invalid_input", "업무 ID 는 영문 소문자와 숫자로만 이뤄진다.");
       rejectIfLinked(link);
+      if (!projects.has(work.projectId)) throw new StudioError("not_found", "업무를 둘 프로젝트가 없다.");
       rejectIfUnlinkedByUser(link);
       if (works.has(work.id)) throw new StudioError("invalid_input", "같은 ID 의 업무가 이미 있다.");
-      if (link.workId !== work.id) throw new StudioError("invalid_input", "연결이 새 업무를 가리키지 않는다.");
       works.set(work.id, copy(work));
       writeLink(link);
     },
@@ -93,7 +102,8 @@ export function createMemoryStore(seed: StudioSeed = {}): StudioStore {
       return snapshot && copy(snapshot);
     },
     async saveSnapshot(snapshot) {
-      snapshots.set(prKey(snapshot), copy(snapshot));
+      rejectIfBadRef(snapshot);
+      snapshots.set(prKey(snapshot), copy(withoutNul(snapshot)));
     },
 
     async listLinks() {
@@ -104,11 +114,14 @@ export function createMemoryStore(seed: StudioSeed = {}): StudioStore {
       return link && copy(link);
     },
     async addLink(link) {
+      rejectIfBadRef(link);
       rejectIfLinked(link);
+      if (!works.has(link.workId)) throw new StudioError("not_found", "연결하려는 업무가 없다.");
       rejectIfUnlinkedByUser(link);
       writeLink(link);
     },
     async unlink(ref, unlinkedAt) {
+      rejectIfBadRef(ref);
       const key = prKey(ref);
       if (links.get(key)?.workId !== ref.workId) {
         throw new StudioError("not_linked", "이 PR 은 이 업무에 연결돼 있지 않다.");
@@ -124,6 +137,8 @@ export function createMemoryStore(seed: StudioSeed = {}): StudioStore {
       return copies(reviews);
     },
     async addReviewDecision(decision) {
+      rejectIfBadRef(decision);
+      if (!works.has(decision.workId)) throw new StudioError("not_found", "검토 결정을 남길 업무가 없다.");
       reviews.push(copy(decision));
     },
 

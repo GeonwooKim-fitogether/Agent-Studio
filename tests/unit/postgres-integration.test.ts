@@ -27,12 +27,22 @@ function migrate(env: Record<string, string>): { code: number; output: string } 
 }
 
 describe("마이그레이션 적용 명령 — 환경 거부 (데이터베이스 없이)", () => {
-  it.each(["production", "staging", "development", ""])("APP_ENV=%j 이면 연결하기 전에 거부하고 아무것도 적용하지 않는다", (appEnv) => {
+  it.each(["production", "staging", "development", "", " local", "local ", "Local", "TEST", "local\n"])("APP_ENV=%j 이면 연결하기 전에 거부하고 아무것도 적용하지 않는다", (appEnv) => {
     const result = migrate({ APP_ENV: appEnv, DATABASE_URL: "postgresql://someone:NEVER_PRINT_ME@db.example.invalid:5432/prod" });
     expect(result.code).not.toBe(0);
     expect(result.output).toContain("local 또는 test 일 때만");
     expect(result.output).toContain("아무것도 적용하지 않았다");
     expect(result.output).not.toContain("NEVER_PRINT_ME");
+  });
+});
+
+describe("마이그레이션 적용 명령 — 잘못된 연결 문자열 (데이터베이스 없이)", () => {
+  it("형식이 잘못된 DATABASE_URL 이면 스택 대신 안내 문장을 내고, 비밀번호를 싣지 않는다", () => {
+    const result = migrate({ APP_ENV: "test", DATABASE_URL: "postgres://someone:TOPSECRET_PW@[bad" });
+    expect(result.code).not.toBe(0);
+    expect(result.output).toContain("DATABASE_URL 의 형식을 해석할 수 없다");
+    expect(result.output).not.toContain("TOPSECRET_PW");
+    expect(result.output).not.toMatch(/\n\s+at /); // 스택 추적이 없다
   });
 });
 

@@ -6,7 +6,8 @@
  */
 import { describe, expect, it } from "vitest";
 import { DEMO_REPO, demoStudioSeed } from "../../src/adapters/github/fixture/demo-scenario";
-import { getWorkspace } from "../../src/application/queries";
+import { createWorkFromPr, linkPrToWork, unlinkPr } from "../../src/application/inbox-actions";
+import { getPrNotice, getWorkspace } from "../../src/application/queries";
 import { syncAll } from "../../src/application/sync";
 import type { PrLink, PrSnapshot, Work } from "../../src/domain/model";
 import type { StudioSeed, StudioStore } from "../../src/ports/studio-store";
@@ -165,6 +166,72 @@ export function describeStoreContract(kind: string, make: StoreFactory): void {
         await store.createWorkWithLink(work, userLink("w1"));
         expect(await store.getWork("w1")).toEqual(work);
         expect(await store.getLink(userLink("w1"))).toEqual(userLink("w1"));
+      });
+    });
+
+    describe("오류 코드는 저장소 종류와 무관하게 같다", () => {
+      it("같은 ID 의 업무가 있고 PR 도 이미 연결돼 있으면 already_linked (이미 연결됨을 먼저 본다)", async () => {
+        const store = await make({ projects: [project], works: [work], links: [userLink("w1")] });
+        await expect(store.createWorkWithLink(work, userLink("w1"))).rejects.toMatchObject({ code: "already_linked" });
+      });
+
+      it("없는 업무로 연결하면 not_found 이고 아무것도 쓰지 않는다", async () => {
+        const store = await make({ projects: [project] });
+        await expect(store.addLink(userLink("nowork"))).rejects.toMatchObject({ code: "not_found" });
+        await expect(store.addLink(markerLink("nowork"))).rejects.toMatchObject({ code: "not_found" });
+        expect(await store.listLinks()).toEqual([]);
+      });
+
+      it("업무 ID 형식이 틀리면 invalid_input, 없는 프로젝트면 not_found 이고 아무것도 쓰지 않는다", async () => {
+        const store = await make({ projects: [project] });
+        const bad = { ...work, id: "W-1" };
+        await expect(store.createWorkWithLink(bad, userLink("W-1"))).rejects.toMatchObject({ code: "invalid_input" });
+        const orphan = { ...work, projectId: "noproject" };
+        await expect(store.createWorkWithLink(orphan, userLink("w1"))).rejects.toMatchObject({ code: "not_found" });
+        expect(await store.listWorks()).toEqual([]);
+        expect(await store.listLinks()).toEqual([]);
+      });
+
+      it("없는 업무에 내부 검토 결정을 남기면 not_found", async () => {
+        const store = await make({ projects: [project] });
+        await expect(
+          store.addReviewDecision({ id: "r", workId: "nowork", repoId: 1, number: 1, commitSha: "c".repeat(40), verdict: "internal_review_done", decidedAt: "2026-09-25T00:00:00.000Z" }),
+        ).rejects.toMatchObject({ code: "not_found" });
+      });
+
+      it("PR 번호가 32비트 범위를 넘거나 0 이하면 쓰기는 invalid_input, 읽기는 없음(undefined)", async () => {
+        const store = await make({ projects: [project], works: [work] });
+        const huge = { repoId: 1, number: 3_000_000_000 };
+        await expect(store.saveSnapshot({ ...snapshot, ...huge })).rejects.toMatchObject({ code: "invalid_input" });
+        await expect(store.addLink({ ...userLink("w1"), ...huge })).rejects.toMatchObject({ code: "invalid_input" });
+        await expect(store.unlink({ ...huge, workId: "w1" }, "2026-09-25T00:00:00.000Z")).rejects.toMatchObject({ code: "invalid_input" });
+        await expect(store.saveSnapshot({ ...snapshot, number: 0 })).rejects.toMatchObject({ code: "invalid_input" });
+        expect(await store.getSnapshot(huge)).toBeUndefined();
+        expect(await store.getLink(huge)).toBeUndefined();
+        // 경계 바로 안쪽은 받아들인다
+        await store.saveSnapshot({ ...snapshot, number: 2_147_483_647 });
+        expect((await store.getSnapshot({ repoId: 1, number: 2_147_483_647 }))?.number).toBe(2_147_483_647);
+      });
+
+      it("유스케이스도 범위 밖의 PR 번호를 저장소에 닿기 전에 invalid_input 으로 거절한다", async () => {
+        const { deps } = setup({ store: await make(demoStudioSeed()) });
+        await syncAll(deps);
+        const huge = { repoId: DEMO_REPO.coachWeb, number: 3_000_000_000 };
+        await expect(linkPrToWork(deps, { ...huge, workId: "b4c5d6" })).rejects.toMatchObject({ code: "invalid_input" });
+        await expect(createWorkFromPr(deps, huge)).rejects.toMatchObject({ code: "invalid_input" });
+        await expect(unlinkPr(deps, { ...huge, workId: "b4c5d6" })).rejects.toMatchObject({ code: "invalid_input" });
+        expect(await getPrNotice(deps, huge)).toBeUndefined();
+      });
+
+      it("글 속의 NUL 문자는 대체 문자로 바뀌어 받아 적힌다", async () => {
+        const store = await make({ projects: [project] });
+        await store.saveSnapshot({ ...snapshot, title: "a\u0000b", body: "본문\u0000", branch: "b\u0000", author: "x\u0000" });
+        expect(await store.getSnapshot({ repoId: 1, number: 1 })).toMatchObject({
+          title: "a\uFFFDb",
+          body: "본문\uFFFD",
+          branch: "b\uFFFD",
+          author: "x\uFFFD",
+        });
       });
     });
 

@@ -10,16 +10,14 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createWorkFromPr, linkPrToWork, unlinkPr } from "../application/inbox-actions";
-import { type PrRef, StudioError } from "../domain/model";
+import { isValidPrRef, type PrRef, StudioError } from "../domain/model";
 import { getContainer } from "../server/container";
 
 function readPrRef(form: FormData): PrRef {
-  const repoId = Number(form.get("repoId"));
-  const number = Number(form.get("number"));
-  if (!Number.isSafeInteger(repoId) || repoId <= 0 || !Number.isSafeInteger(number) || number <= 0) {
-    throw new StudioError("invalid_input", "PR 을 가리키는 값이 올바르지 않다.");
-  }
-  return { repoId, number };
+  const ref = { repoId: Number(form.get("repoId")), number: Number(form.get("number")) };
+  // 양의 정수이고 저장 칸의 범위 안이어야 한다(PR 번호는 32비트). 벗어나면 데이터베이스에 닿기 전에 거절한다.
+  if (!isValidPrRef(ref)) throw new StudioError("invalid_input", "PR 을 가리키는 값이 올바르지 않다.");
+  return ref;
 }
 
 /** 거절 사유를 보여 줄 Inbox 주소 */

@@ -77,11 +77,15 @@ export function createContainer(env: Record<string, string | undefined> = proces
     try {
       const result = await syncAll(deps);
       const discarded = result.discarded.map((d) => `${d.repoId}#${d.number}(요청한 저장소 ${d.requestedRepoId})`);
+      const skipped = result.skipped.map((d) => `${d.repoId}#${d.number}`);
+      const warnings = [
+        discarded.length === 0 ? "" : `요청한 저장소와 다른 저장소의 PR ${discarded.length}개를 받아 버렸다: ${discarded.join(", ")}`,
+        skipped.length === 0 ? "" : `저장할 수 없는 값이 든 PR ${skipped.length}개를 건너뛰었다: ${skipped.join(", ")}`,
+      ].filter((w) => w !== "");
       status = {
         lastSyncedAt: deps.now().toISOString(),
         lastError: null,
-        lastWarning:
-          discarded.length === 0 ? null : `요청한 저장소와 다른 저장소의 PR ${discarded.length}개를 받아 버렸다: ${discarded.join(", ")}`,
+        lastWarning: warnings.length === 0 ? null : warnings.join(" · "),
       };
     } catch (error) {
       status = { ...status, lastError: error instanceof Error ? error.message : "알 수 없는 오류" };

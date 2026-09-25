@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getInbox, getPrNotice } from "../../application/queries";
-import { type PrRef, type StudioErrorCode } from "../../domain/model";
+import { isValidPrRef, type PrRef, type StudioErrorCode } from "../../domain/model";
 import { markerFor } from "../../domain/work-marker";
 import { getContainer } from "../../server/container";
 import { linkToWorkAction, newWorkFromPrAction } from "../actions";
@@ -105,9 +105,9 @@ export default async function InboxPage({ searchParams }: { searchParams: Search
 async function Notice({ searchParams }: { searchParams: Awaited<SearchParams> }) {
   const code = NOTICE_CODES.find((c) => c === searchParams["notice"]);
   if (code === undefined) return null;
-  const repoId = Number(searchParams["repoId"]);
-  const number = Number(searchParams["number"]);
-  const ref: PrRef | null = Number.isSafeInteger(repoId) && Number.isSafeInteger(number) ? { repoId, number } : null;
+  const candidate = { repoId: Number(searchParams["repoId"]), number: Number(searchParams["number"]) };
+  // 주소의 값은 믿지 않는다. 범위 밖이면 PR 을 특정하지 않은 안내만 보여 준다(저장소에 묻지 않는다).
+  const ref: PrRef | null = isValidPrRef(candidate) ? candidate : null;
   const pr = ref === null ? undefined : await getPrNotice(getContainer().deps, ref);
   const label = pr === undefined ? "이 PR" : `이 PR(${pr.repoName}#${pr.number})`;
 

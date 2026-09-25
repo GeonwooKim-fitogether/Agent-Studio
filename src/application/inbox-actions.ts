@@ -3,7 +3,7 @@
  * 둘 다 Studio 의 연결만 바꾸고, GitHub 에는 아무것도 보내지 않는다.
  */
 import { isValidWorkId } from "../domain/work-marker";
-import { type PrRef, type PrSnapshot, type Project, StudioError, type Work } from "../domain/model";
+import { isValidPrRef, type PrRef, type PrSnapshot, type Project, StudioError, type Work } from "../domain/model";
 import type { AppDeps } from "./deps";
 
 /**
@@ -44,6 +44,7 @@ export async function linkPrToWork(deps: AppDeps, input: PrRef & { readonly work
  * 그 업무에 연결돼 있지 않으면(이미 풀렸거나, 다른 탭에서 바뀌었거나) not_linked 로 거절한다.
  */
 export async function unlinkPr(deps: AppDeps, input: PrRef & { readonly workId: string }): Promise<void> {
+  requireValidRef(input);
   await deps.store.unlink(input, deps.now().toISOString());
 }
 
@@ -73,7 +74,13 @@ export async function createWorkFromPr(deps: AppDeps, ref: PrRef): Promise<Work>
 const alreadyLinked = () => new StudioError("already_linked", "이 PR 은 이미 업무에 연결돼 있다.");
 const isAlreadyLinked = (error: unknown) => error instanceof StudioError && error.code === "already_linked";
 
+/** PR 을 가리키는 값이 범위 밖이면 저장소에 닿기 전에 거절한다 — 저장소 종류와 무관하게 같은 결과가 나오게. */
+function requireValidRef(ref: PrRef): void {
+  if (!isValidPrRef(ref)) throw new StudioError("invalid_input", "PR 을 가리키는 값이 올바르지 않다.");
+}
+
 async function requireSnapshot(deps: AppDeps, ref: PrRef): Promise<PrSnapshot> {
+  requireValidRef(ref);
   const pr = await deps.store.getSnapshot(ref);
   if (pr === undefined) throw new StudioError("not_found", "그 PR 을 찾을 수 없다. 동기화가 끝났는지 확인한다.");
   return pr;

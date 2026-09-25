@@ -60,6 +60,14 @@ export interface StudioStore {
    * - 사람의 연결(origin "user")이면, 그 PR 의 연결 해제 기록을 같은 연산 안에서 지운다(결정 9: 사람이 다시 연결하면 표시가 사라진다).
    * - 표식의 연결(origin "marker")이면, 연결 해제 기록이 있는 PR 에는 unlinked_by_user 오류를 내고 아무것도 쓰지 않는다.
    *   판정(decideLink)이 이미 막지만, 판정과 쓰기 사이에 사람이 연결을 푼 경우까지 저장소가 막는다.
+   *   구현은 같은 PR 에 대한 연결 쓰기와 연결 해제를 차례로만 실행해야 한다(메모리: 안에서 await 하지 않음,
+   *   PostgreSQL: PR 단위 트랜잭션 잠금). 그래야 "해제 기록 확인 → 쓰기" 사이에 해제가 끼어들지 못한다.
+   *
+   * 확인 순서와 오류 코드는 구현마다 같아야 한다(저장 계약 시험이 두 구현에 같은 결과를 요구한다):
+   *   PR 값이 범위 밖 → invalid_input, 이미 연결됨 → already_linked, 없는 업무 → not_found, 사람이 푼 PR → unlinked_by_user.
+   * createWorkWithLink 는: 범위 밖 · 업무 ID 형식 → invalid_input, 이미 연결됨 → already_linked,
+   *   없는 프로젝트 → not_found, 사람이 푼 PR → unlinked_by_user, 같은 업무 ID → invalid_input 순서다.
+   * saveSnapshot 은 글 속 NUL 문자를 대체 문자로 바꿔 받아 적는다(withoutNul).
    */
   addLink(link: PrLink): Promise<void>;
 

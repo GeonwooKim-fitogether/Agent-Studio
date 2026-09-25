@@ -30,6 +30,38 @@ export function prKey(ref: PrRef): string {
   return `${ref.repoId}#${ref.number}`;
 }
 
+/**
+ * 값의 범위. GitHub 의 PR 번호는 저장소 안의 순번이라 32비트 정수(PostgreSQL integer) 안에 들어가고,
+ * 저장소 ID 는 GitHub 전체의 순번이라 64비트(PostgreSQL bigint)로 둔다. JavaScript 가 정확히 셀 수 있는
+ * 가장 큰 정수(2^53 - 1)가 bigint 보다 작으므로, 저장소 ID 의 상한은 그 값이다.
+ */
+export const MAX_PR_NUMBER = 2_147_483_647;
+export const MAX_REPO_ID = Number.MAX_SAFE_INTEGER;
+
+/** PR 을 가리키는 값이 받아들일 수 있는 범위 안인가 (양의 정수, 저장 칸의 범위 안). 입력의 경계에서 확인한다. */
+export function isValidPrRef(ref: { readonly repoId: unknown; readonly number: unknown }): ref is PrRef {
+  const inRange = (v: unknown, max: number) => typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= max;
+  return inRange(ref.repoId, MAX_REPO_ID) && inRange(ref.number, MAX_PR_NUMBER);
+}
+
+/**
+ * GitHub 에서 받은 글에 든 NUL 문자(U+0000)를 대체 문자(U+FFFD)로 바꾼다.
+ * PostgreSQL 은 글 칸에 NUL 을 저장하지 못한다. 지우지 않고 바꾸는 이유는, 지우면 앞뒤 글자가 붙어
+ * 원래 없던 표식이 생길 수 있기 때문이다(예: "studio-work-\u0000a1" → "studio-work-a1"). 대체 문자는 단어 문자가 아니라
+ * 표식 판정에서 경계로 읽힌다 — NUL 이 그랬던 것과 같다.
+ */
+export function withoutNul(snapshot: PrSnapshot): PrSnapshot {
+  const clean = (text: string) => text.replaceAll("\u0000", "\uFFFD");
+  return {
+    ...snapshot,
+    title: clean(snapshot.title),
+    body: clean(snapshot.body),
+    branch: clean(snapshot.branch),
+    url: clean(snapshot.url),
+    author: clean(snapshot.author),
+  };
+}
+
 export function samePr(a: PrRef, b: PrRef): boolean {
   return a.repoId === b.repoId && a.number === b.number;
 }

@@ -17,6 +17,7 @@ import {
   type PrSnapshot,
   type PrState,
   type Project,
+  isValidPrRef,
   prKey,
   type Repository,
   samePr,
@@ -156,6 +157,7 @@ export interface PrNoticeView {
 }
 
 export async function getPrNotice(deps: Pick<AppDeps, "store">, ref: PrRef): Promise<PrNoticeView | undefined> {
+  if (!isValidPrRef(ref)) return undefined; // 범위 밖의 값은 저장소에 묻지 않는다
   const [snapshot, link, repositories] = await Promise.all([
     deps.store.getSnapshot(ref),
     deps.store.getLink(ref),

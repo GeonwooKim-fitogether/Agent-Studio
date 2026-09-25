@@ -10,6 +10,15 @@ import { type Browser, expect, type Locator, type Page, test } from "@playwright
 
 const SHOTS = "docs/plan/screenshots";
 const POSTGRES = process.env.E2E_STORAGE === "postgres";
+
+/**
+ * 보고용 스크린샷은 커밋 대상이라, UPDATE_SCREENSHOTS=1 일 때만 새로 저장한다(평소 실행이 작업 트리를 더럽히지 않게).
+ * 저장하지 않을 때도 화면을 한 번 찍어 보아 찍기 자체가 실패하지 않는지는 확인한다.
+ */
+async function shot(page: Page, name: string): Promise<void> {
+  if (process.env.UPDATE_SCREENSHOTS === "1") await page.screenshot({ path: `${SHOTS}/${name}`, fullPage: true });
+  else await page.screenshot({ fullPage: true });
+}
 const nav = (page: Page) => page.getByRole("navigation", { name: "Main" });
 
 /** 이 페이지에서 500 이상의 응답이 오면 모아 둔다. 시험 끝에 비어 있어야 한다. */
@@ -96,7 +105,7 @@ test("Workspace 에서 Inbox 로 가서 PR 을 기존 업무에 연결하면, �
   const item = page.getByTestId("inbox-710002-12");
   await expect(item).toContainText("업무 표식이 없어");
   await expect(item.getByLabel("Work").locator("option")).toContainText(["코치 로그인 개편 · studio-work-b4c5d6"]);
-  await page.screenshot({ path: `${SHOTS}/01-inbox.png`, fullPage: true });
+  await shot(page, "01-inbox.png");
 
   // 2. 같은 프로젝트의 업무를 골라 Link to Work
   await item.getByLabel("Work").selectOption({ label: "코치 로그인 개편 · studio-work-b4c5d6" });
@@ -111,14 +120,14 @@ test("Workspace 에서 Inbox 로 가서 PR 을 기존 업무에 연결하면, �
   const linked = page.getByTestId("pr-card-710002-12");
   await expect(linked.getByTestId("link-origin")).toHaveText("Linked manually");
   await expectSeparateStateRows(linked);
-  await page.screenshot({ path: `${SHOTS}/02-work-after-link.png`, fullPage: true });
+  await shot(page, "02-work-after-link.png");
 
   // 4. 클릭으로 Workspace 에 돌아오면 그 업무 아래에 카드가 있고, Inbox 수는 하나 줄었다
   await nav(page).getByRole("link", { name: "Workspace" }).click();
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByTestId("work-b4c5d6").getByTestId("pr-card-710002-12")).toBeVisible();
   expect(await inboxCount(page)).toBe(before - 1);
-  await page.screenshot({ path: `${SHOTS}/03-workspace-after-link.png`, fullPage: true });
+  await shot(page, "03-workspace-after-link.png");
 
   // 5. Sync 로 다시 읽어도 사람이 만든 연결은 그대로다
   await page.getByRole("button", { name: "Sync" }).click();
@@ -178,7 +187,7 @@ test("다른 탭에서 먼저 연결된 PR 을 오래된 화면에서 다시 처
   const notice = page.getByTestId("inbox-notice");
   await expect(notice).toContainText("demo-org/player-app#9");
   await expect(notice).toContainText("이미 '선수 앱 온보딩 정리' 업무에 연결돼 있어");
-  await page.screenshot({ path: `${SHOTS}/04-inbox-notice.png`, fullPage: true });
+  await shot(page, "04-inbox-notice.png");
   await notice.getByRole("link", { name: "Open work" }).click();
   await expect(page).toHaveURL(/\/works\/c7d8e9$/);
   await expect(page.getByTestId("pr-card-710003-9")).toBeVisible();
@@ -238,6 +247,15 @@ test("업무 화면에서 Unlink 하면 PR 이 Inbox 로 돌아가고, 표식이
   await expect(page).toHaveURL(/\/works\/a1b2c3$/);
   await expect(page.getByTestId("pr-card-710001-12")).toBeVisible();
 
+  // 브라우저의 required 를 걷어내고 체크 없이 보내면(= 서버 액션을 직접 부르는 것과 같다) 서버가 거절한다
+  await card.getByRole("checkbox").evaluate((el) => (el as HTMLInputElement).removeAttribute("required"));
+  await card.getByRole("button", { name: "Unlink" }).click();
+  await expect(page).toHaveURL(/\/inbox\?notice=invalid_input/);
+  await expect(page.getByTestId("inbox-710001-12")).toHaveCount(0); // 연결은 그대로다 — Inbox 에 없다
+  await page.goBack();
+  await page.reload();
+  await expect(page.getByTestId("pr-card-710001-12")).toBeVisible();
+
   // 체크하고 Unlink
   await card.getByRole("checkbox").check();
   await card.getByRole("button", { name: "Unlink" }).click();
@@ -249,7 +267,7 @@ test("업무 화면에서 Unlink 하면 PR 이 Inbox 로 돌아가고, 표식이
   // 표식이 본문에 그대로 있어도 Sync 가 다시 붙이지 않는다
   await page.getByRole("button", { name: "Sync" }).click();
   await expect(page.getByTestId("inbox-710001-12").getByTestId("inbox-reason")).toContainText("사람이 이 PR 의 연결을 풀었다");
-  await page.screenshot({ path: `${SHOTS}/06-inbox-after-unlink.png`, fullPage: true });
+  await shot(page, "06-inbox-after-unlink.png");
 
   // 오래된 탭에서 같은 PR 을 다시 Unlink 하면 500 대신 사유 안내
   const staleErrors = watchServerErrors(stalePage);
@@ -277,7 +295,7 @@ test("복제본에서 온 PR 은 같은 프로젝트 업무의 표식이 있어�
   await expect(fork).toContainText("외부 기여: 로그인 오류 문구 다듬기");
   await expect(fork.getByTestId("inbox-reason")).toContainText("PR 의 브랜치가 다른 저장소(복제본)에 있다");
   await fork.scrollIntoViewIfNeeded();
-  await page.screenshot({ path: `${SHOTS}/07-inbox-fork-pr.png`, fullPage: true });
+  await shot(page, "07-inbox-fork-pr.png");
 });
 
 test("Inbox 가 비면 Workspace 는 강조 카드 대신 비어 있다는 문장을 보여 준다", async ({ page }) => {
@@ -298,7 +316,27 @@ test("Inbox 가 비면 Workspace 는 강조 카드 대신 비어 있다는 문�
   await expect(page.getByTestId("inbox-empty-summary")).toHaveText("Inbox 가 비어 있다. 연결을 기다리는 PR 이 없다.");
   await expect(page.getByTestId("inbox-summary")).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Open Inbox" })).toHaveCount(0);
-  await page.screenshot({ path: `${SHOTS}/05-workspace-inbox-empty.png`, fullPage: true });
+  await shot(page, "05-workspace-inbox-empty.png");
+  expect(serverErrors).toEqual([]);
+});
+
+test("범위를 넘는 PR 번호(2^31 이상)가 주소나 폼으로 들어와도 500 없이 사유 안내가 뜬다", async ({ page }) => {
+  const serverErrors = watchServerErrors(page);
+  // 주소로 들어온 알림: PR 을 특정하지 않은 안내로 바뀐다 (저장소에 묻지 않는다)
+  const direct = await page.goto("/inbox?notice=not_found&repoId=710001&number=3000000000");
+  expect(direct?.status()).toBe(200);
+  await expect(page.getByTestId("inbox-notice")).toContainText("그 PR 이나 업무를 찾을 수 없다");
+
+  // 폼으로 들어온 값: 업무 화면의 Unlink 폼을 고쳐 범위 밖 번호를 보내면 invalid_input 안내가 뜬다
+  // (앞 시험이 Inbox 를 비웠을 수 있으므로, 늘 카드가 있는 업무 화면의 폼을 쓴다)
+  await page.goto("/");
+  await page.getByTestId("work-d0e1f2").getByRole("link", { name: "관리자 로그인 보안 점검" }).click();
+  const form = page.getByTestId("unlink-form").first();
+  await form.locator('input[name="number"]').evaluate((el) => ((el as HTMLInputElement).value = "3000000000"));
+  await form.getByRole("checkbox").check();
+  await form.getByRole("button", { name: "Unlink" }).click();
+  await expect(page).toHaveURL(/\/inbox\?notice=invalid_input/);
+  await expect(page.getByTestId("inbox-notice")).toContainText("요청 값이 올바르지 않아 처리하지 않았다");
   expect(serverErrors).toEqual([]);
 });
 

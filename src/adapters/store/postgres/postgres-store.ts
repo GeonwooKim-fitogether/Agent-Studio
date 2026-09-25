@@ -21,7 +21,10 @@ import {
   StudioError,
   type UnlinkRecord,
   type Work,
+  isValidPrRef,
+  withoutNul,
 } from "../../../domain/model";
+import { isValidWorkId } from "../../../domain/work-marker";
 import type { StudioSeed, StudioStore } from "../../../ports/studio-store";
 
 type Row = Record<string, unknown>;
@@ -95,19 +98,52 @@ async function inTransaction<T>(pool: Pool, fn: (client: PoolClient) => Promise<
     return result;
   } catch (error) {
     await client.query("rollback");
-    throw error;
+    throw translate(error);
   } finally {
     client.release();
   }
 }
 
+/**
+ * PostgreSQL 의 제약 위반을 도메인 오류로 옮긴다. 원시 오류가 화면까지 올라가 500 이 되지 않게 한다.
+ * (오류 메시지에는 값이나 연결 정보를 싣지 않는다.)
+ */
+function translate(error: unknown): unknown {
+  if (error instanceof StudioError) return error;
+  const code = (error as { code?: unknown }).code;
+  if (code === "23503") return new StudioError("not_found", "가리키는 업무나 프로젝트가 없다.");
+  // 23514 check 위반 · 23502 not null · 22003 범위 초과 · 22P02 형식 · 22021 NUL 같은 저장할 수 없는 글자
+  if (code === "23514" || code === "23502" || code === "22003" || code === "22P02" || code === "22021") {
+    return new StudioError("invalid_input", "저장할 수 없는 값이다.");
+  }
+  return error;
+}
+
 type Queryable = Pick<PoolClient, "query">;
 
 /**
- * 연결 한 건을 쓴다. 호출하는 쪽의 트랜잭션 안에서 부른다.
- * 표식의 연결은 해제 기록이 있으면 쓰지 않고, 사람의 연결은 해제 기록을 함께 지운다.
+ * PR 하나 단위의 잠금을 트랜잭션이 끝날 때까지 잡는다. 연결 쓰기(writeLink)와 연결 해제(unlink)가 같은 잠금을 쓰므로
+ * 같은 PR 에 대한 둘은 차례로만 실행된다. 그래서 "해제 기록 확인 → 연결 쓰기" 사이에 해제가 끼어들 수 없다.
+ * (READ COMMITTED 에서는 잠금을 얻은 뒤의 문장이 그전에 커밋된 해제를 본다.)
+ */
+export async function lockPr(db: Queryable, ref: PrRef): Promise<void> {
+  await db.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`pr:${ref.repoId}#${ref.number}`]);
+}
+
+const assertRef = (ref: PrRef) => {
+  if (!isValidPrRef(ref)) throw new StudioError("invalid_input", "PR 을 가리키는 값이 올바르지 않다.");
+};
+
+/**
+ * 연결 한 건을 쓴다. 호출하는 쪽의 트랜잭션 안에서, PR 잠금을 잡은 뒤에 부른다.
+ * 확인 순서(메모리 구현과 같다): 이미 연결됨 → 없는 업무 → 사람이 푼 PR(표식의 연결일 때).
+ * 사람의 연결은 해제 기록을 함께 지운다.
  */
 async function writeLink(db: Queryable, link: PrLink): Promise<void> {
+  const linked = await db.query("select 1 from pr_link where repo_id = $1 and number = $2", [link.repoId, link.number]);
+  if ((linked.rowCount ?? 0) > 0) throw new StudioError("already_linked", "이 PR 은 이미 업무에 연결돼 있다.");
+  const work = await db.query("select 1 from work where id = $1", [link.workId]);
+  if ((work.rowCount ?? 0) === 0) throw new StudioError("not_found", "연결하려는 업무가 없다.");
   if (link.origin === "marker") {
     const blocked = await db.query("select 1 from pr_unlink where repo_id = $1 and number = $2", [link.repoId, link.number]);
     if ((blocked.rowCount ?? 0) > 0) {
@@ -127,7 +163,15 @@ async function writeLink(db: Queryable, link: PrLink): Promise<void> {
 }
 
 export function createPostgresStore(pool: Pool): StudioStore {
-  const rows = async (sql: string, params: unknown[] = []): Promise<Row[]> => (await pool.query(sql, params)).rows as Row[];
+  /** 쿼리 하나. 제약 위반은 도메인 오류로 옮긴다. */
+  const run = async (sql: string, params: unknown[] = []) => {
+    try {
+      return await pool.query(sql, params);
+    } catch (error) {
+      throw translate(error);
+    }
+  };
+  const rows = async (sql: string, params: unknown[] = []): Promise<Row[]> => (await run(sql, params)).rows as Row[];
   const byRef = (ref: PrRef) => [ref.repoId, ref.number];
 
   return {
@@ -135,7 +179,7 @@ export function createPostgresStore(pool: Pool): StudioStore {
       return (await rows("select id, name, repo_ids from project order by ord")).map(toProject);
     },
     async saveProject(project) {
-      await pool.query(
+      await run(
         `insert into project (id, name, repo_ids) values ($1, $2, $3)
          on conflict (id) do update set name = excluded.name, repo_ids = excluded.repo_ids`,
         [project.id, project.name, project.repoIds],
@@ -150,8 +194,20 @@ export function createPostgresStore(pool: Pool): StudioStore {
       return row && toWork(row);
     },
     async createWorkWithLink(work, link) {
+      // 확인 순서는 메모리 구현과 같다: 범위 → 연결 대상 → 업무 ID 형식 → 이미 연결됨 → 없는 프로젝트 → 사람이 푼 PR → 업무 ID 중복
+      assertRef(link);
       if (link.workId !== work.id) throw new StudioError("invalid_input", "연결이 새 업무를 가리키지 않는다.");
+      if (!isValidWorkId(work.id)) throw new StudioError("invalid_input", "업무 ID 는 영문 소문자와 숫자로만 이뤄진다.");
       await inTransaction(pool, async (db) => {
+        await lockPr(db, link);
+        const linked = await db.query("select 1 from pr_link where repo_id = $1 and number = $2", [link.repoId, link.number]);
+        if ((linked.rowCount ?? 0) > 0) throw new StudioError("already_linked", "이 PR 은 이미 업무에 연결돼 있다.");
+        const project = await db.query("select 1 from project where id = $1", [work.projectId]);
+        if ((project.rowCount ?? 0) === 0) throw new StudioError("not_found", "업무를 둘 프로젝트가 없다.");
+        if (link.origin === "marker") {
+          const blocked = await db.query("select 1 from pr_unlink where repo_id = $1 and number = $2", [link.repoId, link.number]);
+          if ((blocked.rowCount ?? 0) > 0) throw new StudioError("unlinked_by_user", "사람이 연결을 푼 PR 은 표식으로 다시 연결하지 않는다.");
+        }
         const inserted = await db.query(
           `insert into work (id, project_id, title, status, created_at) values ($1, $2, $3, $4, $5)
            on conflict (id) do nothing`,
@@ -169,7 +225,7 @@ export function createPostgresStore(pool: Pool): StudioStore {
       }));
     },
     async saveRepository(repository: Repository) {
-      await pool.query(
+      await run(
         `insert into repository (id, full_name) values ($1, $2)
          on conflict (id) do update set full_name = excluded.full_name`,
         [repository.id, repository.fullName],
@@ -180,11 +236,14 @@ export function createPostgresStore(pool: Pool): StudioStore {
       return (await rows("select * from pr_snapshot order by repo_id, number")).map(toSnapshot);
     },
     async getSnapshot(ref) {
+      if (!isValidPrRef(ref)) return undefined; // 범위 밖의 값은 있을 수 없으므로 묻지 않는다 (메모리 구현과 같은 결과)
       const [row] = await rows("select * from pr_snapshot where repo_id = $1 and number = $2", byRef(ref));
       return row && toSnapshot(row);
     },
-    async saveSnapshot(s) {
-      await pool.query(
+    async saveSnapshot(snapshot) {
+      assertRef(snapshot);
+      const s = withoutNul(snapshot); // PostgreSQL 은 글 칸에 NUL 을 저장하지 못한다
+      await run(
         `insert into pr_snapshot
            (repo_id, number, title, body, branch, head_repo_id, head_sha, url, author, state, checks, review, updated_at)
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
@@ -200,14 +259,21 @@ export function createPostgresStore(pool: Pool): StudioStore {
       return (await rows("select * from pr_link order by repo_id, number")).map(toLink);
     },
     async getLink(ref) {
+      if (!isValidPrRef(ref)) return undefined;
       const [row] = await rows("select * from pr_link where repo_id = $1 and number = $2", byRef(ref));
       return row && toLink(row);
     },
     async addLink(link) {
-      await inTransaction(pool, (db) => writeLink(db, link));
+      assertRef(link);
+      await inTransaction(pool, async (db) => {
+        await lockPr(db, link);
+        await writeLink(db, link);
+      });
     },
     async unlink(ref, unlinkedAt) {
+      assertRef(ref);
       await inTransaction(pool, async (db) => {
+        await lockPr(db, ref);
         const deleted = await db.query("delete from pr_link where repo_id = $1 and number = $2 and work_id = $3", [
           ref.repoId,
           ref.number,
@@ -229,7 +295,8 @@ export function createPostgresStore(pool: Pool): StudioStore {
       return (await rows("select * from review_decision order by decided_at, id")).map(toReview);
     },
     async addReviewDecision(d) {
-      await pool.query(
+      assertRef(d);
+      await run(
         `insert into review_decision (id, work_id, repo_id, number, commit_sha, verdict, decided_at)
          values ($1, $2, $3, $4, $5, $6, $7)`,
         [d.id, d.workId, d.repoId, d.number, d.commitSha, d.verdict, d.decidedAt],

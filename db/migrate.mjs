@@ -48,7 +48,13 @@ const files = readdirSync(MIGRATIONS_DIR)
 const badNames = files.filter((name) => !FILE_PATTERN.test(name));
 if (badNames.length > 0) fail(`파일 이름이 YYYYMMDDHHMMSS_이름.sql 형식이 아니다: ${badNames.join(", ")}`);
 
-const client = new pg.Client({ connectionString: url });
+let client;
+try {
+  // 연결 문자열의 형식이 잘못돼도 스택 대신 안내 문장을 낸다. 오류 메시지는 싣지 않는다(연결 문자열 조각이 들어 있을 수 있다).
+  client = new pg.Client({ connectionString: url });
+} catch {
+  fail("DATABASE_URL 의 형식을 해석할 수 없다(postgresql://사용자@호스트:포트/이름). 아무것도 적용하지 않았다.");
+}
 try {
   await client.connect();
 } catch (error) {

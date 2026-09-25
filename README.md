@@ -9,7 +9,7 @@
 | 기획 | 확정. 문제 정의 · 사용자 흐름 · 화면 시안 · 개발 순서가 [`docs/product/`](docs/product/) 에 있습니다 |
 | 0단계 계약 정의 | 문서로 정리됨. [`docs/plan/00-domain-contract.md`](docs/plan/00-domain-contract.md) |
 | 기술 스택 | TypeScript 한 벌 — Next.js + Node + PostgreSQL ([`decisions.md`](decisions.md) 결정 8) |
-| 1단계 PR 모으기 | 첫 완결 단위 작업완료. 고정 시연 데이터로 PR 을 업무에 모으고 Inbox 에서 연결합니다. 저장은 아직 서버 메모리이고, 진짜 GitHub 로는 돌려 보지 않았습니다. [`docs/plan/01-pr-collection.md`](docs/plan/01-pr-collection.md) |
+| 1단계 PR 모으기 | 두 단위 작업완료. PR 을 업무에 모으고 Inbox 에서 연결 · 해제(Unlink)하며, 복제본 PR 은 자동 연결하지 않습니다. 저장은 PostgreSQL(없으면 메모리)입니다. 진짜 GitHub 로는 아직 돌려 보지 않았습니다. [`01`](docs/plan/01-pr-collection.md) · [`02`](docs/plan/02-persistence-and-unlink.md) |
 
 ## 실행하기
 
@@ -33,6 +33,8 @@ docker compose --env-file .env.local -f compose.local.yml up -d               # 
 npm run db:migrate                                                            # 스키마 적용 (두 번 실행해도 바뀌지 않음)
 npm run dev                                                                   # .env.local 의 DATABASE_URL 을 읽는다
 ```
+
+e2e 는 평소에 보고용 스크린샷(`docs/plan/screenshots/`)을 덮어쓰지 않습니다. 화면을 바꿔 스크린샷을 새로 찍을 때만 `UPDATE_SCREENSHOTS=1 npm run test:e2e` 로 돌립니다.
 
 PostgreSQL 시험은 스키마를 지웠다 다시 만들므로 개발용 데이터베이스가 아니라 **이름에 `test` 가 들어간 빈 데이터베이스**를 `TEST_DATABASE_URL` 로 지정해 돌립니다(`TEST_DATABASE_URL=… npm run test:unit`, `TEST_DATABASE_URL=… npm run test:e2e:postgres`). 지정하지 않으면 PostgreSQL 시험은 건너뛰었다고 출력하고 넘어갑니다.
 

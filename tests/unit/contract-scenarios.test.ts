@@ -8,7 +8,7 @@ import { createWorkFromPr, linkPrToWork } from "../../src/application/inbox-acti
 import { getInbox, getWorkDetail, getWorkspace, type PrCardView } from "../../src/application/queries";
 import { recordReviewDecision } from "../../src/application/review";
 import { syncAll } from "../../src/application/sync";
-import { prKey, type PrSnapshot } from "../../src/domain/model";
+import { prKey, type PrSnapshot, StudioError } from "../../src/domain/model";
 import type { GitHubReader } from "../../src/ports/github-reader";
 import { setup } from "./helpers";
 
@@ -513,3 +513,31 @@ function demoPr(fields: Pick<PrSnapshot, "repoId" | "number" | "title" | "body" 
     ...fields,
   };
 }
+
+describe("저장할 수 없는 PR 하나가 동기화 전체를 멈추지 않는다", () => {
+  it("스냅샷 저장이 invalid_input 으로 거절된 PR 은 건너뛰고 기록하며, 나머지 PR 은 받아 적는다", async () => {
+    const { deps } = setup();
+    const inner = deps.store;
+    const bad = { repoId: DEMO_REPO.coachWeb, number: 12 };
+    const store = {
+      ...inner,
+      saveSnapshot: async (s: PrSnapshot) => {
+        if (s.repoId === bad.repoId && s.number === bad.number) throw new StudioError("invalid_input", "저장할 수 없는 값이다.");
+        return inner.saveSnapshot(s);
+      },
+    };
+
+    const result = await syncAll({ ...deps, store });
+
+    expect(result.skipped).toEqual([bad]);
+    expect(await inner.getSnapshot(bad)).toBeUndefined();
+    expect(await inner.listSnapshots()).toHaveLength(7); // 8건 중 1건만 빠졌다
+    expect(result.autoLinked).toBe(3);
+  });
+
+  it("그 밖의 오류(데이터베이스가 내려감 등)는 동기화를 멈춘다 — 부분 동기화를 성공처럼 보이지 않게", async () => {
+    const { deps } = setup();
+    const store = { ...deps.store, saveSnapshot: async () => Promise.reject(new Error("connection lost")) };
+    await expect(syncAll({ ...deps, store })).rejects.toThrow("connection lost");
+  });
+});

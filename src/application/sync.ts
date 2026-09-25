@@ -18,6 +18,8 @@ export interface SyncResult {
   /** 이번 동기화에서 표식으로 새로 자동 연결된 PR 수 */
   readonly autoLinked: number;
   readonly discarded: readonly DiscardedSnapshot[];
+  /** 값이 저장할 수 없는 모양이라(invalid_input) 받아 적지 못하고 건너뛴 PR. 나머지 PR 은 계속 동기화한다 */
+  readonly skipped: readonly { readonly repoId: RepoId; readonly number: number }[];
 }
 
 /**
@@ -53,6 +55,7 @@ export async function syncAll(deps: AppDeps): Promise<SyncResult> {
   const unlinked = new Set((await store.listUnlinks()).map(prKey));
   const linkedAt = deps.now().toISOString();
   const discarded: DiscardedSnapshot[] = [];
+  const skipped: { repoId: RepoId; number: number }[] = [];
   let pullRequests = 0;
   let autoLinked = 0;
 
@@ -66,7 +69,17 @@ export async function syncAll(deps: AppDeps): Promise<SyncResult> {
       if (project === undefined) continue; // 2단계에서 만들었으므로 여기 오지 않는다
 
       pullRequests += 1;
-      await store.saveSnapshot(snapshot);
+      try {
+        await store.saveSnapshot(snapshot);
+      } catch (error) {
+        // PR 하나가 저장할 수 없는 모양이면 그 PR 만 건너뛰고 기록한다. 한 PR 때문에 다른 저장소 · PR 이 모두 멈추지 않게.
+        // 데이터베이스가 내려간 것 같은 다른 오류는 그대로 올려 동기화 전체를 멈춘다(부분 동기화를 조용히 성공으로 보이지 않게).
+        if (error instanceof StudioError && error.code === "invalid_input") {
+          skipped.push({ repoId: snapshot.repoId, number: snapshot.number });
+          continue;
+        }
+        throw error;
+      }
       if ((await store.getLink(snapshot)) !== undefined) continue;
 
       const decision = decideLink(snapshot, project.id, works, { unlinkedByUser: unlinked.has(prKey(snapshot)) });
@@ -89,5 +102,5 @@ export async function syncAll(deps: AppDeps): Promise<SyncResult> {
     }
   }
 
-  return { repositories: repositories.length, pullRequests, autoLinked, discarded };
+  return { repositories: repositories.length, pullRequests, autoLinked, discarded, skipped };
 }
