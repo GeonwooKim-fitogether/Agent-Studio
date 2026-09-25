@@ -16,8 +16,19 @@ export interface GitHubReader {
   readonly limitNote?: string;
   /** 읽도록 설정된 저장소들의 현재 정보. 이름이 바뀌었으면 새 이름이 온다 (숫자 ID 는 그대로). */
   listRepositories(): Promise<Repository[]>;
-  /** 마지막 동기화에서 사람이 알아야 할 것(예: 설치되지 않은 저장소). 없으면 빈 목록 */
-  readonly lastRunNotes?: () => readonly string[];
+  /**
+   * 동기화 1회분의 읽기를 시작한다(있으면). 요청 상한 · 알림 같은 "이번 동기화의" 상태는 여기서 만든 객체에만 있다.
+   * 그래서 동기화 두 번이 겹쳐도 서로의 상한과 알림을 초기화하지 않는다. 없으면 리더 자신을 그대로 쓴다.
+   */
+  startRun?(): ReaderRun;
   /** 저장소 하나의 PR 스냅샷 목록. 저장소는 listRepositories() 가 돌려준 값을 그대로 넘긴다. */
   listPullRequests(repository: Repository): Promise<PrSnapshot[]>;
+}
+
+/** 동기화 1회분의 읽기. */
+export interface ReaderRun {
+  listRepositories(): Promise<Repository[]>;
+  listPullRequests(repository: Repository): Promise<PrSnapshot[]>;
+  /** 이번 동기화에서 사람이 알아야 할 것(예: 설치되지 않은 저장소, 버린 PR) */
+  notes(): readonly string[];
 }

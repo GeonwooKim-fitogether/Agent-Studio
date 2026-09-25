@@ -73,7 +73,9 @@ describe("JWT (App 이 자기임을 증명하는 짧은 서명)", () => {
 
     const claims = decode(payload);
     const now = NOW / 1000;
-    expect(claims["iat"]).toBe(now - JWT_BACKDATE_SECONDS);
+    // 기대값은 코드의 상수가 아니라 GitHub 규격의 숫자로 적는다(상수를 바꾸면 이 시험이 잡는다)
+    expect(claims["iat"]).toBe(now - 60);
+    expect(JWT_BACKDATE_SECONDS).toBe(60);
     expect(Number(claims["exp"])).toBeGreaterThan(now);
     expect(Number(claims["exp"]) - now).toBeLessThanOrEqual(600);
     expect(claims["iss"]).toBe(String(APP_ID));
@@ -214,5 +216,77 @@ describe("비밀 노출", () => {
     const network = (await b.getToken().catch((e: unknown) => e)) as Error;
     expect(network).toBeInstanceOf(GitHubAuthError);
     expectNoSecrets(`${network.message}\n${network.stack}`, [seenJwt]);
+  });
+});
+
+describe("받은 토큰은 닫힌 쪽으로 확인한다 — 모르면 쓰지 않는다", () => {
+  const expires = new Date(NOW + 3_600_000).toISOString();
+  const respond = (body: unknown) => {
+    const calls: string[] = [];
+    const fetch = async (url: string): Promise<Response> => {
+      calls.push(url);
+      return new Response(JSON.stringify(body), { status: 201 });
+    };
+    return { calls, fetch };
+  };
+  const full = { ...READ_ONLY_PERMISSIONS };
+
+  it.each([
+    ["permissions 가 없다", { token: "ghs_x", expires_at: expires }],
+    ["permissions 가 null", { token: "ghs_x", expires_at: expires, permissions: null }],
+    ["permissions 가 문자열", { token: "ghs_x", expires_at: expires, permissions: "read" }],
+    ["permissions 가 빈 객체", { token: "ghs_x", expires_at: expires, permissions: {} }],
+    ["permissions 가 배열", { token: "ghs_x", expires_at: expires, permissions: ["read"] }],
+    ["요청한 권한 하나가 빠졌다", { token: "ghs_x", expires_at: expires, permissions: { ...full, statuses: undefined } }],
+    ["요청하지 않은 권한이 더 있다", { token: "ghs_x", expires_at: expires, permissions: { ...full, administration: "read" } }],
+    ["값이 read 가 아니다(대문자)", { token: "ghs_x", expires_at: expires, permissions: { ...full, checks: "READ" } }],
+    ["값이 write", { token: "ghs_x", expires_at: expires, permissions: { ...full, contents: "write" } }],
+  ])("%s 이면 토큰을 버리고, 다음 요청은 다시 교환한다", async (_name, body) => {
+    const gh = respond(body);
+    const source = createInstallationTokenSource({ appId: APP_ID, installationId: INSTALLATION_ID, privateKey: KEY, fetch: gh.fetch, now: () => NOW });
+    const error = (await source.getToken().catch((e: unknown) => e)) as Error;
+    expect(error).toBeInstanceOf(GitHubAuthError);
+    expect(error.message).toContain("권한");
+    expect(error.message).not.toContain("ghs_x");
+    await source.getToken().catch(() => undefined);
+    expect(gh.calls).toHaveLength(2); // 버린 토큰을 기억하지 않았다
+  });
+
+  it("요청한 다섯 권한이 정확히 read 일 때만 쓴다", async () => {
+    const gh = respond({ token: "ghs_ok", expires_at: expires, permissions: full });
+    const source = createInstallationTokenSource({ appId: APP_ID, installationId: INSTALLATION_ID, privateKey: KEY, fetch: gh.fetch, now: () => NOW });
+    expect(await source.getToken()).toBe("ghs_ok");
+  });
+
+  it.each([
+    ["이미 만료됐다", -60_000],
+    ["남은 수명이 4분", 4 * 60_000],
+    ["남은 수명이 정확히 5분", 5 * 60_000],
+  ])("토큰이 %s 이면 받지 않는다 (받자마자 또 교환하는 반복을 막는다)", async (_name, lifetime) => {
+    const gh = respond({ token: "ghs_short", expires_at: new Date(NOW + lifetime).toISOString(), permissions: full });
+    const source = createInstallationTokenSource({ appId: APP_ID, installationId: INSTALLATION_ID, privateKey: KEY, fetch: gh.fetch, now: () => NOW });
+    const error = (await source.getToken().catch((e: unknown) => e)) as Error;
+    expect(error).toBeInstanceOf(GitHubAuthError);
+    expect(error.message).toContain("수명");
+  });
+});
+
+describe("비밀 키의 길이와 요청 계수", () => {
+  it("RSA 2048비트 미만의 키는 받지 않는다", () => {
+    const short = generateKeyPairSync("rsa", { modulusLength: 1024, privateKeyEncoding: { type: "pkcs8", format: "pem" }, publicKeyEncoding: { type: "spki", format: "pem" } });
+    expect(() => loadPrivateKey(short.privateKey)).toThrow("너무 짧다");
+    expect(() => loadPrivateKey(PEM)).not.toThrow();
+  });
+
+  it("토큰 교환 POST 도 요청 계수기가 센다 — 상한에 닿았으면 교환 요청을 보내지 않는다", async () => {
+    const gh = fakeExchange(["ghs_counted"]);
+    const source = createInstallationTokenSource({ appId: APP_ID, installationId: INSTALLATION_ID, privateKey: KEY, fetch: gh.fetch, now: gh.now });
+    let counted = 0;
+    await source.getToken({ count: () => void (counted += 1) });
+    expect(counted).toBe(1);
+    const other = createInstallationTokenSource({ appId: APP_ID, installationId: INSTALLATION_ID, privateKey: KEY, fetch: gh.fetch, now: gh.now });
+    const full = { count: () => { throw new Error("상한"); } };
+    await expect(other.getToken(full)).rejects.toThrow("상한");
+    expect(gh.calls).toHaveLength(1); // 두 번째 공급자의 교환은 나가지 않았다
   });
 });

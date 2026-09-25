@@ -136,7 +136,50 @@ export function writeMethodLiterals(fileName: string, source: string): string[] 
   return found;
 }
 
+/**
+ * fetch 를 직접 부르는 곳. 전역 fetch(...) · globalThis.fetch(...) · globalThis["fetch"](...) · 주입받은 x.fetch(...) · fetchImpl(...) 를 센다.
+ * 참조만 넘기는 것(예: fetch: options.fetch)은 부르는 것이 아니라 세지 않는다.
+ */
+export function fetchCallSites(fileName: string, source: string): string[] {
+  const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
+  const found: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) {
+      const callee = node.expression;
+      if (ts.isIdentifier(callee) && (callee.text === "fetch" || callee.text === "fetchImpl")) found.push(callee.text);
+      else if (ts.isPropertyAccessExpression(callee) && callee.name.text === "fetch") found.push(callee.getText(file));
+      else if (ts.isElementAccessExpression(callee) && literalText(callee.argumentExpression) === "fetch") found.push(callee.getText(file));
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return found;
+}
+
 describe("GitHub 에 쓰는 요청의 경계 (docs/plan/03-github-app.md §2)", () => {
+  it("fetch 를 직접 부르는 곳은 src 전체에서 GET 관문과 인증 모듈 두 파일뿐이다", () => {
+    const allowed = new Set(["src/adapters/github/rest/guarded-get.ts", "src/adapters/github/app-auth/app-auth.ts"]);
+    const sites = sourceFiles(join(ROOT, "src")).flatMap((full) => {
+      const file = relative(ROOT, full).split(sep).join("/");
+      return fetchCallSites(file, readFileSync(full, "utf8")).map((call) => ({ file, call }));
+    });
+    expect(sites.filter((s) => !allowed.has(s.file)).map((s) => `${s.file} → ${s.call}(…)`)).toEqual([]);
+    expect(new Set(sites.map((s) => s.file))).toEqual(allowed); // 두 파일에는 실제로 있다(검사가 비어 있지 않다)
+  });
+
+  it("스캐너 자체 시험: 모든 모양의 fetch 호출을 잡고, 참조를 넘기는 것은 잡지 않는다", () => {
+    const source = [
+      "fetch(u);",
+      "globalThis.fetch(u);",
+      'globalThis["fetch"](u);',
+      "options.fetch(u, init);",
+      "fetchImpl(u);",
+      "const ok = { fetch: options.fetch };",
+      "const bound = globalThis.fetch.bind(globalThis);",
+    ].join("\n");
+    expect(fetchCallSites("x.ts", source)).toEqual(["fetch", "globalThis.fetch", 'globalThis["fetch"]', "options.fetch", "fetchImpl"]);
+  });
+
   const AUTH_MODULE = "src/adapters/github/app-auth/app-auth.ts";
 
   it("POST · PUT · PATCH · DELETE 라는 요청 메서드 값은 src 전체에서 인증 모듈에만 있다 (데이터 리더에는 POST 길이 없다)", () => {

@@ -20,6 +20,8 @@ export interface SyncResult {
   readonly discarded: readonly DiscardedSnapshot[];
   /** 값이 저장할 수 없는 모양이라(invalid_input) 받아 적지 못하고 건너뛴 PR. 나머지 PR 은 계속 동기화한다 */
   readonly skipped: readonly { readonly repoId: RepoId; readonly number: number }[];
+  /** 리더가 이번 동기화에 대해 알린 것 */
+  readonly notes: readonly string[];
 }
 
 /**
@@ -37,7 +39,9 @@ export interface SyncResult {
  *    다른 요청(동시에 도는 동기화, 사람의 연결)이 먼저 연결해 버린 PR 은 건너뛰고 계속 간다.
  */
 export async function syncAll(deps: AppDeps): Promise<SyncResult> {
-  const { reader, store } = deps;
+  const { store } = deps;
+  // 동기화 1회분의 읽기. 리더가 지원하면 이번 동기화만의 상한 · 알림을 갖는 객체를 쓴다.
+  const reader = deps.reader.startRun?.() ?? { ...deps.reader, notes: () => [] };
   const repositories = await reader.listRepositories();
 
   for (const repository of repositories) await store.saveRepository(repository);
@@ -102,5 +106,5 @@ export async function syncAll(deps: AppDeps): Promise<SyncResult> {
     }
   }
 
-  return { repositories: repositories.length, pullRequests, autoLinked, discarded, skipped };
+  return { repositories: repositories.length, pullRequests, autoLinked, discarded, skipped, notes: reader.notes() };
 }

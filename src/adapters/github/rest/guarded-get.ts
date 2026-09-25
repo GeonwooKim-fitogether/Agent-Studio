@@ -37,8 +37,27 @@ export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
  * invalidate 가 있으면, 401 을 받았을 때 그 토큰을 버리고 새 토큰으로 **한 번만** 다시 시도한다.
  */
 export interface TokenProvider {
-  getToken(): Promise<string>;
+  getToken(meter?: RequestMeter): Promise<string>;
   invalidate?(token: string): void;
+}
+
+/** 요청 계수기 (app-auth 의 RequestMeter 와 같은 모양). 실제 fetch 한 번마다 count() — 상한을 넘으면 던진다. */
+export interface RequestMeter {
+  count(): void;
+}
+
+/** 동기화 1회분의 요청 계수기를 만든다. 상한을 넘는 요청은 보내기 전에 멈춘다. */
+export function createRequestMeter(max: number): RequestMeter & { readonly used: () => number } {
+  let used = 0;
+  return {
+    count() {
+      if (used >= max) {
+        throw new GitHubReadError(`한 번의 Sync 요청 상한(${max}번)에 닿아 멈췄다. 저장소나 PR 이 너무 많다 — GITHUB_REPOS 로 좁힌다.`);
+      }
+      used += 1;
+    },
+    used: () => used,
+  };
 }
 
 export interface GuardedGetOptions {
@@ -46,6 +65,13 @@ export interface GuardedGetOptions {
   readonly token?: string;
   readonly tokens?: TokenProvider;
   readonly fetch: FetchLike;
+  /** 있으면 실제로 나가는 요청(리디렉션 · 401 재시도 포함) 하나마다 센다 */
+  readonly meter?: RequestMeter;
+}
+
+/** 한 요청의 추가 제한. 리디렉션 대상 주소가 이 확인을 통과하지 못하면 따라가지 않는다. */
+export interface PageOptions {
+  readonly allowRedirect?: (target: URL) => boolean;
 }
 
 /** 한 페이지의 응답과, GitHub 가 Link 헤더로 알려 준 다음 페이지 주소(없으면 null). */
@@ -70,13 +96,16 @@ export function createGuardedGet(options: GuardedGetOptions) {
   const staticToken = options.token;
   const tokens: TokenProvider = options.tokens ?? { getToken: async () => staticToken ?? "" };
 
-  async function send(url: string, method: string): Promise<GuardedPage> {
+  const meter = options.meter;
+
+  async function send(url: string, method: string, pageOptions: PageOptions = {}): Promise<GuardedPage> {
     let target = assertAllowed(method, url);
-    let token = await tokens.getToken();
+    let token = await tokens.getToken(meter);
     let retriedAfter401 = false;
 
     for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
       let response: Response;
+      meter?.count(); // 실제로 나가는 요청 하나 — 상한을 넘으면 여기서 멈추고 나가지 않는다
       try {
         response = await fetchImpl(target.href, {
           method: "GET",
@@ -95,7 +124,7 @@ export function createGuardedGet(options: GuardedGetOptions) {
       if (response.status === 401 && tokens.invalidate !== undefined && !retriedAfter401) {
         // 토큰이 만료됐거나 취소됐다 — 버리고 새 토큰으로 한 번만 다시 시도한다
         tokens.invalidate(token);
-        token = await tokens.getToken();
+        token = await tokens.getToken(meter);
         retriedAfter401 = true;
         hop -= 1;
         continue;
@@ -104,6 +133,9 @@ export function createGuardedGet(options: GuardedGetOptions) {
         const location = response.headers.get("location");
         if (location === null) throw new GitHubReadError(`GitHub 가 이동할 주소 없이 ${response.status} 를 돌려줬다 (GET ${target.pathname})`);
         target = assertAllowed("GET", resolveLocation(location, target));
+        if (pageOptions.allowRedirect !== undefined && !pageOptions.allowRedirect(target)) {
+          throw new GitHubRequestBlockedError(`예상하지 않은 곳으로의 리디렉션은 따라가지 않는다 (${target.pathname})`);
+        }
         continue;
       }
       if (!response.ok) {
@@ -122,7 +154,7 @@ export function createGuardedGet(options: GuardedGetOptions) {
     return (await send(url, init.method ?? "GET")).json;
   }
   /** 한 페이지를 읽고 다음 페이지 주소도 돌려준다. */
-  guardedGet.page = (url: string): Promise<GuardedPage> => send(url, "GET");
+  guardedGet.page = (url: string, pageOptions?: PageOptions): Promise<GuardedPage> => send(url, "GET", pageOptions);
   return guardedGet;
 }
 

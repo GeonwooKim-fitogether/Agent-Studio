@@ -49,14 +49,33 @@ export class GitHubAuthRequestBlockedError extends Error {
 }
 
 /** 비밀 키 글(PEM)을 키 객체로. 내용이 비밀 키가 아니면 내용을 싣지 않은 오류를 낸다. */
+/** RSA 키의 최소 길이. GitHub 가 발급하는 App 키는 2048비트이며, 그보다 짧은 키는 받지 않는다. */
+export const MIN_RSA_BITS = 2048;
+
 export function loadPrivateKey(pem: string): KeyObject {
+  let key: KeyObject;
   try {
-    const key = createPrivateKey(pem);
-    if (key.asymmetricKeyType !== "rsa") throw new Error("not rsa");
-    return key;
+    key = createPrivateKey(pem);
   } catch {
     throw new GitHubAuthError("비밀 키가 올바른 RSA 비밀 키(PEM)가 아니다.");
   }
+  if (key.asymmetricKeyType !== "rsa") throw new GitHubAuthError("비밀 키가 올바른 RSA 비밀 키(PEM)가 아니다.");
+  if ((key.asymmetricKeyDetails?.modulusLength ?? 0) < MIN_RSA_BITS) {
+    throw new GitHubAuthError(`비밀 키가 너무 짧다(RSA ${MIN_RSA_BITS}비트 미만).`);
+  }
+  return key;
+}
+
+/** 받은 토큰의 권한 목록이 요청한 읽기 권한과 정확히 같은지. 같으면 null, 다르면 사람이 읽을 이유(값은 싣지 않는다). */
+export function permissionProblem(granted: unknown): string | null {
+  if (typeof granted !== "object" || granted === null || Array.isArray(granted)) return "권한 목록이 없다";
+  const entries = Object.entries(granted as Record<string, unknown>);
+  const expected = Object.keys(READ_ONLY_PERMISSIONS);
+  const extra = entries.filter(([name]) => !expected.includes(name)).map(([name]) => name);
+  if (extra.length > 0) return `요청하지 않은 권한이 있다(${extra.join(", ")})`;
+  const notRead = expected.filter((name) => (granted as Record<string, unknown>)[name] !== "read");
+  if (notRead.length > 0) return `읽기 권한이 정확히 맞지 않는다(${notRead.join(", ")})`;
+  return null;
 }
 
 const b64url = (value: string | Buffer) => Buffer.from(value).toString("base64url");
@@ -90,9 +109,17 @@ export function assertTokenExchangeRequest(method: string, url: string): URL {
   return parsed;
 }
 
+/**
+ * 요청 계수기. 실제로 네트워크로 나가는 요청(리디렉션 · 401 재시도 · 토큰 교환 포함) 하나마다 count() 를 부른다.
+ * 상한을 넘으면 count() 가 던져 그 요청은 나가지 않는다. 동기화 1회마다 새로 만든다.
+ */
+export interface RequestMeter {
+  count(): void;
+}
+
 /** 데이터 리더가 쓰는 토큰 공급자. 토큰은 여기서만 만들어진다. */
 export interface TokenSource {
-  getToken(): Promise<string>;
+  getToken(meter?: RequestMeter): Promise<string>;
   /** 이 토큰이 거절됐다(401). 다음 getToken 은 새 토큰을 받는다. */
   invalidate(token: string): void;
 }
@@ -117,12 +144,14 @@ export function createInstallationTokenSource(options: InstallationTokenSourceOp
   if (!Number.isSafeInteger(options.appId) || options.appId <= 0) throw new GitHubAuthError("App ID 는 양의 정수여야 한다.");
 
   let cached: { token: string; expiresAtMs: number } | null = null;
+  let meterForExchange: RequestMeter | undefined;
   let inFlight: Promise<string> | null = null;
 
   async function exchange(): Promise<string> {
     const url = assertTokenExchangeRequest("POST", `${API_ORIGIN}/app/installations/${options.installationId}/access_tokens`);
     const jwt = createAppJwt({ appId: options.appId, privateKey: options.privateKey, nowMs: now() });
     let response: Response;
+    meterForExchange?.count(); // 교환 POST 도 한 번의 요청으로 센다
     try {
       response = await options.fetch(url.href, {
         method: "POST",
@@ -153,21 +182,22 @@ export function createInstallationTokenSource(options: InstallationTokenSourceOp
     if (typeof token !== "string" || token === "" || Number.isNaN(expiresAt)) {
       throw new GitHubAuthError("설치 토큰 응답의 모양이 예상과 다르다.");
     }
-    const granted = (typeof record["permissions"] === "object" && record["permissions"] !== null ? record["permissions"] : {}) as Record<
-      string,
-      unknown
-    >;
-    const tooWide = Object.entries(granted).filter(([, level]) => level !== "read");
-    if (tooWide.length > 0) {
-      throw new GitHubAuthError(`설치 토큰에 읽기보다 넓은 권한이 있어 쓰지 않는다: ${tooWide.map(([name]) => name).join(", ")}`);
+    // 닫힌 쪽으로 확인한다: 권한 목록이 객체이고, 요청한 다섯 권한이 모두 정확히 "read" 이며, 그 밖의 권한이 없을 때만 쓴다.
+    // 목록이 없거나 · null · 문자열 · 배열 · 빈 객체이거나, 하나라도 다르면 토큰을 버린다(모르면 거절).
+    const problem = permissionProblem(record["permissions"]);
+    if (problem !== null) throw new GitHubAuthError(`설치 토큰의 권한을 확인할 수 없어 쓰지 않는다: ${problem}`);
+    // 이미 만료됐거나 갱신 여유(5분)보다 짧게 사는 토큰은 받자마자 또 교환하게 만들므로 받지 않는다.
+    if (expiresAt - now() <= TOKEN_REFRESH_MARGIN_MS) {
+      throw new GitHubAuthError("설치 토큰의 남은 수명이 5분 이하라 쓰지 않는다. 서버 시계와 GitHub 응답을 확인한다.");
     }
     cached = { token, expiresAtMs: expiresAt };
     return token;
   }
 
   return {
-    async getToken() {
+    async getToken(meter) {
       if (cached !== null && cached.expiresAtMs - now() > TOKEN_REFRESH_MARGIN_MS) return cached.token;
+      if (inFlight === null) meterForExchange = meter; // 교환을 일으킨 동기화의 계수기가 그 교환을 센다
       inFlight ??= exchange().finally(() => {
         inFlight = null;
       });

@@ -8,13 +8,14 @@
  * 연결 문자열은 이 파일 밖으로 내보내지 않는다(화면 · 로그에 싣지 않는다).
  */
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
+import { basename } from "node:path";
 import { Pool } from "pg";
 import { demoFixtureData, demoStudioSeed } from "../adapters/github/fixture/demo-scenario";
 import { createFixtureReader } from "../adapters/github/fixture/fixture-reader";
 import { createGitHubAppReader } from "../adapters/github/app/app-reader";
-import { createInstallationTokenSource, loadPrivateKey } from "../adapters/github/app-auth/app-auth";
-import { GitHubReadError } from "../adapters/github/rest/guarded-get";
+import { createInstallationTokenSource, loadPrivateKey, MIN_RSA_BITS } from "../adapters/github/app-auth/app-auth";
+import { type FetchLike, GitHubReadError } from "../adapters/github/rest/guarded-get";
 import { createGitHubRestReader } from "../adapters/github/rest/rest-reader";
 import type { GitHubReader } from "../ports/github-reader";
 import { createMemoryStore } from "../adapters/store/memory/memory-store";
@@ -79,7 +80,7 @@ export type GitHubSource =
  */
 export function selectGitHubSource(
   env: Record<string, string | undefined>,
-  readFile: (path: string) => string = (path) => readFileSync(path, "utf8"),
+  readFile: (path: string) => string = readKeyFile,
 ): GitHubSource {
   const value = (name: string) => env[name]?.trim() ?? "";
   const present = APP_ENV_VARS.filter((name) => value(name) !== "");
@@ -97,22 +98,54 @@ export function selectGitHubSource(
     if (!Number.isSafeInteger(appId) || appId <= 0 || !Number.isSafeInteger(installationId) || installationId <= 0) {
       return { kind: "app_config_error", message: "GITHUB_APP_ID 와 GITHUB_APP_INSTALLATION_ID 는 양의 정수여야 한다." };
     }
+    // 경로 칸에는 경로만 온다. 키 내용을 붙여 넣은 것 같으면 그 값을 어디에도 싣지 않고 안내만 한다.
+    const rawPath = env["GITHUB_APP_PRIVATE_KEY_PATH"] ?? "";
+    if (looksLikeKeyContent(rawPath)) {
+      return {
+        kind: "app_config_error",
+        message: "GITHUB_APP_PRIVATE_KEY_PATH 에 파일 경로가 아니라 키 내용이 들어 있는 것 같다 — .pem 파일의 경로를 적는다.",
+      };
+    }
     const path = value("GITHUB_APP_PRIVATE_KEY_PATH");
+    // 화면에는 서버의 폴더 구조를 드러내지 않도록 파일 이름만 보인다
+    const shown = basename(path);
     let privateKeyPem: string;
     try {
       privateKeyPem = readFile(path);
-    } catch {
-      return { kind: "app_config_error", message: `비밀 키 파일을 읽지 못했다: ${path}` };
+    } catch (error) {
+      if (error instanceof KeyFileTooLargeError) {
+        return { kind: "app_config_error", message: `비밀 키 파일이 너무 크다(${MAX_KEY_FILE_BYTES / 1024}KB 초과): ${shown}` };
+      }
+      return { kind: "app_config_error", message: `비밀 키 파일을 읽지 못했다: ${shown}` };
+    }
+    if (Buffer.byteLength(privateKeyPem, "utf8") > MAX_KEY_FILE_BYTES) {
+      return { kind: "app_config_error", message: `비밀 키 파일이 너무 크다(${MAX_KEY_FILE_BYTES / 1024}KB 초과): ${shown}` };
     }
     try {
       loadPrivateKey(privateKeyPem);
     } catch {
-      return { kind: "app_config_error", message: `비밀 키 파일의 내용이 RSA 비밀 키(PEM)가 아니다: ${path}` };
+      return { kind: "app_config_error", message: `비밀 키 파일의 내용이 RSA ${MIN_RSA_BITS}비트 이상의 비밀 키(PEM)가 아니다: ${shown}` };
     }
     return { kind: "app", appId, installationId, privateKeyPem, repos };
   }
   const token = readGitHubConfig(env);
   return token === null ? { kind: "fixture" } : { kind: "token", token: token.token, repos: token.repos };
+}
+
+/** 비밀 키 파일의 크기 상한. RSA 키 파일은 몇 KB 이므로, 이보다 크면 잘못된 파일로 본다. */
+export const MAX_KEY_FILE_BYTES = 64 * 1024;
+
+class KeyFileTooLargeError extends Error {}
+
+/** 비밀 키 파일을 읽는다. 크기를 먼저 확인해 큰 파일은 읽지 않는다. */
+function readKeyFile(path: string): string {
+  if (statSync(path).size > MAX_KEY_FILE_BYTES) throw new KeyFileTooLargeError();
+  return readFileSync(path, "utf8");
+}
+
+/** 경로 칸의 값이 경로가 아니라 키 내용처럼 보이는가 (흔한 실수: PEM 을 통째로 붙여 넣기) */
+export function looksLikeKeyContent(value: string): boolean {
+  return value.includes("-----BEGIN") || /[\r\n]/.test(value.trim()) || value.length > 1024;
 }
 
 /** 설정 오류일 때의 리더. 동기화하면 설정 오류 문장을 그대로 알린다 — 시연 데이터로 바꿔치기하지 않는다. */
@@ -124,7 +157,8 @@ function unavailableReader(message: string): GitHubReader {
 }
 
 function createReader(source: GitHubSource): GitHubReader {
-  const fetchImpl = (url: string, init: RequestInit) => fetch(url, init);
+  // fetch 를 여기서 직접 부르지 않는다 — 부르는 곳은 GET 관문(guarded-get)과 인증 모듈(app-auth) 두 파일뿐이다
+  const fetchImpl: FetchLike = globalThis.fetch.bind(globalThis);
   switch (source.kind) {
     case "app":
       return createGitHubAppReader({
@@ -172,13 +206,22 @@ export function createContainer(
   };
   let first: Promise<void> | null = null;
 
-  async function sync(): Promise<void> {
+  // 단일 비행: 동기화가 진행 중이면 새로 시작하지 않고 진행 중인 것을 함께 기다린다(Sync 를 겹쳐 눌러도 한 번)
+  let running: Promise<void> | null = null;
+  function sync(): Promise<void> {
+    running ??= runSync().finally(() => {
+      running = null;
+    });
+    return running;
+  }
+
+  async function runSync(): Promise<void> {
     try {
       const result = await syncAll(deps);
       const discarded = result.discarded.map((d) => `${d.repoId}#${d.number}(요청한 저장소 ${d.requestedRepoId})`);
       const skipped = result.skipped.map((d) => `${d.repoId}#${d.number}`);
       const warnings = [
-        ...(deps.reader.lastRunNotes?.() ?? []),
+        ...result.notes,
         discarded.length === 0 ? "" : `요청한 저장소와 다른 저장소의 PR ${discarded.length}개를 받아 버렸다: ${discarded.join(", ")}`,
         skipped.length === 0 ? "" : `저장할 수 없는 값이 든 PR ${skipped.length}개를 건너뛰었다: ${skipped.join(", ")}`,
       ].filter((w) => w !== "");
