@@ -5,5 +5,8 @@ export default defineConfig({
   test: {
     include: ["tests/unit/**/*.test.ts"],
     environment: "node",
+    globalSetup: ["tests/unit/global-setup.ts"],
+    // PostgreSQL 시험 파일들은 같은 시험용 데이터베이스를 쓰므로 파일을 하나씩 차례로 돌린다
+    fileParallelism: false,
   },
 });

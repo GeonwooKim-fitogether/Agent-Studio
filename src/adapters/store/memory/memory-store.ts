@@ -18,18 +18,12 @@ import {
   type Repository,
   type ReviewDecision,
   StudioError,
+  type UnlinkRecord,
   type Work,
 } from "../../../domain/model";
-import type { StudioStore } from "../../../ports/studio-store";
+import type { StudioSeed, StudioStore } from "../../../ports/studio-store";
 
-/** 서버가 켜질 때의 처음 상태. GitHub 에서 받아 적는 것(저장소, PR 스냅샷)은 넣지 않는다 — 동기화가 채운다. */
-export interface StudioSeed {
-  readonly projects?: readonly Project[];
-  readonly works?: readonly Work[];
-  readonly links?: readonly PrLink[];
-  readonly reviews?: readonly ReviewDecision[];
-  readonly previews?: readonly PreviewRecord[];
-}
+export type { StudioSeed } from "../../../ports/studio-store";
 
 const copy = <T>(value: T): T => structuredClone(value);
 const copies = <T>(values: Iterable<T>): T[] => [...values].map(copy);
@@ -42,9 +36,21 @@ export function createMemoryStore(seed: StudioSeed = {}): StudioStore {
   const links = new Map((seed.links ?? []).map((l) => [prKey(l), copy(l)]));
   const reviews: ReviewDecision[] = copies(seed.reviews ?? []);
   const previews: PreviewRecord[] = copies(seed.previews ?? []);
+  const unlinks = new Map((seed.unlinks ?? []).map((u) => [prKey(u), copy(u)]));
 
   const rejectIfLinked = (ref: PrRef) => {
     if (links.has(prKey(ref))) throw new StudioError("already_linked", "이 PR 은 이미 업무에 연결돼 있다.");
+  };
+  /** 표식의 연결은 사람이 연결을 푼 PR 에 쓰지 않는다. */
+  const rejectIfUnlinkedByUser = (link: PrLink) => {
+    if (link.origin === "marker" && unlinks.has(prKey(link))) {
+      throw new StudioError("unlinked_by_user", "사람이 연결을 푼 PR 은 표식으로 다시 연결하지 않는다.");
+    }
+  };
+  /** 확인이 끝난 연결을 쓴다. 사람의 연결이면 해제 기록을 함께 지운다. */
+  const writeLink = (link: PrLink) => {
+    links.set(prKey(link), copy(link));
+    if (link.origin === "user") unlinks.delete(prKey(link));
   };
 
   return {
@@ -65,10 +71,11 @@ export function createMemoryStore(seed: StudioSeed = {}): StudioStore {
     async createWorkWithLink(work, link) {
       // 확인을 모두 마친 뒤에 쓴다. 하나라도 걸리면 아무것도 쓰지 않는다.
       rejectIfLinked(link);
+      rejectIfUnlinkedByUser(link);
       if (works.has(work.id)) throw new StudioError("invalid_input", "같은 ID 의 업무가 이미 있다.");
       if (link.workId !== work.id) throw new StudioError("invalid_input", "연결이 새 업무를 가리키지 않는다.");
       works.set(work.id, copy(work));
-      links.set(prKey(link), copy(link));
+      writeLink(link);
     },
 
     async listRepositories() {
@@ -98,7 +105,19 @@ export function createMemoryStore(seed: StudioSeed = {}): StudioStore {
     },
     async addLink(link) {
       rejectIfLinked(link);
-      links.set(prKey(link), copy(link));
+      rejectIfUnlinkedByUser(link);
+      writeLink(link);
+    },
+    async unlink(ref, unlinkedAt) {
+      const key = prKey(ref);
+      if (links.get(key)?.workId !== ref.workId) {
+        throw new StudioError("not_linked", "이 PR 은 이 업무에 연결돼 있지 않다.");
+      }
+      links.delete(key);
+      unlinks.set(key, { repoId: ref.repoId, number: ref.number, workId: ref.workId, unlinkedAt });
+    },
+    async listUnlinks() {
+      return copies(unlinks.values());
     },
 
     async listReviewDecisions() {

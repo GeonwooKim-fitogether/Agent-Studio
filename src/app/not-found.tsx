@@ -7,7 +7,7 @@ export default function NotFound() {
       <div className="page-head">
         <h1>찾는 업무나 화면이 없다</h1>
         <p className="muted">
-          주소가 잘못됐거나, 서버를 다시 켜서 그 업무가 사라졌을 수 있다. 지금은 저장이 서버 메모리라 다시 켜면 처음 상태로 돌아간다.
+          주소가 잘못됐을 수 있다. 저장이 서버 메모리일 때는 서버를 다시 켜면 새로 만든 업무가 사라진다.
         </p>
       </div>
       <Link href="/" className="btn primary">

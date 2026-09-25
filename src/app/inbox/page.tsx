@@ -11,7 +11,15 @@ export const dynamic = "force-dynamic";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
-const NOTICE_CODES: readonly StudioErrorCode[] = ["already_linked", "project_mismatch", "not_found", "not_linked", "invalid_input"];
+/** 주소로 받을 수 있는 알림 코드. 거절 사유(StudioErrorCode)와, 성공 알림 unlinked 뿐이다. */
+const NOTICE_CODES: readonly (StudioErrorCode | "unlinked")[] = [
+  "unlinked",
+  "already_linked",
+  "project_mismatch",
+  "not_found",
+  "not_linked",
+  "invalid_input",
+];
 
 /** Inbox — 어느 업무의 것인지 판단할 수 없는 PR. 사람이 기존 업무에 연결하거나 새 업무를 만든다. */
 export default async function InboxPage({ searchParams }: { searchParams: SearchParams }) {
@@ -48,10 +56,12 @@ export default async function InboxPage({ searchParams }: { searchParams: Search
             <h2>{project.name}</h2>
             <small>{items.length}개</small>
           </header>
-          {items.map(({ pr, reason, markedWorkIds, markedProjectName }) => (
+          {items.map(({ pr, reason, markedWorkIds, markedProjectName, unlinkedFromWorkTitle }) => (
             <article key={pr.key} className="inbox-item" data-testid={`inbox-${pr.repoId}-${pr.number}`}>
               <PrCard pr={pr} source={source} />
-              <p className="reason">{inboxReasonText(reason, markedWorkIds, markedProjectName)}</p>
+              <p className="reason" data-testid="inbox-reason">
+                {inboxReasonText(reason, markedWorkIds, markedProjectName, unlinkedFromWorkTitle)}
+              </p>
               <div className="inbox-actions">
                 {candidates.length > 0 && (
                   <form action={linkToWorkAction} className="inline-form">
@@ -116,6 +126,17 @@ async function Notice({ searchParams }: { searchParams: Awaited<SearchParams> })
       break;
     case "project_mismatch":
       body = <>{label}은 다른 프로젝트의 업무에 연결할 수 없다. 같은 프로젝트의 업무를 고르거나 New Work 로 새 업무를 만든다.</>;
+      break;
+    case "unlinked":
+      body = (
+        <>
+          {label}의 연결을 풀었다. 이 PR 은 아래 Inbox 에 있고, 표식이 있어도 다음 Sync 에서 자동으로 다시 붙지 않는다. 다시 연결하려면 Work 를 골라 Link to
+          Work 를 누른다.
+        </>
+      );
+      break;
+    case "not_linked":
+      body = <>{label}은 그 업무에 연결돼 있지 않아 처리하지 않았다. 이미 연결이 풀렸거나 다른 탭에서 바뀌었을 수 있다.</>;
       break;
     case "not_found":
       body = <>그 PR 이나 업무를 찾을 수 없다. 화면이 오래됐을 수 있으니 Sync 한 뒤 다시 시도한다.</>;

@@ -3,9 +3,10 @@ import { createFixtureReader, type FixtureData } from "../../src/adapters/github
 import { createMemoryStore, type StudioSeed } from "../../src/adapters/store/memory/memory-store";
 import type { AppDeps } from "../../src/application/deps";
 import type { GitHubReader } from "../../src/ports/github-reader";
+import type { StudioStore } from "../../src/ports/studio-store";
 
 /** 시연용 고정 데이터로 유스케이스를 돌릴 준비. `data` 를 고치면 다음 동기화에 GitHub 쪽 변화로 들어간다. */
-export function setup(options: { data?: FixtureData; seed?: StudioSeed } = {}) {
+export function setup(options: { data?: FixtureData; seed?: StudioSeed; store?: StudioStore } = {}) {
   const data = options.data ?? demoFixtureData();
   const inner = createFixtureReader(data);
   const readerCalls: string[] = [];
@@ -24,7 +25,7 @@ export function setup(options: { data?: FixtureData; seed?: StudioSeed } = {}) {
   let sequence = 0;
   const deps: AppDeps = {
     reader,
-    store: createMemoryStore(options.seed ?? demoStudioSeed()),
+    store: options.store ?? createMemoryStore(options.seed ?? demoStudioSeed()),
     now: () => new Date("2026-09-25T00:00:00.000Z"),
     newId: () => `n${String((sequence += 1)).padStart(5, "0")}`,
   };

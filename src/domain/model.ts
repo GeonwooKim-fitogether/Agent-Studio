@@ -49,6 +49,11 @@ export interface PrSnapshot extends PrRef {
   readonly body: string;
   /** 브랜치 이름. 표식 판정에만 쓰고, PR 을 식별하는 데는 쓰지 않는다. */
   readonly branch: string;
+  /**
+   * PR 의 브랜치가 있는 저장소의 숫자 ID. PR 의 저장소(repoId)와 같으면 그 저장소 자신의 브랜치이고,
+   * 다르면 복제본(fork)의 브랜치다. 복제본이 지워졌거나 알 수 없으면 null 이다 (결정 10).
+   */
+  readonly headRepoId: RepoId | null;
   /** PR 의 최신 커밋 SHA. 커밋에 고정된 기록의 신선도를 이것과 비교한다. */
   readonly headSha: string;
   readonly url: string;
@@ -98,6 +103,16 @@ export type PrLink = PrRef & {
     | { readonly origin: "marker"; readonly markerFoundIn: readonly MarkerPlace[] }
   );
 
+/**
+ * 사람이 연결을 푼 기록 (Unlink, 결정 9). 이 기록이 있는 PR 은 표식이 있어도 자동으로 다시 붙지 않는다.
+ * 사람이 Inbox 에서 다시 연결하면 기록은 지워진다.
+ */
+export interface UnlinkRecord extends PrRef {
+  /** 연결이 풀리기 전에 이 PR 이 붙어 있던 업무 */
+  readonly workId: string;
+  readonly unlinkedAt: string;
+}
+
 /** 내부 검토 결정 (계약 §5: 수정 요청 · 내부 검토 완료). GitHub 병합이나 GitHub 리뷰를 뜻하지 않는다. */
 export type ReviewVerdict = "changes_requested" | "internal_review_done";
 
@@ -122,7 +137,13 @@ export interface PreviewRecord extends PrRef {
 
 // ── 오류 ────────────────────────────────────────────────────────────────────
 
-export type StudioErrorCode = "not_found" | "already_linked" | "project_mismatch" | "not_linked" | "invalid_input";
+export type StudioErrorCode =
+  | "not_found"
+  | "already_linked"
+  | "project_mismatch"
+  | "not_linked"
+  | "invalid_input"
+  | "unlinked_by_user"; // 사람이 연결을 푼 PR 에 표식으로 연결하려 했다
 
 /** 도메인 규칙을 어기는 요청을 거절할 때 쓰는 오류. 메시지는 사용자에게 보여도 되는 한국어 문장이다. */
 export class StudioError extends Error {

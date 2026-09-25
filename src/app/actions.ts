@@ -9,7 +9,7 @@
  */
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { createWorkFromPr, linkPrToWork } from "../application/inbox-actions";
+import { createWorkFromPr, linkPrToWork, unlinkPr } from "../application/inbox-actions";
 import { type PrRef, StudioError } from "../domain/model";
 import { getContainer } from "../server/container";
 
@@ -62,6 +62,18 @@ export async function newWorkFromPrAction(form: FormData): Promise<void> {
   await runThenRedirect(form, async (ref) => {
     const work = await createWorkFromPr(getContainer().deps, ref);
     return `/works/${encodeURIComponent(work.id)}`;
+  });
+}
+
+/** 업무 화면의 Unlink. 확인 체크가 없으면 처리하지 않는다. 풀리면 Inbox 로 가서 그 PR 과 이유를 보여 준다. */
+export async function unlinkAction(form: FormData): Promise<void> {
+  const workId = String(form.get("workId") ?? "");
+  const confirmed = form.get("confirm") === "yes";
+  await runThenRedirect(form, async (ref) => {
+    if (!confirmed) throw new StudioError("invalid_input", "확인 체크 없이 연결을 풀지 않는다.");
+    await unlinkPr(getContainer().deps, { ...ref, workId });
+    const params = new URLSearchParams({ notice: "unlinked", repoId: String(ref.repoId), number: String(ref.number) });
+    return `/inbox?${params.toString()}`;
   });
 }
 

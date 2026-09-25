@@ -52,9 +52,16 @@ export function inboxReasonText(
   reason: InboxReason | null,
   markedWorkIds: readonly string[],
   markedProjectName: string | null = null,
+  unlinkedFromWorkTitle: string | null = null,
 ): string {
   const list = markedWorkIds.map(markerFor).join(", ");
   switch (reason) {
+    case "unlinked_by_user":
+      return `사람이 이 PR 의 연결을 풀었다${unlinkedFromWorkTitle === null ? "" : `('${unlinkedFromWorkTitle}' 업무에서)`}. 표식이 있어도 자동으로 다시 붙이지 않는다. 다시 연결하려면 아래에서 고른다.`;
+    case "fork_head":
+      return "PR 의 브랜치가 다른 저장소(복제본)에 있다. 팀 밖에서 온 PR 일 수 있어 표식이 있어도 자동으로 연결하지 않는다.";
+    case "unknown_head":
+      return "PR 의 브랜치가 어느 저장소에 있는지 알 수 없다(복제본이 지워졌을 수 있다). 복제본으로 보고 자동으로 연결하지 않는다.";
     case "no_marker":
       return "업무 표식이 없어 어느 업무의 것인지 판단하지 않았다.";
     case "unknown_work":

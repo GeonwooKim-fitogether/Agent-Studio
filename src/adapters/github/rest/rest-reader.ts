@@ -62,6 +62,7 @@ export function createGitHubRestReader(options: RestReaderOptions): GitHubReader
           title: pull.title,
           body: pull.body,
           branch: pull.branch,
+          headRepoId: pull.headRepoId,
           headSha: pull.headSha,
           url: pull.url,
           author: pull.author,
@@ -129,6 +130,8 @@ function parsePull(raw: unknown) {
     title: field(raw, "title", isString, "pull"),
     body: isString(raw["body"]) ? raw["body"] : "",
     branch: field(head, "ref", isString, "pull.head"),
+    // 브랜치가 있는 저장소. 복제본이 지워졌으면 GitHub 가 head.repo 를 null 로 준다 — 그때는 알 수 없음(null)
+    headRepoId: isObject(head["repo"]) && isNumber(head["repo"]["id"]) ? head["repo"]["id"] : null,
     headSha: field(head, "sha", isSha, "pull.head"),
     url: field(raw, "html_url", isString, "pull"),
     author: isObject(user) && isString(user["login"]) ? user["login"] : "",

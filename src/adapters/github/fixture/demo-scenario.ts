@@ -7,6 +7,7 @@
  *   프로젝트        저장소                 PR   브랜치                         표식                          결과
  *   결제 서비스      demo-org/payments      #12  feat/login-page               본문 studio-work-a1b2c3        자동 연결 → 로그인 화면 만들기
  *                                          #15  fix/studio-work-a1b2c3-session 브랜치 이름에 같은 표식      자동 연결 → 로그인 화면 만들기
+ *                                          #18  patch-1 (복제본 990001 의 브랜치) 본문 studio-work-a1b2c3   Inbox (복제본, 결정 10)
  *   코치 대시보드    demo-org/coach-web     #12  feat/login-page               없음                         Inbox (표식 없음)
  *   선수 앱          demo-org/player-app    #12  feat/login-page               결제 서비스 업무의 표식       Inbox (다른 프로젝트)
  *                                          #9   chore/deps-bump               없는 업무 studio-work-zz9999  Inbox (없는 업무)
@@ -32,6 +33,9 @@ export const DEMO_REPO = {
   docsSite: 710005,
 } as const;
 
+/** 결제 서비스 저장소의 복제본(fork). 팀 밖 사람의 저장소라 어느 프로젝트에도 속하지 않는다. */
+export const DEMO_FORK_REPO = 990001;
+
 export const DEMO_SHA = {
   payments12Head: "3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d",
   payments12Reviewed: "9f8e7d6c5b4a39281706f5e4d3c2b1a098765432",
@@ -46,11 +50,15 @@ const repositories: Repository[] = [
   { id: DEMO_REPO.docsSite, fullName: "demo-org/docs-site" },
 ];
 
-function pr(fields: Omit<PrSnapshot, "url" | "updatedAt"> & { readonly updatedAt?: string }): PrSnapshot {
+/** 시연 PR. 따로 적지 않으면 브랜치는 그 저장소 자신에 있다(headRepoId = repoId). */
+function pr(
+  fields: Omit<PrSnapshot, "url" | "updatedAt" | "headRepoId"> & Partial<Pick<PrSnapshot, "updatedAt" | "headRepoId">>,
+): PrSnapshot {
   const repo = repositories.find((r) => r.id === fields.repoId);
   return {
     url: `https://github.com/${repo?.fullName ?? "demo-org/unknown"}/pull/${fields.number}`,
     updatedAt: "2026-09-24T09:00:00.000Z",
+    headRepoId: fields.repoId,
     ...fields,
   };
 }
@@ -79,6 +87,20 @@ const pullRequests: PrSnapshot[] = [
     state: "merged",
     checks: "passing",
     review: "approved",
+  }),
+  pr({
+    // 복제본(fork)에서 온 PR — 같은 프로젝트 업무의 표식이 있지만 브랜치가 다른 저장소(990001)에 있다 (결정 10)
+    repoId: DEMO_REPO.payments,
+    number: 18,
+    title: "외부 기여: 로그인 오류 문구 다듬기",
+    body: "studio-work-a1b2c3 의 문구를 고쳤습니다.",
+    branch: "patch-1",
+    headRepoId: DEMO_FORK_REPO,
+    headSha: "8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c",
+    author: "outside-contributor",
+    state: "open",
+    checks: "pending",
+    review: "none",
   }),
   pr({
     repoId: DEMO_REPO.coachWeb,

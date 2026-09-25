@@ -75,7 +75,7 @@ describe("scenario-1 저장소 5개의 같은 브랜치 이름 PR", () => {
     data.repositories.push(impostor);
     const original = data.pullRequests.find((p) => p.repoId === DEMO_REPO.payments && p.number === 12);
     if (original === undefined) throw new Error("fixture 에 payments#12 가 없다");
-    data.pullRequests.push({ ...original, repoId: impostor.id }); // 같은 번호 · 같은 브랜치 · 같은 표식
+    data.pullRequests.push({ ...original, repoId: impostor.id, headRepoId: impostor.id }); // 같은 번호 · 같은 브랜치 · 같은 표식
 
     await syncAll(deps);
 
@@ -502,6 +502,7 @@ describe("동기화가 믿지 않는 응답", () => {
 /** 시험용 PR 스냅샷. 필요한 칸만 받고 나머지는 평범한 값으로 채운다. */
 function demoPr(fields: Pick<PrSnapshot, "repoId" | "number" | "title" | "body" | "branch"> & Partial<PrSnapshot>): PrSnapshot {
   return {
+    headRepoId: fields.repoId, // 따로 적지 않으면 그 저장소 자신의 브랜치
     headSha: "e".repeat(40),
     url: `https://github.com/demo-org/x/pull/${fields.number}`,
     author: "tester",

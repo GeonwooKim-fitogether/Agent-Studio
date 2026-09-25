@@ -39,6 +39,14 @@ export async function linkPrToWork(deps: AppDeps, input: PrRef & { readonly work
   }
 }
 
+/**
+ * 연결을 푼다(Unlink, 결정 9). 그 PR 은 Inbox 로 돌아가고, 사람이 다시 연결할 때까지 표식으로 자동 연결되지 않는다.
+ * 그 업무에 연결돼 있지 않으면(이미 풀렸거나, 다른 탭에서 바뀌었거나) not_linked 로 거절한다.
+ */
+export async function unlinkPr(deps: AppDeps, input: PrRef & { readonly workId: string }): Promise<void> {
+  await deps.store.unlink(input, deps.now().toISOString());
+}
+
 /** PR 하나로 새 업무를 만들고 그 PR 을 연결한다. 업무 제목은 PR 제목을 그대로 쓴다. 업무와 연결은 한 번에 생긴다. */
 export async function createWorkFromPr(deps: AppDeps, ref: PrRef): Promise<Work> {
   const pr = await requireSnapshot(deps, ref);

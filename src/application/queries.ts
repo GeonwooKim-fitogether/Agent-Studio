@@ -22,6 +22,7 @@ import {
   samePr,
   type ReviewDecision,
   type ReviewVerdict,
+  type UnlinkRecord,
   type Work,
 } from "../domain/model";
 import { markerFor } from "../domain/work-marker";
@@ -89,6 +90,8 @@ export interface InboxItemView {
   readonly markedWorkIds: readonly string[];
   /** reason 이 "other_project" 일 때 표식이 가리키는 업무의 프로젝트 이름 */
   readonly markedProjectName: string | null;
+  /** reason 이 "unlinked_by_user" 일 때, 연결이 풀리기 전에 붙어 있던 업무의 제목 (업무가 없으면 null) */
+  readonly unlinkedFromWorkTitle: string | null;
 }
 
 export interface InboxView {
@@ -126,7 +129,8 @@ export async function getInbox(deps: Pick<AppDeps, "store">): Promise<InboxView>
       items: unlinkedInProjects(s)
         .filter((u) => u.project.id === project.id)
         .map(({ snapshot }): InboxItemView => {
-          const decision = decideLink(snapshot, project.id, s.works);
+          const unlink = s.unlinks.get(prKey(snapshot));
+          const decision = decideLink(snapshot, project.id, s.works, { unlinkedByUser: unlink !== undefined });
           const markedWorkIds = decision.kind === "inbox" ? decision.markedWorkIds : [decision.workId];
           const markedWork = s.works.find((w) => w.id === markedWorkIds[0]);
           const isOtherProject = decision.kind === "inbox" && decision.reason === "other_project";
@@ -135,6 +139,7 @@ export async function getInbox(deps: Pick<AppDeps, "store">): Promise<InboxView>
             reason: decision.kind === "inbox" ? decision.reason : null,
             markedWorkIds,
             markedProjectName: isOtherProject ? (s.projects.find((p) => p.id === markedWork?.projectId)?.name ?? null) : null,
+            unlinkedFromWorkTitle: unlink === undefined ? null : (s.works.find((w) => w.id === unlink.workId)?.title ?? null),
           };
         }),
     }))
@@ -182,10 +187,11 @@ interface Loaded {
   readonly links: ReadonlyMap<string, PrLink>;
   readonly reviews: readonly ReviewDecision[];
   readonly previews: readonly PreviewRecord[];
+  readonly unlinks: ReadonlyMap<string, UnlinkRecord>;
 }
 
 async function loadAll(store: StudioStore): Promise<Loaded> {
-  const [projects, works, repositories, snapshots, links, reviews, previews] = await Promise.all([
+  const [projects, works, repositories, snapshots, links, reviews, previews, unlinks] = await Promise.all([
     store.listProjects(),
     store.listWorks(),
     store.listRepositories(),
@@ -193,15 +199,17 @@ async function loadAll(store: StudioStore): Promise<Loaded> {
     store.listLinks(),
     store.listReviewDecisions(),
     store.listPreviewRecords(),
+    store.listUnlinks(),
   ]);
   return {
     projects,
-    works: [...works].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    works: [...works].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)),
     repositories: new Map(repositories.map((r) => [r.id, r])),
     snapshots,
     links: new Map(links.map((l) => [prKey(l), l])),
     reviews,
     previews,
+    unlinks: new Map(unlinks.map((u) => [prKey(u), u])),
   };
 }
 

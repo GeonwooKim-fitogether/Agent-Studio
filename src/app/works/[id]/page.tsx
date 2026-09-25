@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getWorkDetail } from "../../../application/queries";
 import { getContainer } from "../../../server/container";
 import { WORK_STATUS } from "../../components/labels";
+import { unlinkAction } from "../../actions";
 import { PrCard, StateLegend } from "../../components/pr-card";
 
 export const dynamic = "force-dynamic";
@@ -45,7 +46,26 @@ export default async function WorkPage({ params }: { params: Promise<{ id: strin
           <div className="pr-list">
             <StateLegend />
             {prs.map((pr) => (
-              <PrCard key={pr.key} pr={pr} source={container.deps.reader.source} />
+              <PrCard
+                key={pr.key}
+                pr={pr}
+                source={container.deps.reader.source}
+                actions={
+                  // 오조작을 막는 확인 한 단계: 체크박스를 체크해야 제출된다. 자바스크립트 없이도 브라우저가 막는다(required).
+                  <form action={unlinkAction} className="unlink-form" data-testid="unlink-form">
+                    <input type="hidden" name="repoId" value={pr.repoId} />
+                    <input type="hidden" name="number" value={pr.number} />
+                    <input type="hidden" name="workId" value={work.id} />
+                    <label>
+                      <input type="checkbox" name="confirm" value="yes" required /> 이 PR 을 업무에서 떼어 Inbox 로 돌려보낸다
+                      (표식이 있어도 다시 자동으로 붙지 않는다)
+                    </label>
+                    <button type="submit" className="btn">
+                      Unlink
+                    </button>
+                  </form>
+                }
+              />
             ))}
           </div>
         )}

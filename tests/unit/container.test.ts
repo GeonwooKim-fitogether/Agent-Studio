@@ -62,7 +62,7 @@ describe("조립부의 REST 모드", () => {
           html_url: "https://github.com/demo-org/payments/pull/3",
           updated_at: "2026-09-24T00:00:00Z",
           user: { login: "a" },
-          head: { ref: "feat/x", sha },
+          head: { ref: "feat/x", sha, repo: { id: 710001 } },
         },
       ],
       [`https://api.github.com/repos/demo-org/payments/commits/${sha}/check-runs?per_page=100`]: { check_runs: [] },

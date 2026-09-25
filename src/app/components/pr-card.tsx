@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { PrCardView } from "../../application/queries";
 import type { DataSource } from "../../ports/github-reader";
 import { CHECKS, GITHUB_REVIEW, linkLabel, NO_INTERNAL_REVIEW, PR_STATE, shortSha, STATE_LEGEND, VERDICT } from "./labels";
@@ -15,7 +16,7 @@ export function StateLegend() {
  * PR 카드. GitHub 의 상태와 Studio 의 상태를 서로 다른 줄에 둔다 — 한 문장으로 합치지 않는다 (계약 §5).
  * GitHub 로 가는 링크는 진짜 GitHub 에서 읽었을 때만 둔다. 고정 데이터의 주소는 실재하지 않기 때문이다.
  */
-export function PrCard({ pr, source }: { pr: PrCardView; source: DataSource }) {
+export function PrCard({ pr, source, actions }: { pr: PrCardView; source: DataSource; actions?: ReactNode }) {
   const { github, studio } = pr;
   return (
     <article className="pr-card" data-testid={`pr-card-${pr.repoId}-${pr.number}`}>
@@ -66,6 +67,7 @@ export function PrCard({ pr, source }: { pr: PrCardView; source: DataSource }) {
           </dd>
         </div>
       </dl>
+      {actions}
     </article>
   );
 }

@@ -64,7 +64,9 @@ describe("자동 연결 판정", () => {
     { id: "bbb222", projectId: "p1", title: "업무 B", status: "draft", createdAt: "2026-09-01T00:00:00Z" },
     { id: "ccc333", projectId: "p2", title: "다른 프로젝트 업무", status: "draft", createdAt: "2026-09-01T00:00:00Z" },
   ];
-  const decide = (body: string, branch = "feat/x") => decideLink({ body, branch }, "p1", works);
+  const own = { repoId: 1, headRepoId: 1 }; // 브랜치가 그 저장소 자신에 있는 PR
+  const fresh = { unlinkedByUser: false };
+  const decide = (body: string, branch = "feat/x") => decideLink({ ...own, body, branch }, "p1", works, fresh);
 
   it("같은 프로젝트 업무의 표식이 정확히 하나면 자동 연결한다", () => {
     expect(decide("studio-work-aaa111")).toEqual({ kind: "auto", workId: "aaa111", foundIn: ["body"] });
@@ -89,13 +91,33 @@ describe("자동 연결 판정", () => {
 
   it("제목이 업무 제목과 같아도 표식이 없으면 붙이지 않는다 (추정 근거를 쓰지 않는다)", () => {
     // 실제 PR 스냅샷처럼 제목이 들어 있는 값을 그대로 넘긴다. 규칙이 제목을 보기 시작하면 이 시험이 깨진다.
-    const pr = { title: "업무 A", body: "업무 A", branch: "업무-A" };
-    expect(decideLink(pr, "p1", works)).toMatchObject({ kind: "inbox", reason: "no_marker" });
+    const pr = { ...own, title: "업무 A", body: "업무 A", branch: "업무-A" };
+    expect(decideLink(pr, "p1", works, fresh)).toMatchObject({ kind: "inbox", reason: "no_marker" });
   });
 
   it("제목에만 든 표식은 보지 않는다", () => {
-    const pr = { title: "studio-work-aaa111 로그인", body: "", branch: "feat/x" };
-    expect(decideLink(pr, "p1", works)).toMatchObject({ kind: "inbox", reason: "no_marker" });
+    const pr = { ...own, title: "studio-work-aaa111 로그인", body: "", branch: "feat/x" };
+    expect(decideLink(pr, "p1", works, fresh)).toMatchObject({ kind: "inbox", reason: "no_marker" });
+  });
+
+  it("복제본(fork)의 브랜치에서 온 PR 은 같은 프로젝트 업무의 표식이 있어도 Inbox 로 간다 (결정 10)", () => {
+    const pr = { repoId: 1, headRepoId: 2, body: "studio-work-aaa111", branch: "feat/studio-work-aaa111" };
+    expect(decideLink(pr, "p1", works, fresh)).toEqual({ kind: "inbox", reason: "fork_head", markedWorkIds: ["aaa111"] });
+  });
+
+  it("브랜치가 어느 저장소에 있는지 알 수 없으면(삭제된 복제본) 복제본으로 보고 Inbox 로 간다 (결정 10)", () => {
+    const pr = { repoId: 1, headRepoId: null, body: "studio-work-aaa111", branch: "feat/x" };
+    expect(decideLink(pr, "p1", works, fresh)).toMatchObject({ kind: "inbox", reason: "unknown_head" });
+  });
+
+  it("사람이 연결을 푼 PR 은 표식이 있어도 Inbox 로 간다 (결정 9)", () => {
+    const pr = { ...own, body: "studio-work-aaa111", branch: "feat/x" };
+    expect(decideLink(pr, "p1", works, { unlinkedByUser: true })).toEqual({
+      kind: "inbox",
+      reason: "unlinked_by_user",
+      markedWorkIds: ["aaa111"],
+    });
+    expect(decideLink(pr, "p1", works, fresh)).toMatchObject({ kind: "auto", workId: "aaa111" }); // 대조: 기록이 없으면 자동
   });
 
   it("studio-work-aaa111x 는 aaa111 에 붙지 않는다", () => {

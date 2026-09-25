@@ -143,7 +143,7 @@ describe("REST 읽기 어댑터", () => {
         html_url: "https://github.com/demo-org/payments/pull/12",
         updated_at: "2026-09-24T09:00:00Z",
         user: { login: "claude-cloud" },
-        head: { ref: "feat/login-page", sha: sha("a") },
+        head: { ref: "feat/login-page", sha: sha("a"), repo: { id: 710001, full_name: "demo-org/payments" } },
       },
       {
         number: 15,
@@ -154,7 +154,7 @@ describe("REST 읽기 어댑터", () => {
         html_url: "https://github.com/demo-org/payments/pull/15",
         updated_at: "2026-09-23T00:00:00Z",
         user: { login: "local-dev" },
-        head: { ref: "fix/session", sha: sha("b") },
+        head: { ref: "fix/session", sha: sha("b"), repo: null }, // 복제본이 지워지면 GitHub 가 head.repo 를 null 로 준다
       },
     ]),
     [`https://api.github.com/repos/demo-org/payments/commits/${sha("a")}/check-runs?per_page=100`]: json({
@@ -192,13 +192,14 @@ describe("REST 읽기 어댑터", () => {
         repoId: 710001,
         number: 12,
         branch: "feat/login-page",
+        headRepoId: 710001, // 그 저장소 자신의 브랜치
         headSha: sha("a"),
         state: "open",
         checks: "failing",
         review: "changes_requested",
         body: "studio-work-a1b2c3",
       }),
-      expect.objectContaining({ repoId: 710001, number: 15, state: "merged", checks: "none", review: "approved", body: "" }),
+      expect.objectContaining({ repoId: 710001, number: 15, headRepoId: null, state: "merged", checks: "none", review: "approved", body: "" }),
     ]);
   });
 

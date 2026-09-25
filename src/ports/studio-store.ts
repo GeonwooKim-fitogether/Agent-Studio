@@ -15,8 +15,22 @@ import type {
   Project,
   Repository,
   ReviewDecision,
+  UnlinkRecord,
   Work,
 } from "../domain/model";
+
+/**
+ * 서버가 처음 켜질 때 저장소에 심는 처음 상태(시연 데이터 등).
+ * GitHub 에서 받아 적는 것(저장소, PR 스냅샷)은 넣지 않는다 — 동기화가 채운다.
+ */
+export interface StudioSeed {
+  readonly projects?: readonly Project[];
+  readonly works?: readonly Work[];
+  readonly links?: readonly PrLink[];
+  readonly reviews?: readonly ReviewDecision[];
+  readonly previews?: readonly PreviewRecord[];
+  readonly unlinks?: readonly UnlinkRecord[];
+}
 
 export interface StudioStore {
   listProjects(): Promise<Project[]>;
@@ -27,6 +41,7 @@ export interface StudioStore {
   /**
    * 새 업무를 만들고 PR 하나를 그 업무에 연결한다 — 둘 다 되거나 둘 다 안 되는 하나의 연산이다.
    * PR 이 이미 연결돼 있거나 같은 ID 의 업무가 있으면 아무것도 남기지 않고 오류를 낸다.
+   * 사람의 연결이므로(origin "user"), 그 PR 의 연결 해제 기록이 있으면 같은 연산 안에서 지운다.
    * (따로 저장하면 동시 요청에서 연결 없는 빈 업무가 남는다. PostgreSQL 구현은 트랜잭션 하나로 한다.)
    */
   createWorkWithLink(work: Work, link: PrLink): Promise<void>;
@@ -40,8 +55,20 @@ export interface StudioStore {
 
   listLinks(): Promise<PrLink[]>;
   getLink(ref: PrRef): Promise<PrLink | undefined>;
-  /** 새 연결을 더한다. PR 하나에 연결은 하나뿐이므로, 이미 연결된 PR 이면 오류를 낸다. */
+  /**
+   * 새 연결을 더한다. PR 하나에 연결은 하나뿐이므로, 이미 연결된 PR 이면 already_linked 오류를 낸다.
+   * - 사람의 연결(origin "user")이면, 그 PR 의 연결 해제 기록을 같은 연산 안에서 지운다(결정 9: 사람이 다시 연결하면 표시가 사라진다).
+   * - 표식의 연결(origin "marker")이면, 연결 해제 기록이 있는 PR 에는 unlinked_by_user 오류를 내고 아무것도 쓰지 않는다.
+   *   판정(decideLink)이 이미 막지만, 판정과 쓰기 사이에 사람이 연결을 푼 경우까지 저장소가 막는다.
+   */
   addLink(link: PrLink): Promise<void>;
+
+  /**
+   * 연결을 푼다(Unlink). 그 PR 이 바로 그 업무에 연결돼 있을 때만, 연결 삭제와 해제 기록 저장을 하나의 연산으로 한다.
+   * 연결이 없거나 다른 업무에 연결돼 있으면 not_linked 오류를 내고 아무것도 바꾸지 않는다.
+   */
+  unlink(ref: PrRef & { readonly workId: string }, unlinkedAt: string): Promise<void>;
+  listUnlinks(): Promise<UnlinkRecord[]>;
 
   listReviewDecisions(): Promise<ReviewDecision[]>;
   addReviewDecision(decision: ReviewDecision): Promise<void>;

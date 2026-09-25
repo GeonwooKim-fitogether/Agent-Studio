@@ -23,7 +23,18 @@ npm run test:unit    # 단위 테스트 (계약 확인 시나리오 5개 포함)
 npm run test:e2e     # 첫 화면에서 출발하는 브라우저 테스트
 ```
 
-`GITHUB_TOKEN` 과 `GITHUB_REPOS` 를 설정하지 않으면 고정 시연 데이터로 돌고, 화면 상단에 "Fixture data" 로 표시됩니다. 두 값의 뜻은 [`.env.example`](.env.example) 에 있습니다. 저장이 서버 메모리라서 서버를 다시 켜면 처음 상태로 돌아갑니다.
+`GITHUB_TOKEN` 과 `GITHUB_REPOS` 를 설정하지 않으면 고정 시연 데이터로 돌고, 화면 상단에 "Fixture data" 로 표시됩니다. 두 값의 뜻은 [`.env.example`](.env.example) 에 있습니다.
+
+`DATABASE_URL` 이 없으면 저장은 서버 메모리라서 서버를 다시 켜면 처음 상태로 돌아갑니다(상단에 "Stored in memory"). 서버를 다시 켜도 업무와 연결이 남게 하려면 로컬 PostgreSQL 을 씁니다(Docker 필요, 상단에 "Stored in PostgreSQL"):
+
+```bash
+cp .env.example .env.local                                                    # 로컬 예시값 그대로 (APP_ENV=local)
+docker compose --env-file .env.local -f compose.local.yml up -d               # 로컬 PostgreSQL 16
+npm run db:migrate                                                            # 스키마 적용 (두 번 실행해도 바뀌지 않음)
+npm run dev                                                                   # .env.local 의 DATABASE_URL 을 읽는다
+```
+
+PostgreSQL 시험은 스키마를 지웠다 다시 만들므로 개발용 데이터베이스가 아니라 **이름에 `test` 가 들어간 빈 데이터베이스**를 `TEST_DATABASE_URL` 로 지정해 돌립니다(`TEST_DATABASE_URL=… npm run test:unit`, `TEST_DATABASE_URL=… npm run test:e2e:postgres`). 지정하지 않으면 PostgreSQL 시험은 건너뛰었다고 출력하고 넘어갑니다.
 
 ## 무엇을 먼저 만드나
 
@@ -42,7 +53,7 @@ npm run test:e2e     # 첫 화면에서 출발하는 브라우저 테스트
 | 누가 · 어디에서 · 무엇을 · 왜, 버튼이 실제로 할 일, 개발 순서 | [`docs/product/user-workflow-plan.html`](docs/product/user-workflow-plan.html) |
 | 화면 시안 (브라우저에서 클릭 가능, Demo mode) | [`docs/product/agent-studio-prototype.html`](docs/product/agent-studio-prototype.html) |
 | 무엇을 정했고 무엇이 열려 있나 | [`decisions.md`](decisions.md) |
-| 지금 만드는 단위의 범위와 통과 기준 | [`docs/plan/01-pr-collection.md`](docs/plan/01-pr-collection.md) |
+| 지금 만드는 단위의 범위와 통과 기준 | [`docs/plan/01-pr-collection.md`](docs/plan/01-pr-collection.md) · [`docs/plan/02-persistence-and-unlink.md`](docs/plan/02-persistence-and-unlink.md) |
 | 세션이 이 저장소에서 일할 때 지킬 것 | [`CLAUDE.md`](CLAUDE.md) |
 | 체계의 어색함을 기록하는 곳 | [`docs/lessons.md`](docs/lessons.md) |
 

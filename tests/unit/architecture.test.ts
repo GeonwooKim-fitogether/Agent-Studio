@@ -157,6 +157,8 @@ describe("아키텍처 경계", () => {
       'globalThis["fetch"]("https://example.com");',
       "new XMLHttpRequest();",
       "const env = process.env.GITHUB_TOKEN;",
+      'import pg from "pg";', // 데이터베이스 드라이버
+      'import { createPostgresStore } from "../adapters/store/postgres/postgres-store";', // 저장 어댑터
       'import { prKey } from "./model";', // 허용
     ].join("\n");
     expect(violationsOf(file, source, ["src/domain"])).toEqual([
@@ -174,12 +176,18 @@ describe("아키텍처 경계", () => {
       "next/cache",
       NON_LITERAL_IMPORT,
       "next",
+      "pg",
+      "../adapters/store/postgres/postgres-store",
       "global:fetch",
       "global:globalThis.fetch",
       "global:globalThis.fetch",
       "global:XMLHttpRequest",
       "global:process",
     ]);
+    // 줄 순서와 무관하게 두 가지를 확인한다: 드라이버 pg 와 postgres 어댑터 import 도 잡는다
+    const fromApplication = violationsOf(join(ROOT, "src/application/example.ts"), source, ["src/domain", "src/application", "src/ports"]);
+    expect(fromApplication).toContain("pg");
+    expect(fromApplication).toContain("../adapters/store/postgres/postgres-store");
   });
 
   it("스캐너 자체 시험: 주석 · 문자열 · 속성 이름에는 속지 않는다", () => {

@@ -9,6 +9,7 @@
 import { type Browser, expect, type Locator, type Page, test } from "@playwright/test";
 
 const SHOTS = "docs/plan/screenshots";
+const POSTGRES = process.env.E2E_STORAGE === "postgres";
 const nav = (page: Page) => page.getByRole("navigation", { name: "Main" });
 
 /** 이 페이지에서 500 이상의 응답이 오면 모아 둔다. 시험 끝에 비어 있어야 한다. */
@@ -47,7 +48,13 @@ test("Workspace 에서 Inbox 로 가서 PR 을 기존 업무에 연결하면, �
   // 데이터 출처, "다시 켜면 처음 상태", 한국 시간이 보인다
   const source = page.getByTestId("data-source");
   await expect(source).toContainText("Fixture data");
-  await expect(source).toContainText("서버를 다시 켜면 처음 상태로 돌아간다");
+  if (POSTGRES) {
+    await expect(page.getByTestId("storage-kind")).toHaveText("Stored in PostgreSQL");
+    await expect(source).not.toContainText("서버를 다시 켜면 처음 상태로 돌아간다");
+  } else {
+    await expect(page.getByTestId("storage-kind")).toHaveText("Stored in memory");
+    await expect(source).toContainText("서버를 다시 켜면 처음 상태로 돌아간다");
+  }
   await expect(page.getByTestId("last-sync")).toHaveText(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} KST$/);
   await expect(page.getByTestId("state-legend")).toContainText("GitHub 에 반영되지 않는다");
 
@@ -209,6 +216,68 @@ test.describe("자바스크립트를 끈 브라우저", () => {
     expect(serverErrors.flat()).toEqual([]);
     await context.close();
   });
+});
+
+test("업무 화면에서 Unlink 하면 PR 이 Inbox 로 돌아가고, 표식이 있어도 Sync 로 다시 붙지 않으며, 사람이 다시 연결할 수 있다", async ({
+  page,
+  context,
+}) => {
+  const serverErrors = watchServerErrors(page);
+  await page.goto("/");
+  // 클릭으로 업무 화면에 간다
+  await page.getByTestId("work-a1b2c3").getByRole("link", { name: "로그인 화면 만들기" }).click();
+  await expect(page).toHaveURL(/\/works\/a1b2c3$/);
+  const stalePage = await context.newPage(); // 같은 업무 화면을 연 다른 탭 (나중에 오래된 화면이 된다)
+  await stalePage.goto("/");
+  await stalePage.getByTestId("work-a1b2c3").getByRole("link", { name: "로그인 화면 만들기" }).click();
+
+  const card = page.getByTestId("pr-card-710001-12");
+  await expect(card.getByTestId("link-origin")).toHaveText("Linked by marker (body)");
+  // 확인 체크 없이 누르면 브라우저가 제출을 막는다
+  await card.getByRole("button", { name: "Unlink" }).click();
+  await expect(page).toHaveURL(/\/works\/a1b2c3$/);
+  await expect(page.getByTestId("pr-card-710001-12")).toBeVisible();
+
+  // 체크하고 Unlink
+  await card.getByRole("checkbox").check();
+  await card.getByRole("button", { name: "Unlink" }).click();
+  await expect(page).toHaveURL(/\/inbox\?notice=unlinked/);
+  await expect(page.getByTestId("inbox-notice")).toContainText("demo-org/payments#12)의 연결을 풀었다");
+  const item = page.getByTestId("inbox-710001-12");
+  await expect(item.getByTestId("inbox-reason")).toContainText("사람이 이 PR 의 연결을 풀었다('로그인 화면 만들기' 업무에서)");
+
+  // 표식이 본문에 그대로 있어도 Sync 가 다시 붙이지 않는다
+  await page.getByRole("button", { name: "Sync" }).click();
+  await expect(page.getByTestId("inbox-710001-12").getByTestId("inbox-reason")).toContainText("사람이 이 PR 의 연결을 풀었다");
+  await page.screenshot({ path: `${SHOTS}/06-inbox-after-unlink.png`, fullPage: true });
+
+  // 오래된 탭에서 같은 PR 을 다시 Unlink 하면 500 대신 사유 안내
+  const staleErrors = watchServerErrors(stalePage);
+  const staleCard = stalePage.getByTestId("pr-card-710001-12");
+  await staleCard.getByRole("checkbox").check();
+  await staleCard.getByRole("button", { name: "Unlink" }).click();
+  await expect(stalePage).toHaveURL(/\/inbox\?notice=not_linked/);
+  await expect(stalePage.getByTestId("inbox-notice")).toContainText("그 업무에 연결돼 있지 않아 처리하지 않았다");
+
+  // 사람이 Inbox 에서 다시 연결하면 정상으로 붙는다
+  await nav(page).getByRole("link", { name: "Inbox" }).click();
+  const again = page.getByTestId("inbox-710001-12");
+  await again.getByLabel("Work").selectOption({ label: "로그인 화면 만들기 · studio-work-a1b2c3" });
+  await again.getByRole("button", { name: "Link to Work" }).click();
+  await expect(page).toHaveURL(/\/works\/a1b2c3$/);
+  await expect(page.getByTestId("pr-card-710001-12").getByTestId("link-origin")).toHaveText("Linked manually");
+  expect([...serverErrors, ...staleErrors]).toEqual([]);
+});
+
+test("복제본에서 온 PR 은 같은 프로젝트 업무의 표식이 있어도 Inbox 에 이유와 함께 있다", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByTestId("work-a1b2c3").getByTestId("pr-card-710001-18")).toHaveCount(0);
+  await nav(page).getByRole("link", { name: "Inbox" }).click();
+  const fork = page.getByTestId("inbox-710001-18");
+  await expect(fork).toContainText("외부 기여: 로그인 오류 문구 다듬기");
+  await expect(fork.getByTestId("inbox-reason")).toContainText("PR 의 브랜치가 다른 저장소(복제본)에 있다");
+  await fork.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `${SHOTS}/07-inbox-fork-pr.png`, fullPage: true });
 });
 
 test("Inbox 가 비면 Workspace 는 강조 카드 대신 비어 있다는 문장을 보여 준다", async ({ page }) => {
