@@ -8,8 +8,22 @@
 |---|---|
 | 기획 | 확정. 문제 정의 · 사용자 흐름 · 화면 시안 · 개발 순서가 [`docs/product/`](docs/product/) 에 있습니다 |
 | 0단계 계약 정의 | 문서로 정리됨. [`docs/plan/00-domain-contract.md`](docs/plan/00-domain-contract.md) |
-| 기술 스택 | 미정. [`decisions.md`](decisions.md) 의 열린 결정 A |
-| 코드 | 아직 없음 |
+| 기술 스택 | TypeScript 한 벌 — Next.js + Node + PostgreSQL ([`decisions.md`](decisions.md) 결정 8) |
+| 1단계 PR 모으기 | 첫 완결 단위 진행 중. 고정 시연 데이터로 PR 을 업무에 모으고 Inbox 에서 연결합니다. 저장은 아직 서버 메모리입니다. [`docs/plan/01-pr-collection.md`](docs/plan/01-pr-collection.md) |
+
+## 실행하기
+
+Node 22 가 필요합니다. 저장소 루트에서:
+
+```bash
+npm ci
+npm run dev          # http://localhost:3000 — 첫 화면이 Workspace 입니다
+npm run typecheck    # 타입 검사
+npm run test:unit    # 단위 테스트 (계약 확인 시나리오 5개 포함)
+npm run test:e2e     # 첫 화면에서 출발하는 브라우저 테스트
+```
+
+`GITHUB_TOKEN` 과 `GITHUB_REPOS` 를 설정하지 않으면 고정 시연 데이터로 돌고, 화면 상단에 "Fixture data" 로 표시됩니다. 두 값의 뜻은 [`.env.example`](.env.example) 에 있습니다. 저장이 서버 메모리라서 서버를 다시 켜면 처음 상태로 돌아갑니다.
 
 ## 무엇을 먼저 만드나
 
@@ -28,6 +42,7 @@
 | 누가 · 어디에서 · 무엇을 · 왜, 버튼이 실제로 할 일, 개발 순서 | [`docs/product/user-workflow-plan.html`](docs/product/user-workflow-plan.html) |
 | 화면 시안 (브라우저에서 클릭 가능, Demo mode) | [`docs/product/agent-studio-prototype.html`](docs/product/agent-studio-prototype.html) |
 | 무엇을 정했고 무엇이 열려 있나 | [`decisions.md`](decisions.md) |
+| 지금 만드는 단위의 범위와 통과 기준 | [`docs/plan/01-pr-collection.md`](docs/plan/01-pr-collection.md) |
 | 세션이 이 저장소에서 일할 때 지킬 것 | [`CLAUDE.md`](CLAUDE.md) |
 | 체계의 어색함을 기록하는 곳 | [`docs/lessons.md`](docs/lessons.md) |
 
