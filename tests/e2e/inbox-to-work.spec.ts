@@ -300,15 +300,22 @@ test("복제본에서 온 PR 은 같은 프로젝트 업무의 표식이 있어�
 
 test("Inbox 가 비면 Workspace 는 강조 카드 대신 비어 있다는 문장을 보여 준다", async ({ page }) => {
   const serverErrors = watchServerErrors(page);
+  // Inbox 링크를 누른 뒤 Inbox 화면이 다 뜬 것을 확인하고 나서 버튼을 센다.
+  // 확인 없이 세면 느린 환경(CI)에서 아직 이전 화면을 세어 0 이 나오고, 반복이 일찍 끝난다.
+  const openInbox = async () => {
+    await nav(page).getByRole("link", { name: "Inbox" }).click();
+    await expect(page).toHaveURL(/\/inbox(\?|$)/);
+    await expect(page.getByRole("heading", { level: 1, name: "Inbox" })).toBeVisible();
+  };
   await page.goto("/");
-  await nav(page).getByRole("link", { name: "Inbox" }).click();
+  await openInbox();
   // 남은 Inbox PR 을 모두 New Work 로 치운다 (앞 시험의 결과에 기대지 않는다)
   for (let guard = 0; guard < 10; guard += 1) {
     const button = page.getByRole("button", { name: "New Work" }).first();
     if ((await button.count()) === 0) break;
     await button.click();
     await expect(page).toHaveURL(/\/works\//);
-    await nav(page).getByRole("link", { name: "Inbox" }).click();
+    await openInbox();
   }
   await expect(page.getByTestId("inbox-empty")).toBeVisible();
 
