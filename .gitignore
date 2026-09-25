@@ -27,3 +27,22 @@ _site/
 # 사용자가 승인한 그 순간에만 존재했다가 쓰이면 사라지는 파일이므로, 저장소에
 # 들어가면 안 된다. 커밋되는 순간 "항상 열려 있는 열쇠"가 되어 장치가 무력해진다.
 .claude/sql-write-unlock
+
+# ── 앱 (Next.js · TypeScript · 테스트) ──────────────────────────────────────
+# 빌드 산출물과 TypeScript 가 만드는 파일. next-env.d.ts 는 `npm run typecheck` 가 `next typegen` 으로 다시 만든다.
+/.next/
+/out/
+*.tsbuildinfo
+next-env.d.ts
+
+# 로컬 비밀값. `.env.example` 은 값 없는 목록이라 커밋하고, 실제 값은 `.env.local` 에만 둔다.
+.env
+.env.local
+.env.*.local
+
+# Playwright 산출물. 보고용 스크린샷은 docs/plan/screenshots/ 에 따로 저장해 커밋한다.
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/coverage/

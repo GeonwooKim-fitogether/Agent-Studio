@@ -1,34 +1,67 @@
-# FITogether Claude Tools 🛠️
+# Agent Studio
 
-FITogether 팀의 **Claude Code 공용 자산 창고 + 새 프로젝트 템플릿**입니다.
-"공용 자산"은 스킬·규칙·에이전트·커맨드 네 가지를 말합니다. 이 repo 하나가 아래 다섯 가지 역할을 합니다:
+여러 프로젝트를 Claude 클라우드 · 로컬 · 동료의 환경에서 병렬로 개발해도 **업무의 맥락과 코드의 현재 상태를 잃지 않게 하는 작업 공간**을 만드는 저장소입니다. 사용자는 Slack 처럼 대화하고 Dify 처럼 Agent 와 Skill 을 흐름도에 배치하며, 코드의 실제 상태는 언제나 GitHub 의 PR 을 그대로 비춥니다.
 
-1. **스킬 창고** — 모든 공용 스킬이 `.claude/skills/` 에 들어있습니다. 스킬은 여기서만 편집합니다.
-2. **공용 규칙 창고** — 모든 프로젝트가 함께 지켜야 하는 규칙(예: 채팅·문서 어투 규칙)이 `.claude/rules/` 에 들어있습니다. 규칙도 여기서만 편집합니다. `.claude/rules/*.md` 는 세션 시작 시 Claude Code가 **자동으로 읽습니다**(CLAUDE.md와 같은 우선순위). 그래서 파일만 내려가면 별도 설정 없이 바로 적용됩니다. 어떤 규칙이 있는지는 아래 [공용 규칙](#-공용-규칙) 표에 있습니다.
-3. **공용 에이전트 창고** — 모든 프로젝트에서 불러 쓰는 서브에이전트가 `.claude/agents/` 에 들어있습니다. 예를 들어 `doc-clarifier` 는 안 읽히는 마크다운 문서를 구조적·논리적·시각적으로 다시 써 주는 편집자 에이전트입니다. `.claude/agents/*.md` 는 서브에이전트로 **자동 등록**되므로, 파일만 내려가면 바로 부를 수 있습니다.
-4. **공용 커맨드 창고** — 세션에서 `/이름` 으로 직접 부르는 지휘·게이트 도구가 `.claude/commands/` 에 들어있습니다. 에이전트가 "불려 오는 전문가"라면 커맨드는 **메인 세션이 직접 맡는 역할**이라, 서브에이전트를 실제로 띄워 여러 전문가를 지휘하거나 PR·머지를 관문으로 검사할 수 있습니다. `.claude/commands/*.md` 는 슬래시 커맨드로 자동 등록됩니다. 어떤 커맨드가 있는지는 아래 [포함된 커맨드](#-포함된-커맨드) 표에 있습니다.
-5. **프로젝트 템플릿** — 이 repo에서 **"Use this template"** 으로 새 프로젝트를 시작하면,
-   스킬·규칙·에이전트·커맨드가 그대로 따라가 **클라우드·로컬 어디서든 자동 로드**됩니다.
+## 지금 상태
 
-> 💡 Claude Code 웹/클라우드에는 플러그인·마켓플레이스 기능이 없습니다. 그래서 스킬을
-> **파일 자체로 repo에 넣는(vendor)** 이 방식이 클라우드·로컬 모두에서 동작하는 정공법입니다.
+| 항목 | 상태 |
+|---|---|
+| 기획 | 확정. 문제 정의 · 사용자 흐름 · 화면 시안 · 개발 순서가 [`docs/product/`](docs/product/) 에 있습니다 |
+| 0단계 계약 정의 | 문서로 정리됨. [`docs/plan/00-domain-contract.md`](docs/plan/00-domain-contract.md) |
+| 기술 스택 | TypeScript 한 벌 — Next.js + Node + PostgreSQL ([`decisions.md`](decisions.md) 결정 8) |
+| 1단계 PR 모으기 | 두 단위 작업완료. PR 을 업무에 모으고 Inbox 에서 연결 · 해제(Unlink)하며, 복제본 PR 은 자동 연결하지 않습니다. 저장은 PostgreSQL(없으면 메모리)입니다. 진짜 GitHub 로는 아직 돌려 보지 않았습니다. [`01`](docs/plan/01-pr-collection.md) · [`02`](docs/plan/02-persistence-and-unlink.md) |
 
----
+## 실행하기
 
-## 🚀 새 프로젝트 시작하기
+Node 22 가 필요합니다. 저장소 루트에서:
 
-1. 이 repo에서 초록색 **`Use this template`** ▸ **`Create a new repository`** 클릭
-2. 새 repo를 Claude Code(웹·데스크톱·터미널)로 열기
-3. 끝. 세션 시작 시 네 가지가 모두 자동으로 붙습니다.
-   - **스킬**: `/` 를 눌러 `humanizer`, `superpower` 등이 보이면 성공.
-   - **규칙**: `.claude/rules/*.md` 가 세션 시작 시 자동 로드됩니다(예: 채팅·문서 어투 규칙).
-   - **에이전트**: `.claude/agents/*.md` 가 서브에이전트로 자동 등록됩니다(예: `doc-clarifier`).
-   - **커맨드**: `.claude/commands/*.md` 가 슬래시 커맨드로 자동 등록됩니다(예: `/orchestrate`).
+```bash
+npm ci
+npm run dev          # http://localhost:3000 — 첫 화면이 Workspace 입니다
+npm run typecheck    # 타입 검사
+npm run test:unit    # 단위 테스트 (계약 확인 시나리오 5개 포함)
+npm run test:e2e     # 첫 화면에서 출발하는 브라우저 테스트
+```
 
-> 로컬에서 쓸 거면 만든 repo를 `git clone` 하면 됩니다. `.claude/skills/`·`.claude/rules/`·`.claude/agents/`
-> 가 그대로 따라오니 로컬 Claude Code에서도 똑같이 자동 로드됩니다. 별도 설치·명령어 없음.
+`GITHUB_TOKEN` 과 `GITHUB_REPOS` 를 설정하지 않으면 고정 시연 데이터로 돌고, 화면 상단에 "Fixture data" 로 표시됩니다. 두 값의 뜻은 [`.env.example`](.env.example) 에 있습니다.
 
----
+`DATABASE_URL` 이 없으면 저장은 서버 메모리라서 서버를 다시 켜면 처음 상태로 돌아갑니다(상단에 "Stored in memory"). 서버를 다시 켜도 업무와 연결이 남게 하려면 로컬 PostgreSQL 을 씁니다(Docker 필요, 상단에 "Stored in PostgreSQL"):
+
+```bash
+cp .env.example .env.local                                                    # 로컬 예시값 그대로 (APP_ENV=local)
+docker compose --env-file .env.local -f compose.local.yml up -d               # 로컬 PostgreSQL 16
+npm run db:migrate                                                            # 스키마 적용 (두 번 실행해도 바뀌지 않음)
+npm run dev                                                                   # .env.local 의 DATABASE_URL 을 읽는다
+```
+
+e2e 는 평소에 보고용 스크린샷(`docs/plan/screenshots/`)을 덮어쓰지 않습니다. 화면을 바꿔 스크린샷을 새로 찍을 때만 `UPDATE_SCREENSHOTS=1 npm run test:e2e` 로 돌립니다.
+
+PostgreSQL 시험은 스키마를 지웠다 다시 만들므로 개발용 데이터베이스가 아니라 **이름에 `test` 가 들어간 빈 데이터베이스**를 `TEST_DATABASE_URL` 로 지정해 돌립니다(`TEST_DATABASE_URL=… npm run test:unit`, `TEST_DATABASE_URL=… npm run test:e2e:postgres`). 지정하지 않으면 PostgreSQL 시험은 건너뛰었다고 출력하고 넘어갑니다.
+
+## 무엇을 먼저 만드나
+
+개발 순서는 네 단계이며, 첫 제품의 성공 기준은 1 · 2단계입니다.
+
+1. **계약 정의** — 업무 하나와 PR 하나가 이어지는 규칙. ([`docs/plan/00-domain-contract.md`](docs/plan/00-domain-contract.md))
+2. **PR 모으기** — 저장소 5개 이상의 PR 을 읽어 업무에 표시하고, 연결이 모호한 PR 은 Inbox 에 둡니다.
+3. **원격 미리보기** — PR 1건의 특정 커밋을 Mac Pro 가 실행하고, 휴대전화에서 접근 제한된 미리보기를 엽니다.
+4. **Studio 에서 AI 실행** — 사용자가 직접 로그인한 공식 클라이언트(Claude Code · Codex 등)의 구독으로 Agent 를 실행합니다.
+
+## 문서 지도
+
+| 알고 싶은 것 | 문서 |
+|---|---|
+| 왜 만드는가, 사용자는 어떻게 일하는가 (비전공자용 요약) | [`docs/product/ceo-brief.md`](docs/product/ceo-brief.md) |
+| 누가 · 어디에서 · 무엇을 · 왜, 버튼이 실제로 할 일, 개발 순서 | [`docs/product/user-workflow-plan.html`](docs/product/user-workflow-plan.html) |
+| 화면 시안 (브라우저에서 클릭 가능, Demo mode) | [`docs/product/agent-studio-prototype.html`](docs/product/agent-studio-prototype.html) |
+| 무엇을 정했고 무엇이 열려 있나 | [`decisions.md`](decisions.md) |
+| 지금 만드는 단위의 범위와 통과 기준 | [`docs/plan/01-pr-collection.md`](docs/plan/01-pr-collection.md) · [`docs/plan/02-persistence-and-unlink.md`](docs/plan/02-persistence-and-unlink.md) |
+| 세션이 이 저장소에서 일할 때 지킬 것 | [`CLAUDE.md`](CLAUDE.md) |
+| 체계의 어색함을 기록하는 곳 | [`docs/lessons.md`](docs/lessons.md) |
+
+## 이 저장소가 창고에서 물려받은 것
+
+이 저장소는 FITogether 의 공용 자산 창고([Template-repository](https://github.com/GeonwooKim-fitogether/Template-repository))를 템플릿으로 만들었습니다. `.claude/` 아래의 스킬 · 규칙 · 에이전트 · 커맨드 · 훅은 창고가 원본이고 동기화 봇(`.github/workflows/sync-skills.yml`)이 내려보내므로 **여기서 고치지 않습니다**. 아래 두 표는 상속받은 자동 검사(`readme-skills.yml` · `asset-graph.yml`)가 대조하는 목록이라 그대로 둡니다. 각 자산의 자세한 설명은 창고의 README 에 있습니다.
 
 ## 📚 포함된 스킬
 
@@ -63,80 +96,6 @@ FITogether 팀의 **Claude Code 공용 자산 창고 + 새 프로젝트 템플�
 
 ---
 
-## 📦 포함된 규칙·에이전트
-
-스킬 외에 공용 규칙과 에이전트도 함께 배포됩니다.
-
-| 종류 | 이름 | 무엇을 해주나요 |
-|------|------|----------------|
-| 규칙 | `communication.md` | 채팅·문서를 압축된 기호 대신 한 번에 읽히는 문장으로 쓰게 하는 어투 규칙. 세션 시작 시 자동 로드 |
-| 에이전트 | `doc-clarifier` | 안 읽히는 마크다운을 구조적·논리적·시각적으로 다시 써 주는 편집자. "이 문서 정리해 줘"로 호출 |
-| 에이전트 | `kimpm` | 필요할 때 불러쓰는 시니어 PM 파트너. 목표를 못 박고, 세 내장 능력 — "깊은 심의"(결정)·"깊은 설명"(다섯 사상가의 사고 렌즈)·"깊은 보고"(목적에 맞춘, 소제목만 훑어도 스토리가 서는 구조적·시각적 보고) — 으로 일하며, 팀 스킬을 지휘해 완결성 있는 결과를 냄. "KimPM 불러줘"로 호출 |
-| 에이전트 | `kimdesigner` | 필요할 때 불러쓰는 시니어 프로덕트 디자이너 파트너. CSS만 써 놓고 끝내지 않고, 화면을 실제로 렌더해 스크린샷을 눈으로 본 뒤 다섯 렌즈(레이아웃·간격, 타이포·위계, 색·대비, 상호작용·상태, 일관성)로 진단해 고치는 "시각 반복 루프"로 완성도를 냄. 초기 디자인은 `frontend-design`(디자인 방향)과 `superpower`(스펙·계획)를 함께 씀. "이 화면 디자인 봐줘 / 다듬어줘"로 호출 |
-| 에이전트 | `kimdeveloper` | 필요할 때 불러쓰는 시니어 개발자 파트너. 코드만 쏟아내고 끝내지 않고, 설계로 열고(`superpower`·`grill-me`로 스펙·요구 취조) 절제해 구현하고(`andrepathy`·`ponytail`로 과잉 억제) 실제로 빌드·실행·테스트해 동작을 확인한 뒤 닫는 "구현 루프"를 돎. 디자이너의 프로토타입을 픽셀이 아니라 의도로 재현하고, 코드베이스의 스택·규약을 먼저 읽어 그 위에서 짬. "이거 구현해줘 / 이 시안대로 만들어줘"로 호출 |
-| 에이전트 | `kimqa` | 필요할 때 불러쓰는 시니어 QA(품질보증) 파트너. "통과했다"로 끝내지 않고, 시작 전에 무엇이 품질인지 먼저 물어 기준을 세운 뒤 `qa-swarm`으로 실제 사용자처럼 써보며 막힘·엣지·다자 마찰을 찾음 — Layer 1(넓이, 정보 없는 첫 사용자)·Layer 2(깊이, 작정한 전문가). 무엇을 확인했고 무엇을 못 했는지 커버리지 장부로 정직하게 남김. 코드 레벨 검증은 kimdeveloper, 하드웨어 설계 품질은 drbfm-qa의 몫이라 kimqa는 다루지 않음. "이거 QA 해줘 / 품질 검증해줘"로 호출 |
-
----
-
-## 🧭 포함된 커맨드
-
-커맨드는 세션에서 `/이름` 으로 직접 부르는 도구입니다. 에이전트와의 차이는 **누가 그 역할을 맡느냐**입니다. 에이전트는 메인 세션이 별도로 띄우는 서브에이전트라 또 다른 서브에이전트를 띄우지 못하는데, 커맨드는 **메인 세션 자신이 그 역할을 맡으므로** 서브에이전트를 실제로 띄워 여러 전문가를 지휘할 수 있습니다. 그래서 지휘·게이트 성격의 도구는 에이전트가 아니라 커맨드로 만들었습니다.
-
-| 커맨드 | 무엇을 해주나요 |
-|------|----------------|
-| [`/orchestrate`](.claude/commands/orchestrate.md) | **KimLead — 팀 총괄(세로축).** 큰 요청 하나를 단계로 분해해 Kim 전문가들(`kimpm`·`kimdesigner`·`kimdeveloper`·`kimqa`·`doc-clarifier`)을 실제로 호출해 지휘하고, 앞 단계의 산출을 다음 단계에 물려주며, 판돈 큰 산출은 적대 검증 게이트를 거쳐 결과를 하나로 통합해 정직하게 마감합니다. 처음 쓴다면 [KimLead 사용가이드](docs/system-layer/kimlead-guide.md)를 먼저 읽으세요 — 언제 부르고 언제 부르지 않는지, 무엇이 돌아오는지, 사람이 판단해야 하는 것이 무엇인지를 사용자 관점으로 정리해 두었습니다. |
-| [`/kimorchestrator`](.claude/commands/kimorchestrator.md) | **KimOrchestrator — 시스템 오케스트레이터(가로축).** 아무것도 새로 만들지 않고, 여러 파트를 가로지르는 정합(척추·데이터 모델·디자인·파트 간 흐름·머지 순서)을 상시 지킵니다. 시스템층 장치(스윕·게이트·머지 게이트·현황판·계약 레지스트리)를 부려 예외와 갈림길만 사람에게 올립니다. 처음 쓴다면 [KimOrchestrator 사용가이드](docs/system-layer/kimorchestrator-guide.md)를 먼저 읽으세요 — 무엇을 대신 정하고 무엇이 사람에게 올라오는지, 어떤 장치를 언제 부리는지, 그리고 지시문이 가리키지만 이 repo에는 없는 참조 두 개(계약 레지스트리·문서 거버넌스)를 그때 무엇으로 대신 판정하는지를 사용자 관점으로 정리해 두었습니다. |
-| [`/pr-gate`](.claude/commands/pr-gate.md) | **PR 크로스컷 게이트.** PR 하나를 시스템 관점 네 축으로 검토합니다 — 바꾼 것에 맞는 문서를 같이 갱신했나, 척추를 어기지 않나, 다른 파트가 쓰는 공유물을 건드리나, 만든 것이 화면에 실제로 연결되고 실환경에 적용됐나. 이 중 **기계로 판정 가능한 부분은 `pr-gate-check.yml`이 PR마다 자동으로** 돌고(아래 PR 자동 검사 참고), 판단이 필요한 잔여만 이 커맨드로 봅니다. |
-| [`/sysreport`](.claude/commands/sysreport.md) | **통합 현황판 + 결정 큐.** 파트별로 흩어진 팀 보고를 모아 시스템 전체 현황판 하나와 결정 큐 하나로 종합합니다. 중복 결정은 합치고, 파트끼리 충돌하는 결정은 최우선으로 올려 총괄이 볼 것을 두 개로 줄입니다. |
-| [`/merge-gate`](.claude/commands/merge-gate.md) | **머지 게이트.** 오래된 base에서 딴 브랜치를 최신화 없이 머지해 **남의 최신 작업이 조용히 되돌아가는 사고**를 막습니다. 최신화 확인, `/pr-gate` 재실행, 계약 충돌 교차 탐지, 되돌림 사전 시뮬레이션을 거친 뒤 머지 큐로 하나씩 직렬 머지합니다. |
-
-> 커맨드도 스킬·규칙·에이전트와 똑같이 **이 repo의 `.claude/commands/` 에서만** 관리합니다. 동기화 봇(`.github/workflows/sync-skills.yml`)이 `.claude/commands/` 와 `.claude/workflows/` 도 함께 내려보내므로, 하위 프로젝트는 손댈 것이 없습니다.
-
----
-
-## 🔄 스킬 추가 / 수정 / 삭제 (관리자용)
-
-스킬은 **이 repo의 `.claude/skills/` 에서만** 관리합니다.
-
-- **수정**: `.claude/skills/<스킬>/SKILL.md` 를 고치고 커밋.
-- **추가**: `.claude/skills/<새스킬>/SKILL.md` 를 만들고 커밋.
-- **삭제**: 해당 폴더를 지우고 커밋.
-
-### 하위 프로젝트는 어떻게 최신이 되나 (수동 포인트 0)
-이 템플릿에는 `.github/workflows/sync-skills.yml`(자가 동기화 봇)이 들어있습니다.
-**"Use this template"로 만든 모든 repo가 이 봇을 함께 물려받아**, 매주 이 창고의
-`.claude/skills/` · `.claude/rules/` · `.claude/agents/` · `.claude/commands/` · `.claude/workflows/` 와
-[공용 도구 허용 목록](#-공용-도구-허용-목록-관리자용)을 자기 repo로 다시 받아옵니다.
-즉 창고만 고치면 하위 프로젝트들이 알아서 따라옵니다. (즉시 반영이 필요하면 그 repo의 Actions에서 워크플로를 수동 실행)
-
-> ⚠️ **동기화 봇은 `.claude/` 만 내려보냅니다.** `.github/workflows/` 와 각 repo의 `CLAUDE.md` 는
-> 동기화 대상이 아니라 저장소별로 관리합니다. 아래 PR 게이트처럼 워크플로를 새로 추가할 때는
-> 기존 repo에 **직접 넣어야** 합니다("Use this template"로 새로 만든 repo는 함께 물려받습니다).
-
-## 🚦 PR 자동 검사 (GitHub Actions)
-
-PR이 열리거나 갱신될 때 자동으로 도는 검사들입니다. 사람이 매번 기억해서 확인하던 규칙을 검사로 격상한 것입니다.
-
-| 워크플로 | 무엇을 검사하나 | 상태 |
-|---|---|---|
-| `pr-gate-check.yml` | **크로스컷 게이트 (결정론적)** — [`/pr-gate`](.claude/commands/pr-gate.md)의 네 축에서 **기계로 판정 가능한 전부**를 검사한다: 문서 갱신 매트릭스 대조 · 척추 컬럼을 발효 경로 밖에서 쓰는 코드 · 계약 레지스트리 공유물 접촉 · **배선·적용**(고아 코드 · 진입점 누락 · 적용 꼬리표 · **죽은 스위치**). **LLM을 쓰지 않아 API 비용이 없고 시크릿도 필요 없다** | 1단계(경고) |
-| `branch-overlap.yml` | **브랜치 겹침 알림** — 푸시 시점에 같은 파일을 만지는 다른 브랜치를 알린다. 여러 세션이 서로를 모른 채 같은 것을 두 번 만드는 것을 막는다. API 키 불필요 | 알림만 (차단하지 않음) |
-| `file-registry.yml` | 파일 등록부에 없는 새 파일(반발산 게이트) | 1단계(경고) |
-| `readme-skills.yml` | 스킬 폴더가 추가됐는데 README 표에 행이 없는 드리프트 (창고 전용) | 차단 |
-| `asset-graph.yml` | **자산 그래프 정합** — "함께 움직여야 하는" 자산 묶음(예: db-write 규칙 + 훅 + 설정)이 반쪽만 있는지, 문서가 가리키는 파일이 없는 죽은 참조인지, 규칙이 README 표에 빠졌는지를 `.claude/workflows/asset-graph.json`(정본 그래프) 기준으로 검사한다. 검사기는 `.claude/workflows/asset-graph-check.mjs`이고 동기화 봇이 하위 저장소로도 내려보낸다 | 1단계(경고) |
-| `environment-standard-check.yml` | **웹앱 환경 표준** — 환경 규칙·로컬 PostgreSQL Compose·환경변수 계약·DB 변경 요청서가 함께 있는지와 문법을 검사한다. AI/API 호출 없음 | 차단 |
-
-### 게이트가 두 경로로 나뉘어 있는 이유
-
-크로스컷 게이트는 **기계 검사와 판단 검사로 갈라져** 있습니다. 이 구분을 알아야 "초록불인데 왜 통과가 아닌가"를 오해하지 않습니다.
-
-- **기계 검사(`pr-gate-check.yml`, 자동, 비용 없음).** 네 축에서 기계로 판정 가능한 것을 전부 봅니다. 두뇌는 `.claude/workflows/pr-gate-check.mjs` 하나이고 워크플로는 그것을 부르는 얇은 호출부입니다. `.claude/` 안에 있으므로 동기화 봇이 파생 저장소로 내려보냅니다.
-- **판단 검사(`/pr-gate`, 사람이 세션에서 호출).** 기계가 판정할 수 없는 잔여를 봅니다 — "이것이 계약 자체를 바꾸는 변경인가", "UI 재설계가 시안 수용 기준에 맞는가", 발견의 심각도 가늠. 세션 안에서 도니 **추가 비용이 없습니다.**
-
-**왜 이렇게 갈랐나.** 처음에는 게이트 전체를 Claude를 API로 부르는 워크플로로 자동화했는데, 그 방식은 PR마다 **별도 API 비용**이 듭니다. 그런데 네 축이 검사하는 것의 대부분은 애초에 LLM이 필요 없었습니다 — 축 A의 기준(`doc-governance.md` §2)과 축 C의 기준(`contract-registry.md`)이 이미 기계가 읽는 마크다운 표이고, 축 D에 대해서는 `pr-gate.md` 스스로가 "이 결함은 고아 코드 패턴으로 나타나고 검색으로 판정 가능하다"고 적고 있었습니다. 그래서 기계가 할 수 있는 것은 기계에 맡겼습니다.
-
-**검사 기준의 정본은 `.claude/commands/pr-gate.md` 하나**입니다. 기준을 바꿀 때는 그 문서를 고치고 스크립트를 맞춥니다. 오탐률을 확인한 뒤 워크플로의 `--strict` 를 켜 **2단계(차단)** 로 올립니다.
-
 ## 📏 공용 규칙
 
 모든 프로젝트가 함께 지키는 규칙입니다. 세션 시작 시 자동으로 로드되므로, 아래 표의 규칙은 어느 저장소에서든 이미 적용돼 있습니다.
@@ -154,107 +113,3 @@ PR이 열리거나 갱신될 때 자동으로 도는 검사들입니다. 사람�
 | [`branch-pr-naming.md`](.claude/rules/branch-pr-naming.md) | **브랜치·PR 이름** — 브랜치는 `<종류>/<영문-슬러그>`, PR 제목은 `<종류>: <한 문장>` 이고 요지가 앞 40자 안에 들어간다. 이름을 못 알아봐 머지된 브랜치 58개를 지우지도 못한 채 쌓아 둔 실측에서 나왔다. **세션은 브랜치를 스스로 만들지 않고** 이름을 먼저 보여 주고 승인을 받는 조항도 여기서 정한다. |
 | [`lessons-backport.md`](.claude/rules/lessons-backport.md) | **교훈 백포트** — 작업 중 발견한 체계의 어색함을 그 저장소의 `docs/lessons.md`에 3줄로 기록하고, 수확 워크플로(`backport-harvest.js`)가 걷어 4분류 초안을 만들며, 사람의 승인을 거친 것만 창고에 반영한다. 사례 1건으로는 규칙을 만들지 않는다(N건 누적 후 격상). |
 
-### 규칙 추가 / 수정 (관리자용)
-
-규칙도 스킬과 똑같이 **이 repo의 `.claude/rules/` 에서만** 관리합니다.
-
-- **수정/추가**: `.claude/rules/<규칙>.md` 를 고치거나 새로 만들고 커밋. 새로 만들었으면 **위 표에 한 행을 함께 추가**합니다(표에 없는 규칙은 아무도 이 규칙이 있다는 것을 모릅니다 — 이 배선은 `asset-graph.yml` 검사가 자동으로 잡습니다).
-- 파일 하나가 한 주제를 담습니다(예: `communication.md` = 채팅·문서 어투 규칙).
-- **규칙은 2층입니다.** `.claude/rules/` 바로 아래의 코어는 규범만 담아 짧게 유지하고(세션 시작 시 매번 자동 로드되어 모든 세션이 그 길이만큼 컨텍스트 비용을 내므로), 규칙이 태어난 사고와 상세 논증은 `.claude/rules/reference/`의 부록으로 내립니다(자동 로드되지 않고, 코어가 링크합니다). 새 규칙을 쓸 때도 이 층을 지킵니다.
-- 위 동기화 봇이 `.claude/rules/` 도 함께 내려 주므로, 하위 프로젝트는 손댈 것이 없습니다.
-- 규칙 파일은 세션 시작 시 자동 로드되므로, `CLAUDE.md`에 `@`로 불러오는 줄을 넣지 않아도 됩니다.
-
-## 🤖 공용 에이전트 (관리자용)
-
-서브에이전트도 **이 repo의 `.claude/agents/` 에서만** 관리합니다.
-
-- **수정/추가**: `.claude/agents/<이름>.md` 를 고치거나 새로 만들고 커밋. 파일 맨 위 frontmatter(`name`·`description`·`tools`)로 언제 불릴지와 쓸 도구를 정합니다.
-- 예: `doc-clarifier` — 사용자가 "이 문서 이해가 안 된다 / 정리해 줘"라고 할 때 불러, 안 읽히는 마크다운을 다시 써 주는 편집자.
-- 위 동기화 봇이 `.claude/agents/` 도 함께 내려 주므로, 하위 프로젝트는 손댈 것이 없습니다. 에이전트 파일은 서브에이전트로 자동 등록되어 바로 부를 수 있습니다.
-
-## 🔐 공용 도구 허용 목록 (관리자용)
-
-Claude가 어떤 도구를 쓸 때 **"이 도구를 써도 될까요?" 창을 띄우지 않고 바로 실행하게 하는 목록**입니다. `.claude/settings.json` 의 `permissions` 칸에서 정합니다.
-
-### 세 종류의 규칙과 우선순위
-
-권한 규칙은 세 종류이고, 판정은 **`deny` → `ask` → `allow`** 순서로 먼저 걸리는 것이 이깁니다. 이 순서를 알아야 "전체를 열어 두고 위험한 것만 되돌려 잠그는" 구성이 왜 되는지 이해할 수 있습니다.
-
-| 종류 | 무슨 뜻인가 | 언제 쓰나 |
-|---|---|---|
-| `allow` | 묻지 않고 바로 실행한다 | 반복되는 조회처럼 매번 확인할 필요가 없는 것 |
-| `ask` | **항상 사람에게 묻는다.** `allow` 에 더 넓은 규칙이 있어도 `ask` 가 이긴다 | 되돌리기 어렵거나 밖으로 나가는 동작. 사람 확인은 필요하지만 **하긴 해야 하는 것** |
-| `deny` | 아예 못 쓰게 한다. 도구 이름만 적으면 Claude의 도구 목록에서 사라진다 | 이 저장소에서 절대 쓸 일이 없는 것 |
-
-**`ask` 와 `deny` 를 헷갈리면 안 됩니다.** "허락받고 하게 하고 싶다"는 `ask` 입니다. `deny` 로 적으면 사람이 허락하고 싶어도 그 자리에서 할 수 없어, GitHub 화면에 직접 들어가 손으로 해야 합니다.
-
-### 지금 들어 있는 규칙
-
-| 규칙 | 종류 | 무엇이 해당되나 |
-|---|---|---|
-| `mcp__Supabase__execute_sql` | `allow` | Supabase 데이터베이스에 SQL 을 실행하는 도구. 조회 한 번마다 창이 떠서 작업이 사람의 클릭을 계속 기다리며 멈춰 있었습니다. |
-| `mcp__github` | `allow` | GitHub MCP 서버의 도구 전체(PR·이슈·커밋·CI 조회, PR 열기, 리뷰 코멘트 등). 서버 이름만 적으면 그 서버의 도구가 모두 해당됩니다. |
-| `mcp__github__merge_pull_request`<br>`mcp__github__enable_pr_auto_merge`<br>`mcp__github__push_files`<br>`mcp__github__create_or_update_file`<br>`mcp__github__delete_file` | `ask` | **PR 머지, 파일 푸시, 파일 삭제.** 위에서 서버 전체를 열었지만 이 다섯은 되돌리기 어렵거나 main 을 바꾸는 동작이라 되돌려 잠갔습니다. `ask` 가 `allow` 보다 우선하므로 매번 사람에게 묻습니다. |
-
-`apply_migration`(데이터베이스 구조 변경)은 애초에 `allow` 에 넣지 않았으므로 기본 동작대로 사람에게 묻습니다.
-
-### 남아 있는 한계 하나
-
-MCP 도구의 규칙은 **도구 단위로만** 걸 수 있고, 도구에 넘기는 값으로는 가를 수 없습니다. 그래서 `execute_sql` 하나 안에서 `select`(조회)와 `delete`·`drop`(삭제)을 구분하지 못합니다. **지금 구성에서 데이터를 지우는 SQL 은 묻지 않고 실행됩니다.**
-
-이것까지 막으려면 설정만으로는 안 되고, 쿼리문을 읽어 조회인지 판단하는 `PreToolUse` 훅을 붙여야 합니다. 지금은 그 방식을 쓰지 않고 있습니다.
-
-### 추가 / 수정
-
-- 창고의 `.claude/settings.json` 의 `permissions.allow` 배열에 도구 이름을 넣고 커밋합니다. 새로 넣었으면 **위 표에 한 행을 함께 추가**합니다.
-- 동기화 봇은 이 파일을 **통째로 덮어쓰지 않고 `permissions.allow` 칸만 합집합으로 합칩니다.** 하위 repo가 자기 훅이나 자기만의 허용 규칙을 갖고 있어도 그대로 살아남습니다.
-- 합집합이라는 성질 때문에 **권한을 넓히는 변경만 자동으로 퍼지고, 좁히는 변경은 퍼지지 않습니다.** 창고에서 허용 규칙을 지워도 하위 repo에는 남아 있으므로, 되돌릴 때는 각 repo 에서 직접 지워야 합니다.
-
-### 기존 repo에 지금 바로 적용하기
-
-동기화 봇 자체(`.github/workflows/sync-skills.yml`)는 동기화 대상이 아니라 저장소별로 관리합니다. 그래서 **이미 만들어진 repo 는 그 파일을 이 창고의 최신판으로 한 번 갱신해야** 허용 목록이 따라오기 시작합니다. 그 전에 당장 창을 없애려면 해당 repo 의 `.claude/settings.json` 에 아래 세 줄을 직접 넣고 커밋하면 됩니다.
-
-```json
-{
-  "permissions": {
-    "allow": ["mcp__Supabase__execute_sql", "mcp__github"],
-    "ask": [
-      "mcp__github__merge_pull_request",
-      "mcp__github__enable_pr_auto_merge",
-      "mcp__github__push_files",
-      "mcp__github__create_or_update_file",
-      "mcp__github__delete_file"
-    ]
-  }
-}
-```
-
-`allow` 만 베끼고 `ask` 를 빠뜨리면 안 됩니다. 그러면 서버 전체가 열린 채 되돌려 잠그는 부분이 빠져, PR 머지와 파일 삭제까지 묻지 않고 실행됩니다.
-
-이미 돌고 있는 세션은 브랜치를 갈아타지 않는 한 이 파일을 갖고 있지 않습니다. **설정은 그 세션이 체크아웃한 작업 폴더의 파일에서 읽히므로, main 에 넣은 것만으로는 이미 다른 브랜치에서 일하던 세션에 닿지 않습니다.** 그 세션에서는 저장소 루트에 같은 내용을 직접 만들어 주면 되고, 재시작은 필요 없습니다(설정 변경은 즉시 반영됩니다).
-
----
-
-## 🧩 기존 repo에 스킬 넣기
-
-템플릿에서 시작하지 않은 기존 repo라면, 이 repo의 `.claude/skills/`·`.claude/rules/`·`.claude/agents/` 폴더와
-`.github/workflows/sync-skills.yml` 을 복사해 커밋하면 동일하게 동작합니다.
-(Claude Code 세션이면 "fitogether-claude-tools의 .claude/skills·rules·agents를 이 repo에 복사해줘" 라고 시키면 됩니다.)
-
----
-
-## 📐 시스템층 설계 문서
-
-창고 자체(팀 규칙·게이트·오케스트레이션)의 설계와 개선 계획은 `docs/system-layer/` 에 둡니다.
-
-- [CEO 조종석 가이드](docs/system-layer/ceo-cockpit-guide.html) — **처음 쓰는 사람(특히 의사결정자)을 위한 사용 가이드.** 첫 5분 시작 절차, 그대로 복사해 치는 상황별 레시피 8개, 보고 상태별로 무엇이라 답하면 되는지, 개입 지점 5개가 표시된 시스템 지도. 브라우저로 연다.
-- [완료 기준 교정 계획](docs/system-layer/completion-standard-plan.md) — 팀 전체의 완료 기준을 "코드가 있고 테스트가 통과한다"에서 "사용자가 화면에서 직접 볼 수 있다(노출 증명)"로 바꾸는 검토 결과와 8단계 개발 계획.
-- [머지 게이트 설계](docs/system-layer/merge-gate-design.md) — 파트 브랜치가 main에 머지되기 직전에 되돌림(rollback)을 막는 장치의 설계.
-
----
-
-## 📌 참고: fitogether-user-guide 스킬
-
-제품 유저가이드 PDF 생성 스킬(`fitogether-user-guide`)은 폰트 등 약 9MB라 모든 프로젝트에
-따라붙지 않도록 이 템플릿에서 제외했습니다. 필요하면 이 repo의 git 히스토리(마켓플레이스 구조 시절)
-에서 가져오거나 별도 repo로 분리해 쓰세요.

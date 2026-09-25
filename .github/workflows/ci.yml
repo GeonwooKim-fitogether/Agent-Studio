@@ -1,0 +1,97 @@
+# 앱 CI — 타입 검사 · 단위 테스트 · 빌드 · e2e (docs/plan/01-pr-collection.md §4, docs/plan/02-persistence-and-unlink.md §3)
+#
+# e2e 는 빌드된 앱을 띄워 첫 화면(Workspace)에서 출발하는 사용자 흐름을 구동한다.
+# GitHub 변수를 주지 않으므로 앱은 고정 데이터(fixture)로 돈다. 이 워크플로는 시크릿을 쓰지 않는다.
+#
+# PostgreSQL 16 서비스 컨테이너는 이 실행에서만 쓰고 버리는 시험용 데이터베이스다(환경 분리 규칙의 test).
+# 비밀번호 없이(trust) 띄우므로 이 파일에는 자격증명이 없다. 운영 데이터베이스와는 무관하다.
+
+name: App CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: studio
+          POSTGRES_DB: agent_studio_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U studio -d agent_studio_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      TEST_DATABASE_URL: postgresql://studio@localhost:5432/agent_studio_test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      # 빈 데이터베이스에 전체 마이그레이션을 처음부터 적용하고, 두 번째 실행이 아무것도 바꾸지 않는지 본다
+      - name: Apply migrations to the empty database (twice)
+        env:
+          APP_ENV: test
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          npm run -s db:migrate | tee /tmp/migrate-1.log
+          grep -q "새로 적용 1개" /tmp/migrate-1.log
+          npm run -s db:migrate | tee /tmp/migrate-2.log
+          grep -q "새로 적용 0개" /tmp/migrate-2.log
+
+      # TEST_DATABASE_URL 이 있으므로 PostgreSQL 저장 계약 · 마이그레이션 · 재시작 유지 시험까지 함께 돈다
+      - name: Unit tests (memory + PostgreSQL)
+        run: npm run test:unit
+
+      - name: Build
+        run: npm run build
+
+      # 이 러너에는 브라우저가 미리 깔려 있지 않다. 버전은 package-lock.json 의 @playwright/test 를 따른다.
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E tests (memory storage)
+        run: npm run test:e2e
+
+      # 서버를 켜기 전에 시험용 데이터베이스를 비우고 마이그레이션을 적용한다(tests/e2e/prepare-db.mjs).
+      # 서버를 껐다 켜도 남는지 확인하는 시험(restart.spec.ts)이 여기서 돈다.
+      - name: E2E tests (PostgreSQL storage, including restart)
+        run: npm run test:e2e:postgres
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
