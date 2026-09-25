@@ -1,0 +1,97 @@
+# PR 크로스컷 게이트 (결정론적 검사 · API 비용 없음)
+#
+# 왜 이 워크플로가 있나. `/pr-gate` 커맨드는 PR 하나를 네 축으로 검토한다 —
+# 문서 갱신 매트릭스(축 A) · 척추 준수(축 B) · 타 파트 영향(축 C) · 배선·적용(축 D).
+# 그것은 슬래시 커맨드라 사람이 부를 때만 돌았고, 부르는 것을 기억해야 도는 장치는
+# "잊혀도 기계적으로 잡힌다"는 원래 목적을 만족하지 못했다.
+#
+# 처음에는 이 게이트를 Claude 를 API 로 부르는 워크플로로 자동화했다. 그런데 그 방식은
+# **PR 마다 별도 API 비용이 든다.** 그리고 확인해 보니 네 축이 검사하는 것의 대부분은
+# 애초에 LLM 이 필요 없었다.
+#
+#   · 축 A 의 기준 `docs/doc-governance.md` §2 는 "이 개발을 했으면 이 문서를 반드시
+#     갱신" 을 마크다운 표로 갖고 있다 → 경로 패턴으로 감지하고 표를 조회하면 된다.
+#   · 축 C 의 기준 `docs/system-layer/contract-registry.md` 는 "계약 → 소비자 파트" 를
+#     표로 갖고 있다 → 대조는 기계가 한다.
+#   · 축 D 에 대해 `pr-gate.md` 는 스스로 이렇게 적는다 — "이 결함은 고아 코드 패턴으로
+#     나타나고, 이것은 검색으로 판정 가능하다."
+#
+# 그래서 기계로 판정 가능한 전부를 결정론적 스크립트가 맡고, **판단이 필요한 잔여만**
+# 사람이 세션에서 `/pr-gate` 를 불러 처리한다. 세션 호출은 이미 쓰는 Claude Code 안에서
+# 도니 추가 비용이 없다. 이 워크플로는 시크릿을 요구하지 않으므로 **언제나 돈다** —
+# 예전 API 방식이 시크릿 없어 매번 건너뛰어지던 문제도 함께 사라진다.
+#
+# 두뇌는 여기 없다. 검사 로직은 `.claude/workflows/pr-gate-check.mjs` 하나가 정본이고
+# 이 yml 은 그것을 PR 맥락에서 부르는 얇은 호출부다. 로직을 고칠 때는 그 파일만 고친다.
+# (그 파일은 `.claude/` 안에 있어 동기화 봇이 파생 저장소로 내려보낸다.)
+#
+# ── 도입 2단계 ────────────────────────────────────────────────────────────────
+# 지금은 1단계(경고)다. 차단 후보를 보고하지만 체크를 실패시키지 않는다. 오탐률을
+# 관찰한 뒤 2단계로 올린다.
+#   2단계(차단) 전환 방법: 아래 실행 스텝의 `--strict` 를 켠다(주석 해제).
+
+name: PR 크로스컷 게이트
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch: {}
+
+concurrency:
+  group: pr-gate-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 축 D 의 고아 코드·죽은 스위치 검사는 저장소 전체를 검색하고,
+          # 축 A·C 는 base 대비 diff 를 본다. 얕은 클론이면 둘 다 불가능하다.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 검사 스크립트 존재 확인 (없으면 침묵하지 않는다)
+        id: brain
+        shell: bash
+        run: |
+          if [ -f .claude/workflows/pr-gate-check.mjs ]; then
+            echo "have=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=게이트가 돌지 않았습니다::.claude/workflows/pr-gate-check.mjs 가 없습니다. 창고에서 동기화 봇이 내려보내는 파일이므로 동기화 상태를 확인하세요."
+            {
+              echo "## PR 크로스컷 게이트 — 실행되지 않음"
+              echo ""
+              echo "검사 스크립트 \`.claude/workflows/pr-gate-check.mjs\` 를 찾지 못했습니다."
+              echo ""
+              echo "**이 체크가 초록불이라도 게이트를 통과한 것이 아닙니다.** 네 축 중 아무것도 확인되지 않았습니다."
+              echo ""
+              echo "이 파일은 창고(Template-repository)의 \`.claude/\` 에서 동기화 봇이 내려보냅니다. 동기화가 돌았는지 확인하세요."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: PR 설명을 파일로 저장 (적용 꼬리표 검사용)
+        if: steps.brain.outputs.have == 'true' && github.event_name == 'pull_request'
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        shell: bash
+        run: printf '%s' "$BODY" > /tmp/pr-body.md
+
+      - name: 네 축 검사 (결정론적)
+        if: steps.brain.outputs.have == 'true'
+        shell: bash
+        run: |
+          # 2단계(차단)로 올릴 때 아래 --strict 를 켠다.
+          node .claude/workflows/pr-gate-check.mjs \
+            --base "origin/${{ github.base_ref || 'main' }}" \
+            --pr-body /tmp/pr-body.md
+          #   --strict
