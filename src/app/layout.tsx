@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { getContainer } from "../server/container";
 import { syncAction } from "./actions";
+import { formatKst } from "./components/labels";
 import { Nav } from "./nav";
 import "./globals.css";
 
@@ -39,12 +40,15 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           <span className="source-sync">
             Last sync{" "}
             {status.lastSyncedAt ? (
-              <time dateTime={status.lastSyncedAt}>{status.lastSyncedAt.replace("T", " ").slice(0, 19)} UTC</time>
+              <time dateTime={status.lastSyncedAt} data-testid="last-sync">
+                {formatKst(status.lastSyncedAt)}
+              </time>
             ) : (
               "없음"
             )}
           </span>
           {status.lastError && <span className="source-error">동기화 실패: {status.lastError}</span>}
+          {status.lastWarning && <span className="source-error">{status.lastWarning}</span>}
           <form action={syncAction}>
             <button type="submit" className="btn tiny">
               Sync

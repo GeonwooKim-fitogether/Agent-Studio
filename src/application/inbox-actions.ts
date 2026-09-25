@@ -6,27 +6,43 @@ import { isValidWorkId } from "../domain/work-marker";
 import { type PrRef, type PrSnapshot, type Project, StudioError, type Work } from "../domain/model";
 import type { AppDeps } from "./deps";
 
-/** PR 을 같은 프로젝트의 기존 업무에 연결한다. */
+/**
+ * PR 을 같은 프로젝트의 기존 업무에 연결한다.
+ * 이미 **같은 업무**에 연결돼 있으면 아무 일도 하지 않고 성공한다(버튼을 두 번 눌러도 같은 결과).
+ * 다른 업무에 연결돼 있으면 already_linked 로 거절한다.
+ */
 export async function linkPrToWork(deps: AppDeps, input: PrRef & { readonly workId: string }): Promise<void> {
-  const pr = await requireUnlinkedPr(deps, input);
+  const pr = await requireSnapshot(deps, input);
+  const existing = await deps.store.getLink(input);
+  if (existing !== undefined) {
+    if (existing.workId === input.workId) return;
+    throw alreadyLinked();
+  }
   const project = await requireProjectOfRepo(deps, pr.repoId);
   const work = await deps.store.getWork(input.workId);
   if (work === undefined) throw new StudioError("not_found", "연결하려는 업무가 없다.");
   if (work.projectId !== project.id) {
     throw new StudioError("project_mismatch", "PR 은 같은 프로젝트의 업무에만 연결할 수 있다.");
   }
-  await deps.store.addLink({
-    repoId: pr.repoId,
-    number: pr.number,
-    workId: work.id,
-    origin: "user",
-    linkedAt: deps.now().toISOString(),
-  });
+  try {
+    await deps.store.addLink({
+      repoId: pr.repoId,
+      number: pr.number,
+      workId: work.id,
+      origin: "user",
+      linkedAt: deps.now().toISOString(),
+    });
+  } catch (error) {
+    // 동시에 들어온 같은 요청이 먼저 같은 업무에 연결했다면 성공으로 본다.
+    if (isAlreadyLinked(error) && (await deps.store.getLink(input))?.workId === work.id) return;
+    throw error;
+  }
 }
 
-/** PR 하나로 새 업무를 만들고 그 PR 을 연결한다. 업무 제목은 PR 제목을 그대로 쓴다. */
+/** PR 하나로 새 업무를 만들고 그 PR 을 연결한다. 업무 제목은 PR 제목을 그대로 쓴다. 업무와 연결은 한 번에 생긴다. */
 export async function createWorkFromPr(deps: AppDeps, ref: PrRef): Promise<Work> {
-  const pr = await requireUnlinkedPr(deps, ref);
+  const pr = await requireSnapshot(deps, ref);
+  if ((await deps.store.getLink(ref)) !== undefined) throw alreadyLinked();
   const project = await requireProjectOfRepo(deps, pr.repoId);
   const createdAt = deps.now().toISOString();
   const work: Work = {
@@ -36,17 +52,22 @@ export async function createWorkFromPr(deps: AppDeps, ref: PrRef): Promise<Work>
     status: "draft",
     createdAt,
   };
-  await deps.store.saveWork(work);
-  await deps.store.addLink({ repoId: pr.repoId, number: pr.number, workId: work.id, origin: "user", linkedAt: createdAt });
+  await deps.store.createWorkWithLink(work, {
+    repoId: pr.repoId,
+    number: pr.number,
+    workId: work.id,
+    origin: "user",
+    linkedAt: createdAt,
+  });
   return work;
 }
 
-async function requireUnlinkedPr(deps: AppDeps, ref: PrRef): Promise<PrSnapshot> {
+const alreadyLinked = () => new StudioError("already_linked", "이 PR 은 이미 업무에 연결돼 있다.");
+const isAlreadyLinked = (error: unknown) => error instanceof StudioError && error.code === "already_linked";
+
+async function requireSnapshot(deps: AppDeps, ref: PrRef): Promise<PrSnapshot> {
   const pr = await deps.store.getSnapshot(ref);
   if (pr === undefined) throw new StudioError("not_found", "그 PR 을 찾을 수 없다. 동기화가 끝났는지 확인한다.");
-  if ((await deps.store.getLink(ref)) !== undefined) {
-    throw new StudioError("already_linked", "이 PR 은 이미 업무에 연결돼 있다.");
-  }
   return pr;
 }
 

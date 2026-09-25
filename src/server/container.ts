@@ -16,6 +16,8 @@ import { syncAll } from "../application/sync";
 export interface SyncStatus {
   readonly lastSyncedAt: string | null;
   readonly lastError: string | null;
+  /** 동기화는 끝났지만 사람이 알아야 할 것 (예: 요청한 저장소와 다른 저장소의 PR 을 받아 버렸다) */
+  readonly lastWarning: string | null;
 }
 
 export interface Container {
@@ -53,13 +55,19 @@ export function createContainer(env: Record<string, string | undefined> = proces
     newId: () => randomBytes(3).toString("hex"),
   };
 
-  let status: SyncStatus = { lastSyncedAt: null, lastError: null };
+  let status: SyncStatus = { lastSyncedAt: null, lastError: null, lastWarning: null };
   let first: Promise<void> | null = null;
 
   async function sync(): Promise<void> {
     try {
-      await syncAll(deps);
-      status = { lastSyncedAt: deps.now().toISOString(), lastError: null };
+      const result = await syncAll(deps);
+      const discarded = result.discarded.map((d) => `${d.repoId}#${d.number}(요청한 저장소 ${d.requestedRepoId})`);
+      status = {
+        lastSyncedAt: deps.now().toISOString(),
+        lastError: null,
+        lastWarning:
+          discarded.length === 0 ? null : `요청한 저장소와 다른 저장소의 PR ${discarded.length}개를 받아 버렸다: ${discarded.join(", ")}`,
+      };
     } catch (error) {
       status = { ...status, lastError: error instanceof Error ? error.message : "알 수 없는 오류" };
     }

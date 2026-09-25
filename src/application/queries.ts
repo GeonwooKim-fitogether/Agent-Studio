@@ -10,8 +10,10 @@ import {
   type ChecksState,
   type GitHubReviewState,
   type LinkOrigin,
+  type MarkerPlace,
   type PreviewRecord,
   type PrLink,
+  type PrRef,
   type PrSnapshot,
   type PrState,
   type Project,
@@ -58,6 +60,8 @@ export interface PrCardView {
   readonly studio: {
     readonly linkedWorkId: string | null;
     readonly linkOrigin: LinkOrigin | null;
+    /** 표식으로 연결됐을 때 표식을 찾은 자리. 사람이 연결했거나 연결이 없으면 빈 목록 */
+    readonly markerFoundIn: readonly MarkerPlace[];
     readonly reviews: readonly ReviewView[];
     readonly previews: readonly CommitRecordView[];
   };
@@ -83,6 +87,8 @@ export interface InboxItemView {
   /** 자동 연결하지 않은 이유. null 이면 표식이 확실해 다음 동기화에서 자동 연결된다. */
   readonly reason: InboxReason | null;
   readonly markedWorkIds: readonly string[];
+  /** reason 이 "other_project" 일 때 표식이 가리키는 업무의 프로젝트 이름 */
+  readonly markedProjectName: string | null;
 }
 
 export interface InboxView {
@@ -121,15 +127,41 @@ export async function getInbox(deps: Pick<AppDeps, "store">): Promise<InboxView>
         .filter((u) => u.project.id === project.id)
         .map(({ snapshot }): InboxItemView => {
           const decision = decideLink(snapshot, project.id, s.works);
+          const markedWorkIds = decision.kind === "inbox" ? decision.markedWorkIds : [decision.workId];
+          const markedWork = s.works.find((w) => w.id === markedWorkIds[0]);
+          const isOtherProject = decision.kind === "inbox" && decision.reason === "other_project";
           return {
             pr: toCard(s, snapshot),
             reason: decision.kind === "inbox" ? decision.reason : null,
-            markedWorkIds: decision.kind === "inbox" ? decision.markedWorkIds : [decision.workId],
+            markedWorkIds,
+            markedProjectName: isOtherProject ? (s.projects.find((p) => p.id === markedWork?.projectId)?.name ?? null) : null,
           };
         }),
     }))
     .filter((g) => g.items.length > 0);
   return { groups, total: groups.reduce((n, g) => n + g.items.length, 0) };
+}
+
+/** 서버 액션이 거절된 뒤 Inbox 에 사유를 보여 줄 때 쓰는, PR 하나의 현재 사정 */
+export interface PrNoticeView {
+  readonly repoName: string;
+  readonly number: number;
+  /** 지금 이 PR 이 연결돼 있는 업무. 연결이 없으면 null */
+  readonly linkedWork: Work | null;
+}
+
+export async function getPrNotice(deps: Pick<AppDeps, "store">, ref: PrRef): Promise<PrNoticeView | undefined> {
+  const [snapshot, link, repositories] = await Promise.all([
+    deps.store.getSnapshot(ref),
+    deps.store.getLink(ref),
+    deps.store.listRepositories(),
+  ]);
+  if (snapshot === undefined) return undefined;
+  return {
+    repoName: repositories.find((r) => r.id === ref.repoId)?.fullName ?? `저장소 ${ref.repoId}`,
+    number: ref.number,
+    linkedWork: link === undefined ? null : ((await deps.store.getWork(link.workId)) ?? null),
+  };
 }
 
 export async function getWorkDetail(deps: Pick<AppDeps, "store">, workId: string): Promise<WorkDetailView | undefined> {
@@ -215,6 +247,7 @@ function toCard(s: Loaded, snapshot: PrSnapshot): PrCardView {
     studio: {
       linkedWorkId: link?.workId ?? null,
       linkOrigin: link?.origin ?? null,
+      markerFoundIn: link?.origin === "marker" ? link.markerFoundIn : [],
       reviews: s.reviews
         .filter((r) => samePr(r, snapshot) && r.workId === link?.workId)
         .sort((a, b) => a.decidedAt.localeCompare(b.decidedAt))

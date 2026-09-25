@@ -64,7 +64,7 @@ export function createGuardedGet(options: GuardedGetOptions) {
       if (REDIRECT_STATUSES.has(response.status)) {
         const location = response.headers.get("location");
         if (location === null) throw new GitHubReadError(`GitHub 가 이동할 주소 없이 ${response.status} 를 돌려줬다 (GET ${target.pathname})`);
-        target = assertAllowed("GET", new URL(location, target).href);
+        target = assertAllowed("GET", resolveLocation(location, target));
         continue;
       }
       if (!response.ok) {
@@ -78,6 +78,15 @@ export function createGuardedGet(options: GuardedGetOptions) {
     }
     throw new GitHubReadError(`리디렉션이 ${MAX_REDIRECTS}번을 넘었다`);
   };
+}
+
+/** 리디렉션 주소를 절대 주소로. 해석할 수 없는 주소면 날것의 TypeError 대신 GitHubReadError 를 낸다(주소도 토큰도 싣지 않는다). */
+function resolveLocation(location: string, base: URL): string {
+  try {
+    return new URL(location, base).href;
+  } catch {
+    throw new GitHubReadError(`GitHub 가 해석할 수 없는 이동 주소를 돌려줬다 (GET ${base.pathname})`);
+  }
 }
 
 function assertAllowed(method: string, url: string): URL {

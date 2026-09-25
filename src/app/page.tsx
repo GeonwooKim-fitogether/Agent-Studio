@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getWorkspace } from "../application/queries";
 import { getContainer } from "../server/container";
 import { WORK_STATUS } from "./components/labels";
-import { PrCard } from "./components/pr-card";
+import { PrCard, StateLegend } from "./components/pr-card";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +12,7 @@ export default async function WorkspacePage() {
   await container.ensureSynced();
   const view = await getWorkspace(container.deps);
   const source = container.deps.reader.source;
+  const hasCards = view.projects.some((p) => p.works.some((w) => w.prs.length > 0));
 
   return (
     <div className="page-inner">
@@ -20,18 +21,26 @@ export default async function WorkspacePage() {
         <p className="muted">프로젝트마다 업무와 연결된 PR 을 본다.</p>
       </div>
 
-      <section className={view.inboxCount > 0 ? "attention" : "attention empty"} data-testid="inbox-summary">
-        <div>
-          <p className="eyebrow">Inbox</p>
-          <h2>
-            <span data-testid="inbox-count">{view.inboxCount}</span>개 PR 이 업무 연결을 기다린다
-          </h2>
-          <p className="muted">어느 업무의 것인지 확실하지 않은 PR 은 자동으로 붙이지 않고 Inbox 에 둔다.</p>
-        </div>
-        <Link href="/inbox" className="btn primary">
-          Open Inbox
-        </Link>
-      </section>
+      {view.inboxCount > 0 ? (
+        <section className="attention" data-testid="inbox-summary">
+          <div>
+            <p className="eyebrow">Inbox</p>
+            <h2>
+              <span data-testid="inbox-count">{view.inboxCount}</span>개 PR 이 업무 연결을 기다린다
+            </h2>
+            <p className="muted">어느 업무의 것인지 확실하지 않은 PR 은 자동으로 붙이지 않고 Inbox 에 둔다.</p>
+          </div>
+          <Link href="/inbox" className="btn primary">
+            Open Inbox
+          </Link>
+        </section>
+      ) : (
+        <p className="inbox-clear" data-testid="inbox-empty-summary">
+          Inbox 가 비어 있다. 연결을 기다리는 PR 이 없다.
+        </p>
+      )}
+
+      {hasCards && <StateLegend />}
 
       {view.projects.map(({ project, repositories, works }) => (
         <section key={project.id} className="project" data-testid={`project-${project.id}`}>

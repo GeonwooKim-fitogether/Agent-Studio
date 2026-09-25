@@ -9,7 +9,7 @@
 | 기획 | 확정. 문제 정의 · 사용자 흐름 · 화면 시안 · 개발 순서가 [`docs/product/`](docs/product/) 에 있습니다 |
 | 0단계 계약 정의 | 문서로 정리됨. [`docs/plan/00-domain-contract.md`](docs/plan/00-domain-contract.md) |
 | 기술 스택 | TypeScript 한 벌 — Next.js + Node + PostgreSQL ([`decisions.md`](decisions.md) 결정 8) |
-| 1단계 PR 모으기 | 첫 완결 단위 진행 중. 고정 시연 데이터로 PR 을 업무에 모으고 Inbox 에서 연결합니다. 저장은 아직 서버 메모리입니다. [`docs/plan/01-pr-collection.md`](docs/plan/01-pr-collection.md) |
+| 1단계 PR 모으기 | 첫 완결 단위 작업완료. 고정 시연 데이터로 PR 을 업무에 모으고 Inbox 에서 연결합니다. 저장은 아직 서버 메모리이고, 진짜 GitHub 로는 돌려 보지 않았습니다. [`docs/plan/01-pr-collection.md`](docs/plan/01-pr-collection.md) |
 
 ## 실행하기
 

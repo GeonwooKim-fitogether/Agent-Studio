@@ -97,6 +97,19 @@ describe("GET 전용 관문", () => {
     expect(other.calls.map((c) => c.url)).toEqual(["https://api.github.com/repos/a/b"]);
   });
 
+  it("형식이 잘못된 Location 헤더는 날것의 TypeError 가 아니라 GitHubReadError 로 알린다 (토큰 없이)", async () => {
+    const broken = fakeFetch({
+      "https://api.github.com/repos/a/b": () =>
+        new Response(null, { status: 301, headers: { location: `https://[${TOKEN}` } }),
+    });
+    const error = await caught(createGuardedGet({ token: TOKEN, fetch: broken.fetch })("https://api.github.com/repos/a/b"));
+    expect(error).toBeInstanceOf(GitHubReadError);
+    expect(error).not.toBeInstanceOf(TypeError);
+    expect(error.message).toContain("해석할 수 없는 이동 주소");
+    expectNoToken(error);
+    expect(broken.calls).toHaveLength(1);
+  });
+
   it("GitHub 가 거절하거나 네트워크가 실패해도 오류 메시지에 토큰이 없다", async () => {
     const echoing = fakeFetch({
       // 응답 본문이 토큰을 되돌려 주는 극단적인 경우에도 새지 않는지 본다

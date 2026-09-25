@@ -1,6 +1,15 @@
 import type { PrCardView } from "../../application/queries";
 import type { DataSource } from "../../ports/github-reader";
-import { CHECKS, GITHUB_REVIEW, LINK_ORIGIN, PR_STATE, shortSha, VERDICT } from "./labels";
+import { CHECKS, GITHUB_REVIEW, linkLabel, NO_INTERNAL_REVIEW, PR_STATE, shortSha, STATE_LEGEND, VERDICT } from "./labels";
+
+/** 카드가 있는 화면마다 한 번 두는 범례. 두 줄이 누구의 상태인지 알려 준다. */
+export function StateLegend() {
+  return (
+    <p className="legend" data-testid="state-legend">
+      {STATE_LEGEND}
+    </p>
+  );
+}
 
 /**
  * PR 카드. GitHub 의 상태와 Studio 의 상태를 서로 다른 줄에 둔다 — 한 문장으로 합치지 않는다 (계약 §5).
@@ -36,8 +45,10 @@ export function PrCard({ pr, source }: { pr: PrCardView; source: DataSource }) {
         <div className="state-row" data-testid="studio-status">
           <dt>Studio</dt>
           <dd>
-            <span className="chip">{studio.linkOrigin ? LINK_ORIGIN[studio.linkOrigin] : "Not linked"}</span>
-            {studio.reviews.length === 0 && studio.linkOrigin && <span className="chip quiet">No internal review</span>}
+            <span className="chip" data-testid="link-origin">
+              {linkLabel(studio.linkOrigin, studio.markerFoundIn)}
+            </span>
+            {studio.reviews.length === 0 && studio.linkOrigin && <span className="chip quiet">{NO_INTERNAL_REVIEW}</span>}
             {studio.reviews.map((r) => (
               <span key={r.id} className={`chip ${r.freshness}`} data-testid="review-decision" data-freshness={r.freshness}>
                 {VERDICT[r.verdict]}

@@ -10,11 +10,16 @@ export const MARKER_PREFIX = "studio-work-";
 const WORK_ID_PATTERN = /^[a-z0-9]+$/;
 
 /**
- * 글 안에서 표식을 찾는 패턴. 표식의 앞뒤가 영문자·숫자에 붙어 있으면 표식으로 보지 않는다.
- * 그래서 `xstudio-work-a1` 이나 `studio-work-a1B` 처럼 다른 낱말의 일부인 것은 걸리지 않고,
- * `feat/studio-work-a1b2c3-login` 처럼 하이픈·슬래시로 끊긴 것은 걸린다.
+ * 글 안에서 표식을 찾는 패턴. 표식은 앞뒤가 "단어 문자" 에 붙어 있으면 표식이 아니다.
+ *
+ * 단어 문자 = 모든 언어의 글자(\p{L}), 결합 부호(\p{M}), 숫자(\p{N}), 밑줄(_).
+ *   - 표식 아님: `xstudio-work-a1`, `_studio-work-a1`, `studio-work-a1_v2`, `studio-work-a1é`, `studio-work-a1B`,
+ *               `studio-work-a1에서` (한국어 조사를 띄어 쓰지 않고 붙인 경우도 표식으로 보지 않는다)
+ *   - 표식: 하이픈 · 슬래시 · 공백 · 줄바꿈 · 마침표 · 괄호 · 글의 처음과 끝에서 끊긴 것
+ *           (예: `feat/studio-work-a1b2c3-login`, `studio-work-a1b2c3.`)
+ * 확실할 때만 표식으로 본다. 애매한 것을 놓치면 PR 은 Inbox 로 갈 뿐이지만, 잘못 읽으면 엉뚱한 업무에 붙는다.
  */
-const MARKER_IN_TEXT = /(?<![A-Za-z0-9])studio-work-([a-z0-9]+)(?![A-Za-z0-9])/g;
+const MARKER_IN_TEXT = /(?<![\p{L}\p{M}\p{N}_])studio-work-([a-z0-9]+)(?![\p{L}\p{M}\p{N}_])/gu;
 
 export function isValidWorkId(id: string): boolean {
   return WORK_ID_PATTERN.test(id);

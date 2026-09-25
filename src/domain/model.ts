@@ -83,12 +83,20 @@ export interface Work {
 /** 연결이 어떻게 생겼나. "marker" 는 표식으로 자동 연결, "user" 는 사람이 Inbox 에서 연결. */
 export type LinkOrigin = "marker" | "user";
 
-/** 업무와 PR 의 연결. PR 하나에는 연결이 최대 하나다. */
-export interface PrLink extends PrRef {
+/** 표식을 찾은 자리. PR 제목은 표식을 찾는 자리가 아니다 (계약 §4: 본문 또는 브랜치 이름). */
+export type MarkerPlace = "body" | "branch";
+
+/**
+ * 업무와 PR 의 연결. PR 하나에는 연결이 최대 하나다.
+ * 표식으로 생긴 연결은 연결되던 순간 표식이 어디에 있었는지를 함께 남긴다 — 나중에 표식이 지워져도 기록은 남는다.
+ */
+export type PrLink = PrRef & {
   readonly workId: string;
-  readonly origin: LinkOrigin;
   readonly linkedAt: string;
-}
+} & (
+    | { readonly origin: "user" }
+    | { readonly origin: "marker"; readonly markerFoundIn: readonly MarkerPlace[] }
+  );
 
 /** 내부 검토 결정 (계약 §5: 수정 요청 · 내부 검토 완료). GitHub 병합이나 GitHub 리뷰를 뜻하지 않는다. */
 export type ReviewVerdict = "changes_requested" | "internal_review_done";

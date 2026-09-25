@@ -19,7 +19,11 @@ export const REVIEWS_PER_PR = 100;
 
 export interface RestReaderOptions {
   readonly token: string;
-  /** 읽을 저장소 목록 (owner/name). 처음 한 번 이름으로 찾고, 그 뒤로는 GitHub 가 돌려준 숫자 ID 로 기억한다. */
+  /**
+   * 읽을 저장소 목록 (owner/name). 동기화할 때마다 이 이름으로 저장소를 다시 찾는다(GET /repos/owner/name).
+   * 찾은 뒤의 PR 요청에는 GitHub 가 돌려준 현재 이름을 쓰고, PR 의 동일성은 GitHub 가 돌려준 숫자 ID 로 판단한다.
+   * 이름이 바뀐 저장소는 GitHub 의 리디렉션을 관문을 다시 거쳐 따라가 찾는다.
+   */
   readonly repos: readonly string[];
   readonly fetch: FetchLike;
 }

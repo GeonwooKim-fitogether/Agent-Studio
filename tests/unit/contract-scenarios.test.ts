@@ -8,7 +8,8 @@ import { createWorkFromPr, linkPrToWork } from "../../src/application/inbox-acti
 import { getInbox, getWorkDetail, getWorkspace, type PrCardView } from "../../src/application/queries";
 import { recordReviewDecision } from "../../src/application/review";
 import { syncAll } from "../../src/application/sync";
-import { prKey } from "../../src/domain/model";
+import { prKey, type PrSnapshot } from "../../src/domain/model";
+import type { GitHubReader } from "../../src/ports/github-reader";
 import { setup } from "./helpers";
 
 const ref = (repoId: number, number: number) => ({ repoId, number });
@@ -116,8 +117,16 @@ describe("scenario-2 표식이 확실하지 않은 PR 은 Inbox 로", () => {
     const { deps } = setup();
     const result = await syncAll(deps);
 
-    expect(await deps.store.getLink(ref(DEMO_REPO.payments, 12))).toMatchObject({ workId: "a1b2c3", origin: "marker" }); // 본문
-    expect(await deps.store.getLink(ref(DEMO_REPO.payments, 15))).toMatchObject({ workId: "a1b2c3", origin: "marker" }); // 브랜치 이름
+    expect(await deps.store.getLink(ref(DEMO_REPO.payments, 12))).toMatchObject({
+      workId: "a1b2c3",
+      origin: "marker",
+      markerFoundIn: ["body"],
+    });
+    expect(await deps.store.getLink(ref(DEMO_REPO.payments, 15))).toMatchObject({
+      workId: "a1b2c3",
+      origin: "marker",
+      markerFoundIn: ["branch"],
+    });
     expect(await deps.store.getLink(ref(DEMO_REPO.adminConsole, 12))).toMatchObject({ workId: "d0e1f2", origin: "marker" });
     expect(result.autoLinked).toBe(3);
   });
@@ -169,18 +178,38 @@ describe("scenario-3 Inbox 에서 사람이 연결", () => {
     expect((await getWorkDetail(deps, "c7d8e9"))?.prs.map((p) => p.key)).toEqual([prKey(ref(DEMO_REPO.playerApp, 12))]);
   });
 
-  it("scenario-3: 다른 프로젝트의 업무나 이미 연결된 PR 에는 연결하지 않는다", async () => {
+  it("scenario-3: 다른 프로젝트의 업무나, 이미 다른 업무에 연결된 PR 에는 연결하지 않는다", async () => {
     const { deps } = setup();
     await syncAll(deps);
 
     await expect(linkPrToWork(deps, { ...ref(DEMO_REPO.playerApp, 12), workId: "a1b2c3" })).rejects.toMatchObject({
       code: "project_mismatch",
     });
-    await expect(linkPrToWork(deps, { ...ref(DEMO_REPO.payments, 12), workId: "a1b2c3" })).rejects.toMatchObject({
+    expect((await inboxCards(deps)).map((c) => c.pr.key)).toContain(prKey(ref(DEMO_REPO.playerApp, 12)));
+
+    // player-app#9 를 사람이 c7d8e9 에 연결한 뒤, 같은 프로젝트의 다른 업무로 다시 연결하려 하면 거절한다
+    await linkPrToWork(deps, { ...ref(DEMO_REPO.playerApp, 9), workId: "c7d8e9" });
+    const other = await createWorkFromPr(deps, ref(DEMO_REPO.playerApp, 12)); // 같은 프로젝트(선수 앱)의 두 번째 업무
+    await expect(linkPrToWork(deps, { ...ref(DEMO_REPO.playerApp, 9), workId: other.id })).rejects.toMatchObject({
       code: "already_linked",
     });
     await expect(createWorkFromPr(deps, ref(DEMO_REPO.payments, 12))).rejects.toMatchObject({ code: "already_linked" });
-    expect((await inboxCards(deps)).map((c) => c.pr.key)).toContain(prKey(ref(DEMO_REPO.playerApp, 12)));
+    expect(await deps.store.getLink(ref(DEMO_REPO.playerApp, 9))).toMatchObject({ workId: "c7d8e9" });
+  });
+
+  it("scenario-3: 같은 업무로 다시 연결하면(이중 클릭) 아무 일 없이 성공하고 연결은 하나로 남는다", async () => {
+    const { deps } = setup();
+    await syncAll(deps);
+    const target = { ...ref(DEMO_REPO.coachWeb, 12), workId: "b4c5d6" };
+
+    await linkPrToWork(deps, target);
+    await expect(linkPrToWork(deps, target)).resolves.toBeUndefined(); // 차례로 두 번
+    const fresh = { ...ref(DEMO_REPO.playerApp, 9), workId: "c7d8e9" };
+    await expect(Promise.all([linkPrToWork(deps, fresh), linkPrToWork(deps, fresh)])).resolves.toEqual([undefined, undefined]); // 동시에 두 번
+
+    const links = await deps.store.listLinks();
+    expect(links.filter((l) => l.repoId === DEMO_REPO.coachWeb)).toHaveLength(1);
+    expect(links.filter((l) => l.repoId === DEMO_REPO.playerApp && l.number === 9)).toHaveLength(1);
   });
 });
 
@@ -238,16 +267,16 @@ describe("scenario-5 내부 검토 완료는 GitHub 상태를 바꾸지 않는�
     const { deps, readerCalls } = setup();
     await syncAll(deps);
     const target = ref(DEMO_REPO.payments, 12);
-    const snapshotBefore = await deps.store.getSnapshot(target);
+    // 저장소 내부 객체가 아니라 깊은 복사본을 떠 둔다 — 제자리 변경도 잡기 위해서다
+    const snapshotsBefore = structuredClone(await deps.store.listSnapshots());
     const callsBefore = readerCalls.length;
 
     const decision = await recordReviewDecision(deps, { ...target, workId: "a1b2c3", verdict: "internal_review_done" });
 
+    // 재동기화하기 전에 확인한다. 재동기화는 fixture 의 값으로 스냅샷을 덮어써 변화를 가려 버린다.
     expect(decision.commitSha).toBe(DEMO_SHA.payments12Head); // 어느 커밋에 대한 결정인지 함께 남는다
     expect(readerCalls.length).toBe(callsBefore); // GitHub 쪽으로 아무 요청도 만들지 않았다
-    expect(await deps.store.getSnapshot(target)).toEqual(snapshotBefore); // 받아 적은 GitHub 상태는 그대로다
-
-    await syncAll(deps); // GitHub 를 다시 읽어도 PR 상태는 그대로 Open 이다
+    expect(await deps.store.listSnapshots()).toEqual(snapshotsBefore); // 받아 적은 GitHub 상태는 하나도 바뀌지 않았다
     const card = (await getWorkDetail(deps, "a1b2c3"))?.prs.find((p) => p.key === prKey(target));
     expect(card?.github).toEqual({ state: "open", checks: "failing", review: "changes_requested" });
     expect(card?.studio.reviews.at(-1)).toMatchObject({ verdict: "internal_review_done", freshness: "current" });
@@ -267,3 +296,219 @@ describe("scenario-5 내부 검토 완료는 GitHub 상태를 바꾸지 않는�
     ).rejects.toMatchObject({ code: "not_linked" });
   });
 });
+
+describe("추정 근거로는 연결하지 않는다 (계약 §4)", () => {
+  it("같은 프로젝트에 제목이 똑같은 업무가 있어도, 표식이 없는 PR 은 Inbox 로 간다", async () => {
+    const { data, deps } = setup();
+    // 코치 대시보드의 업무 제목과 글자 하나까지 같은 제목, 표식 없음
+    data.pullRequests = [
+      ...data.pullRequests,
+      demoPr({ repoId: DEMO_REPO.coachWeb, number: 20, title: "코치 로그인 개편", body: "제목만 같다", branch: "feat/coach-login" }),
+    ];
+    await syncAll(deps);
+
+    expect(await deps.store.getLink(ref(DEMO_REPO.coachWeb, 20))).toBeUndefined();
+    expect((await inboxCards(deps)).find((c) => c.pr.key === prKey(ref(DEMO_REPO.coachWeb, 20)))?.reason).toBe("no_marker");
+  });
+
+  it("New Work 가 PR 제목을 업무 제목으로 복사해도, 같은 제목의 다른 PR 은 그 업무에 붙지 않는다", async () => {
+    const { data, deps } = setup();
+    await syncAll(deps);
+    const work = await createWorkFromPr(deps, ref(DEMO_REPO.docsSite, 12)); // 업무 제목 = "로그인 안내 문서"
+    data.pullRequests = [
+      ...data.pullRequests,
+      demoPr({ repoId: DEMO_REPO.docsSite, number: 13, title: "로그인 안내 문서", body: "", branch: "docs/login-guide-2" }),
+    ];
+
+    await syncAll(deps);
+
+    expect(work.title).toBe("로그인 안내 문서");
+    expect(await deps.store.getLink(ref(DEMO_REPO.docsSite, 13))).toBeUndefined();
+    expect((await inboxCards(deps)).map((c) => c.pr.key)).toContain(prKey(ref(DEMO_REPO.docsSite, 13)));
+  });
+
+  it("PR 제목에만 들어 있는 표식은 보지 않는다 (표식을 찾는 자리는 본문과 브랜치 이름뿐)", async () => {
+    const { data, deps } = setup();
+    data.pullRequests = [
+      ...data.pullRequests,
+      demoPr({ repoId: DEMO_REPO.coachWeb, number: 21, title: "studio-work-b4c5d6 로그인", body: "", branch: "feat/x" }),
+    ];
+    await syncAll(deps);
+
+    expect(await deps.store.getLink(ref(DEMO_REPO.coachWeb, 21))).toBeUndefined();
+    expect((await inboxCards(deps)).find((c) => c.pr.key === prKey(ref(DEMO_REPO.coachWeb, 21)))?.reason).toBe("no_marker");
+  });
+
+  it("studio-work-b4c5d6x 는 업무 b4c5d6 의 표식이 아니다", async () => {
+    const { data, deps } = setup();
+    data.pullRequests = [
+      ...data.pullRequests,
+      demoPr({ repoId: DEMO_REPO.coachWeb, number: 22, title: "비슷한 표식", body: "studio-work-b4c5d6x", branch: "feat/y" }),
+    ];
+    await syncAll(deps);
+
+    expect(await deps.store.getLink(ref(DEMO_REPO.coachWeb, 22))).toBeUndefined();
+    const item = (await inboxCards(deps)).find((c) => c.pr.key === prKey(ref(DEMO_REPO.coachWeb, 22)));
+    expect(item).toMatchObject({ reason: "unknown_work", markedWorkIds: ["b4c5d6x"] });
+  });
+});
+
+describe("시간이 지나며 바뀌는 것", () => {
+  it("표식이 가리키는 업무가 나중에 생기면, 다음 동기화에서 그 업무에 연결된다", async () => {
+    const { data, deps } = setup(); // 도우미의 새 ID 는 n00001 부터 차례로 나온다
+    data.pullRequests = [
+      ...data.pullRequests,
+      demoPr({ repoId: DEMO_REPO.docsSite, number: 30, title: "안내 문서 보강", body: "studio-work-n00001", branch: "docs/more" }),
+    ];
+    await syncAll(deps);
+    expect((await inboxCards(deps)).find((c) => c.pr.key === prKey(ref(DEMO_REPO.docsSite, 30)))?.reason).toBe("unknown_work");
+
+    const work = await createWorkFromPr(deps, ref(DEMO_REPO.docsSite, 12));
+    expect(work.id).toBe("n00001");
+    await syncAll(deps);
+
+    expect(await deps.store.getLink(ref(DEMO_REPO.docsSite, 30))).toMatchObject({
+      workId: "n00001",
+      origin: "marker",
+      markerFoundIn: ["body"],
+    });
+  });
+
+  it("표식으로 연결된 PR 의 표식이 나중에 지워지거나 다른 업무로 바뀌어도, 연결은 처음 업무에 남는다", async () => {
+    const { data, deps } = setup();
+    data.pullRequests = [
+      ...data.pullRequests,
+      demoPr({ repoId: DEMO_REPO.payments, number: 40, title: "결제 취소", body: "", branch: "feat/cancel" }),
+    ];
+    await syncAll(deps);
+    const second = await createWorkFromPr(deps, ref(DEMO_REPO.payments, 40)); // 같은 프로젝트의 두 번째 업무
+    const setBody = (body: string) => {
+      data.pullRequests = data.pullRequests.map((p) =>
+        p.repoId === DEMO_REPO.payments && p.number === 12 ? { ...p, body } : p,
+      );
+    };
+
+    setBody("표식을 지웠다");
+    await syncAll(deps);
+    expect(await deps.store.getLink(ref(DEMO_REPO.payments, 12))).toMatchObject({ workId: "a1b2c3", origin: "marker" });
+
+    setBody(`studio-work-${second.id}`);
+    await syncAll(deps);
+    expect(await deps.store.getLink(ref(DEMO_REPO.payments, 12))).toMatchObject({ workId: "a1b2c3", origin: "marker" });
+  });
+
+  it("신선도는 SHA 전체로 비교한다 — 앞 7자만 같은 새 커밋이 오면 이전 버전이다", async () => {
+    const { data, deps } = setup();
+    await syncAll(deps);
+    const sameShort = `${DEMO_SHA.admin12Head.slice(0, 7)}${"0".repeat(33)}`;
+    expect(sameShort.slice(0, 7)).toBe(DEMO_SHA.admin12Head.slice(0, 7));
+    expect(sameShort).not.toBe(DEMO_SHA.admin12Head);
+    data.pullRequests = data.pullRequests.map((p) =>
+      p.repoId === DEMO_REPO.adminConsole && p.number === 12 ? { ...p, headSha: sameShort } : p,
+    );
+
+    await syncAll(deps);
+
+    const card = (await getWorkDetail(deps, "d0e1f2"))?.prs[0];
+    expect(card?.studio.reviews.map((r) => r.freshness)).toEqual(["outdated"]);
+  });
+});
+
+describe("기록과 후보가 섞이지 않는다", () => {
+  it("번호가 같은 서로 다른 저장소 PR 의 내부 검토 결정과 미리보기 기록은 섞이지 않는다", async () => {
+    // 한 프로젝트에 저장소 둘, 두 저장소 모두 PR #12, 둘 다 같은 업무 m1 에 표식으로 연결된다
+    const repoA = 810001;
+    const repoB = 810002;
+    const { deps } = setup({
+      data: {
+        repositories: [
+          { id: repoA, fullName: "demo-org/app-a" },
+          { id: repoB, fullName: "demo-org/app-b" },
+        ],
+        pullRequests: [
+          demoPr({ repoId: repoA, number: 12, title: "A", body: "studio-work-m1", branch: "feat/login-page", headSha: "a".repeat(40) }),
+          demoPr({ repoId: repoB, number: 12, title: "B", body: "studio-work-m1", branch: "feat/login-page", headSha: "b".repeat(40) }),
+        ],
+      },
+      seed: {
+        projects: [{ id: "multi", name: "두 저장소 프로젝트", repoIds: [repoA, repoB] }],
+        works: [{ id: "m1", projectId: "multi", title: "로그인", status: "draft", createdAt: "2026-09-20T00:00:00.000Z" }],
+        reviews: [
+          { id: "r-a", workId: "m1", repoId: repoA, number: 12, commitSha: "a".repeat(40), verdict: "internal_review_done", decidedAt: "2026-09-24T00:00:00.000Z" },
+        ],
+        previews: [{ id: "p-a", repoId: repoA, number: 12, commitSha: "a".repeat(40), startedAt: "2026-09-24T00:00:00.000Z" }],
+      },
+    });
+    await syncAll(deps);
+
+    const cards = (await getWorkDetail(deps, "m1"))?.prs ?? [];
+    const a = cards.find((c) => c.repoId === repoA);
+    const b = cards.find((c) => c.repoId === repoB);
+    expect(cards).toHaveLength(2);
+    expect(a?.studio.reviews.map((r) => r.id)).toEqual(["r-a"]);
+    expect(a?.studio.previews.map((p) => p.id)).toEqual(["p-a"]);
+    expect(b?.studio.reviews).toEqual([]);
+    expect(b?.studio.previews).toEqual([]);
+  });
+
+  it("Inbox 에서 연결할 수 있는 업무 후보는 그 PR 의 프로젝트 업무뿐이다", async () => {
+    const { deps } = setup();
+    await syncAll(deps);
+    const inbox = await getInbox(deps);
+
+    for (const group of inbox.groups) {
+      for (const work of group.candidates) expect(work.projectId).toBe(group.project.id);
+    }
+    const candidatesOf = (projectId: string) =>
+      inbox.groups.find((g) => g.project.id === projectId)?.candidates.map((w) => w.id);
+    expect(candidatesOf("coach")).toEqual(["b4c5d6"]);
+    expect(candidatesOf("player")).toEqual(["c7d8e9"]);
+    expect(candidatesOf("docs")).toEqual([]);
+  });
+
+  it("다른 프로젝트의 표식이면 Inbox 사유에 그 프로젝트 이름이 실린다", async () => {
+    const { deps } = setup();
+    await syncAll(deps);
+    const item = (await inboxCards(deps)).find((c) => c.pr.key === prKey(ref(DEMO_REPO.playerApp, 12)));
+    expect(item).toMatchObject({ reason: "other_project", markedProjectName: "결제 서비스" });
+  });
+});
+
+describe("동기화가 믿지 않는 응답", () => {
+  it("요청한 저장소와 저장소 ID 가 다른 스냅샷은 받아 적지도 연결하지도 않고, 버린 목록에 남긴다", async () => {
+    const { deps } = setup();
+    const inner = deps.reader;
+    // 결제 서비스 저장소를 물었는데 코치 저장소의 PR 을 섞어 돌려주는 잘못된 리더
+    const reader: GitHubReader = {
+      ...inner,
+      listRepositories: () => inner.listRepositories(),
+      listPullRequests: async (repository) => {
+        const prs = await inner.listPullRequests(repository);
+        return repository.id !== DEMO_REPO.payments
+          ? prs
+          : [...prs, demoPr({ repoId: DEMO_REPO.coachWeb, number: 77, title: "섞여 온 PR", body: "studio-work-a1b2c3", branch: "x" })];
+      },
+    };
+
+    const result = await syncAll({ ...deps, reader });
+
+    expect(result.discarded).toEqual([{ requestedRepoId: DEMO_REPO.payments, repoId: DEMO_REPO.coachWeb, number: 77 }]);
+    expect(await deps.store.getSnapshot(ref(DEMO_REPO.coachWeb, 77))).toBeUndefined();
+    expect(await deps.store.getLink(ref(DEMO_REPO.coachWeb, 77))).toBeUndefined();
+    expect((await getWorkDetail(deps, "a1b2c3"))?.prs.map((p) => p.key)).not.toContain(prKey(ref(DEMO_REPO.coachWeb, 77)));
+  });
+});
+
+/** 시험용 PR 스냅샷. 필요한 칸만 받고 나머지는 평범한 값으로 채운다. */
+function demoPr(fields: Pick<PrSnapshot, "repoId" | "number" | "title" | "body" | "branch"> & Partial<PrSnapshot>): PrSnapshot {
+  return {
+    headSha: "e".repeat(40),
+    url: `https://github.com/demo-org/x/pull/${fields.number}`,
+    author: "tester",
+    state: "open",
+    checks: "none",
+    review: "none",
+    updatedAt: "2026-09-24T00:00:00.000Z",
+    ...fields,
+  };
+}

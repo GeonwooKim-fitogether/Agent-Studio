@@ -2,10 +2,10 @@
  * 자동 연결 규칙 — "확실할 때만 자동, 아니면 Inbox" (계약 §4).
  *
  * 잘못 붙인 PR 은 놓친 PR 보다 해롭다. 사람이 그 오류를 발견할 방법이 없기 때문이다.
- * 그래서 자동 연결의 근거는 Studio 가 발급한 표식 하나뿐이고, 제목 유사도·작성자·파일 겹침 같은
- * 추정 근거는 쓰지 않는다.
+ * 그래서 자동 연결의 근거는 Studio 가 발급한 표식 하나뿐이고, 제목 유사도 · 작성자 · 파일 겹침 같은
+ * 추정 근거는 쓰지 않는다. 이 함수가 PR 의 본문과 브랜치 이름만 받는 것은 그 때문이다 — 제목은 보지 않는다.
  */
-import type { PrSnapshot, Work } from "./model";
+import type { MarkerPlace, PrSnapshot, Work } from "./model";
 import { findMarkedWorkIds } from "./work-marker";
 
 /** PR 이 Inbox 로 가는 이유. 화면이 사용자에게 이유를 설명할 때 쓴다. */
@@ -16,7 +16,7 @@ export type InboxReason =
   | "multiple_markers"; // 서로 다른 업무를 가리키는 표식이 둘 이상이다
 
 export type LinkDecision =
-  | { readonly kind: "auto"; readonly workId: string }
+  | { readonly kind: "auto"; readonly workId: string; readonly foundIn: readonly MarkerPlace[] }
   | { readonly kind: "inbox"; readonly reason: InboxReason; readonly markedWorkIds: readonly string[] };
 
 /**
@@ -35,12 +35,18 @@ export function decideLink(
   prProjectId: string,
   works: readonly Work[],
 ): LinkDecision {
-  const markedWorkIds = findMarkedWorkIds(pr.body, pr.branch);
+  const inBody = findMarkedWorkIds(pr.body);
+  const inBranch = findMarkedWorkIds(pr.branch);
+  const markedWorkIds = [...new Set([...inBody, ...inBranch])];
   if (markedWorkIds.length === 0) return { kind: "inbox", reason: "no_marker", markedWorkIds };
   if (markedWorkIds.length > 1) return { kind: "inbox", reason: "multiple_markers", markedWorkIds };
 
   const work = works.find((w) => w.id === markedWorkIds[0]);
   if (work === undefined) return { kind: "inbox", reason: "unknown_work", markedWorkIds };
   if (work.projectId !== prProjectId) return { kind: "inbox", reason: "other_project", markedWorkIds };
-  return { kind: "auto", workId: work.id };
+
+  const foundIn = (["body", "branch"] as const).filter((place) =>
+    (place === "body" ? inBody : inBranch).includes(work.id),
+  );
+  return { kind: "auto", workId: work.id, foundIn };
 }

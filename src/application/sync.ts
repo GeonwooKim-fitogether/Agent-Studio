@@ -2,14 +2,22 @@
  * 동기화 — GitHub 에서 PR 을 읽어 받아 적고, 아직 연결이 없는 PR 에만 자동 연결 규칙을 적용한다.
  */
 import { decideLink } from "../domain/auto-link";
-import type { Project } from "../domain/model";
+import { type Project, type RepoId, StudioError } from "../domain/model";
 import type { AppDeps } from "./deps";
+
+/** 요청한 저장소와 저장소 ID 가 달라 받아 적지 않고 버린 스냅샷 */
+export interface DiscardedSnapshot {
+  readonly requestedRepoId: RepoId;
+  readonly repoId: RepoId;
+  readonly number: number;
+}
 
 export interface SyncResult {
   readonly repositories: number;
   readonly pullRequests: number;
   /** 이번 동기화에서 표식으로 새로 자동 연결된 PR 수 */
   readonly autoLinked: number;
+  readonly discarded: readonly DiscardedSnapshot[];
 }
 
 /**
@@ -19,9 +27,11 @@ export interface SyncResult {
  * 2. 어느 프로젝트에도 속하지 않은 저장소는 그 저장소 하나로 된 프로젝트를 만든다.
  *    프로젝트를 만드는 화면이 아직 없으므로, 읽을 저장소 목록(환경변수)을 사용자의 선택으로 본다.
  *    고정 데이터에서는 모든 저장소가 이미 프로젝트에 속해 있어 이 단계가 아무것도 하지 않는다.
- * 3. PR 스냅샷을 (저장소 숫자 ID, PR 번호) 로 받아 적는다.
+ * 3. PR 스냅샷을 받아 적는다. 스냅샷이 어느 프로젝트의 것인지는 **스냅샷의 저장소 ID** 로 정한다.
+ *    요청한 저장소와 저장소 ID 가 다른 스냅샷은 믿지 않고 버리며, 버린 목록을 결과에 남긴다.
  * 4. 이미 연결된 PR 은 다시 판정하지 않는다. 사람이 연결한 것이든 표식으로 연결된 것이든, 연결은 동기화가 바꾸지 않는다.
  *    연결이 없는 PR 만 표식 규칙으로 판정하고, 확실하지 않으면 그대로 둔다(= Inbox 에 남는다).
+ *    다른 요청(동시에 도는 동기화, 사람의 연결)이 먼저 연결해 버린 PR 은 건너뛰고 계속 간다.
  */
 export async function syncAll(deps: AppDeps): Promise<SyncResult> {
   const { reader, store } = deps;
@@ -40,30 +50,41 @@ export async function syncAll(deps: AppDeps): Promise<SyncResult> {
 
   const works = await store.listWorks();
   const linkedAt = deps.now().toISOString();
+  const discarded: DiscardedSnapshot[] = [];
   let pullRequests = 0;
   let autoLinked = 0;
 
   for (const repository of repositories) {
-    const project = projects.find((p) => p.repoIds.includes(repository.id));
-    if (project === undefined) continue; // 2단계에서 만들었으므로 여기 오지 않는다
-    const snapshots = await reader.listPullRequests(repository);
-    for (const snapshot of snapshots) {
+    for (const snapshot of await reader.listPullRequests(repository)) {
+      if (snapshot.repoId !== repository.id) {
+        discarded.push({ requestedRepoId: repository.id, repoId: snapshot.repoId, number: snapshot.number });
+        continue;
+      }
+      const project = projects.find((p) => p.repoIds.includes(snapshot.repoId));
+      if (project === undefined) continue; // 2단계에서 만들었으므로 여기 오지 않는다
+
       pullRequests += 1;
       await store.saveSnapshot(snapshot);
       if ((await store.getLink(snapshot)) !== undefined) continue;
+
       const decision = decideLink(snapshot, project.id, works);
-      if (decision.kind === "auto") {
+      if (decision.kind !== "auto") continue;
+      try {
         await store.addLink({
           repoId: snapshot.repoId,
           number: snapshot.number,
           workId: decision.workId,
           origin: "marker",
+          markerFoundIn: decision.foundIn,
           linkedAt,
         });
         autoLinked += 1;
+      } catch (error) {
+        if (error instanceof StudioError && error.code === "already_linked") continue;
+        throw error;
       }
     }
   }
 
-  return { repositories: repositories.length, pullRequests, autoLinked };
+  return { repositories: repositories.length, pullRequests, autoLinked, discarded };
 }

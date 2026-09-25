@@ -4,6 +4,8 @@
  *
  * GitHub 에서 받아 적은 것(Repository, PrSnapshot)과 Studio 가 소유한 것(나머지)을 함께 담지만,
  * 받아 적은 것은 동기화(syncAll)만 쓴다.
+ *
+ * 구현은 저장할 때와 돌려줄 때 모두 복사본을 쓴다. 돌려받은 값을 고쳐도 저장된 값은 바뀌지 않아야 한다.
  */
 import type {
   PreviewRecord,
@@ -22,7 +24,12 @@ export interface StudioStore {
 
   listWorks(): Promise<Work[]>;
   getWork(id: string): Promise<Work | undefined>;
-  saveWork(work: Work): Promise<void>;
+  /**
+   * 새 업무를 만들고 PR 하나를 그 업무에 연결한다 — 둘 다 되거나 둘 다 안 되는 하나의 연산이다.
+   * PR 이 이미 연결돼 있거나 같은 ID 의 업무가 있으면 아무것도 남기지 않고 오류를 낸다.
+   * (따로 저장하면 동시 요청에서 연결 없는 빈 업무가 남는다. PostgreSQL 구현은 트랜잭션 하나로 한다.)
+   */
+  createWorkWithLink(work: Work, link: PrLink): Promise<void>;
 
   listRepositories(): Promise<Repository[]>;
   saveRepository(repository: Repository): Promise<void>;

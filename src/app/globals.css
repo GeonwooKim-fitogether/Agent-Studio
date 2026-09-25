@@ -119,8 +119,9 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
   margin-bottom: 10px;
 }
 .work-row-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-.work-title { font-weight: 750; text-decoration: none; }
-.work-title:hover { text-decoration: underline; }
+/* 업무 제목은 링크다. 휴대전화처럼 hover 가 없는 기기에서도 링크로 보이도록 밑줄을 늘 둔다. */
+.work-title { font-weight: 750; text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+.work-title:hover { text-decoration-thickness: 2px; }
 
 .status { display: inline-flex; align-items: center; gap: 6px; border-radius: 99px; padding: 4px 9px; background: #f2f3f5; color: #59636f; font-size: 11px; font-weight: 750; }
 .status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
@@ -142,6 +143,11 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .chip.pr-open, .chip.checks-failing, .chip.current { border-color: #9aa3ad; color: var(--ink); font-weight: 700; }
 .chip.outdated { border-style: dashed; color: #8b939d; }
 
+.legend { font-size: 12px; color: #59636f; margin: 0 0 12px; }
+.hint { font-size: 12px; color: #4b5562; background: var(--surface); border: 1px dashed #d5d9de; border-radius: 10px; padding: 10px 14px; margin: 0 0 22px; }
+.notice { font-size: 13px; color: var(--ink); background: var(--accent-soft); border: 1px solid #cbd1d8; border-left: 4px solid var(--accent); border-radius: 10px; padding: 12px 16px; margin: 0 0 18px; }
+.notice a { font-weight: 750; margin-left: 4px; }
+.inbox-clear { font-size: 13px; color: #59636f; margin: 0 0 30px; }
 .reason { font-size: 12px; color: #4b5562; margin: 10px 0; }
 .inbox-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .inline-form { display: flex; align-items: center; gap: 8px; margin: 0; }

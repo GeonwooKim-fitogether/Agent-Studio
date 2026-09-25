@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { getWorkDetail } from "../../../application/queries";
 import { getContainer } from "../../../server/container";
 import { WORK_STATUS } from "../../components/labels";
-import { PrCard } from "../../components/pr-card";
+import { PrCard, StateLegend } from "../../components/pr-card";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +30,7 @@ export default async function WorkPage({ params }: { params: Promise<{ id: strin
         <p className="eyebrow">Work marker</p>
         <code data-testid="work-marker">{marker}</code>
         <p className="muted">
-          PR 본문이나 브랜치 이름에 이 표식을 넣으면 다음 Sync 때 이 업무에 자동으로 연결된다. 표식이 없거나 다른 표식과 섞이면 Inbox 로 간다.
+          PR 본문이나 브랜치 이름에 이 표식을 넣으면 다음 Sync 때 이 업무에 자동으로 연결된다. 표식 앞뒤는 띄어 쓴다(예: "studio-work-… 에서"). 조사를 붙여 쓰거나 다른 표식과 섞이면 Inbox 로 간다.
         </p>
       </section>
 
@@ -43,6 +43,7 @@ export default async function WorkPage({ params }: { params: Promise<{ id: strin
           <p className="empty-note">아직 연결된 PR 이 없다. Inbox 에서 연결하거나 위 표식을 PR 에 넣는다.</p>
         ) : (
           <div className="pr-list">
+            <StateLegend />
             {prs.map((pr) => (
               <PrCard key={pr.key} pr={pr} source={container.deps.reader.source} />
             ))}

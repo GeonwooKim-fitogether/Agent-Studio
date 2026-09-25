@@ -161,7 +161,7 @@ export function demoStudioSeed(): StudioSeed {
       { id: "a1b2c3", projectId: "payments", title: "로그인 화면 만들기", status: "in_progress", createdAt: "2026-09-20T01:00:00.000Z" },
       { id: "b4c5d6", projectId: "coach", title: "코치 로그인 개편", status: "draft", createdAt: "2026-09-21T01:00:00.000Z" },
       { id: "c7d8e9", projectId: "player", title: "선수 앱 온보딩 정리", status: "draft", createdAt: "2026-09-21T02:00:00.000Z" },
-      { id: "d0e1f2", projectId: "admin", title: "관리자 로그인 보안 점검", status: "needs_review", createdAt: "2026-09-22T01:00:00.000Z" },
+      { id: "d0e1f2", projectId: "admin", title: "관리자 로그인 보안 점검", status: "in_progress", createdAt: "2026-09-22T01:00:00.000Z" },
     ],
     reviews: [
       {
