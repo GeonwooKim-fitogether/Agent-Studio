@@ -19,7 +19,7 @@ function restartUrl(): string {
 
 async function startServer(): Promise<ChildProcess> {
   const child = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "--port", String(PORT), "--hostname", "127.0.0.1"], {
-    env: { ...process.env, DATABASE_URL: restartUrl(), APP_ENV: "test", GITHUB_TOKEN: "", GITHUB_REPOS: "" },
+    env: { ...process.env, DATABASE_URL: restartUrl(), APP_ENV: "test", GITHUB_TOKEN: "", GITHUB_REPOS: "", GITHUB_APP_ID: "", GITHUB_APP_INSTALLATION_ID: "", GITHUB_APP_PRIVATE_KEY_PATH: "" },
     stdio: "ignore",
   });
   for (let i = 0; i < 100; i += 1) {

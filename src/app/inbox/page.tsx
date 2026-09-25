@@ -42,6 +42,12 @@ export default async function InboxPage({ searchParams }: { searchParams: Search
         표식은 아래 Work 선택지와 업무 화면에 있다.
       </p>
 
+      {view.closedUnlinkedCount > 0 && (
+        <p className="muted closed-count" data-testid="closed-unlinked-count">
+          닫히거나 병합된 연결 안 된 PR {view.closedUnlinkedCount}개는 목록에 두지 않는다. 이미 끝난 PR 이라 결정할 일이 아니다.
+        </p>
+      )}
+
       {view.total === 0 ? (
         <p className="empty-note" data-testid="inbox-empty">
           연결을 기다리는 PR 이 없다.

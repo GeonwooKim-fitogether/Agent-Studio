@@ -78,7 +78,7 @@ export function createGitHubRestReader(options: RestReaderOptions): GitHubReader
 }
 
 /** "owner/name" 을 주소 경로 조각으로. 두 부분이 아니면 요청하지 않는다. */
-function repoPath(fullName: string): string {
+export function repoPath(fullName: string): string {
   const parts = fullName.split("/");
   if (parts.length !== 2 || parts.some((p) => p.trim() === "")) {
     throw new GitHubReadError(`저장소 이름은 owner/name 형식이어야 한다: "${fullName}"`);
@@ -90,11 +90,11 @@ function repoPath(fullName: string): string {
 
 type Json = Record<string, unknown>;
 
-function isObject(value: unknown): value is Json {
+export function isObject(value: unknown): value is Json {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function asArray(value: unknown, what: string): unknown[] {
+export function asArray(value: unknown, what: string): unknown[] {
   if (!Array.isArray(value)) throw new GitHubReadError(`GitHub 응답의 ${what} 모양이 예상과 다르다`);
   return value;
 }
@@ -105,7 +105,7 @@ function field<T>(obj: Json, key: string, check: (v: unknown) => v is T, what: s
   return value;
 }
 
-const isNumber = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v);
+export const isNumber = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v);
 const isString = (v: unknown): v is string => typeof v === "string";
 /** 커밋 SHA 는 주소 경로에 들어가므로 16진수 40자만 받는다. */
 const isSha = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f]{40}$/.test(v);
@@ -115,7 +115,7 @@ function parseRepository(json: unknown, requested: string): Repository {
   return { id: field(json, "id", isNumber, "repository"), fullName: field(json, "full_name", isString, "repository") };
 }
 
-function parsePull(raw: unknown) {
+export function parsePull(raw: unknown) {
   if (!isObject(raw)) throw new GitHubReadError("GitHub 응답의 PR 모양이 예상과 다르다");
   const head = field(raw, "head", isObject, "pull");
   const user = raw["user"];

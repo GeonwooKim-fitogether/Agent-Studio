@@ -56,7 +56,8 @@ test("Workspace 에서 Inbox 로 가서 PR 을 기존 업무에 연결하면, �
 
   // 데이터 출처, "다시 켜면 처음 상태", 한국 시간이 보인다
   const source = page.getByTestId("data-source");
-  await expect(source).toContainText("Fixture data");
+  await expect(page.getByTestId("source-kind")).toHaveText("Fixture data");
+  await expect(page.getByTestId("last-sync-result")).toContainText("저장소 5 · PR 9");
   if (POSTGRES) {
     await expect(page.getByTestId("storage-kind")).toHaveText("Stored in PostgreSQL");
     await expect(source).not.toContainText("서버를 다시 켜면 처음 상태로 돌아간다");
@@ -100,6 +101,9 @@ test("Workspace 에서 Inbox 로 가서 PR 을 기존 업무에 연결하면, �
   await expect(page).toHaveURL(/\/inbox$/);
   await expectNoUnbuiltFeatures(page);
   await expect(page.getByTestId("marker-hint")).toContainText("다음 Sync 에서 그 업무에 자동으로 연결된다");
+  // 연결 안 된 닫힌 PR(coach-web#7)은 목록에 없고 개수로만 보인다
+  await expect(page.getByTestId("closed-unlinked-count")).toContainText("닫히거나 병합된 연결 안 된 PR 1개");
+  await expect(page.getByTestId("inbox-710002-7")).toHaveCount(0);
   await expect(page.getByTestId("state-legend")).toBeVisible();
   await expect(page.getByTestId("inbox-710003-12")).toContainText("다른 프로젝트('결제 서비스')");
   const item = page.getByTestId("inbox-710002-12");

@@ -9,6 +9,8 @@ import "./globals.css";
 // 화면은 저장소(메모리 또는 PostgreSQL)의 현재 상태를 그린다. 빌드 때 미리 굳혀 두면 안 되므로 매 요청마다 그린다.
 export const dynamic = "force-dynamic";
 
+const SOURCE_LABEL = { fixture: "Fixture data", github: "GitHub token (read-only, dev)", github_app: "GitHub App (read-only)" } as const;
+
 export const metadata: Metadata = { title: "Agent Studio" };
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
@@ -30,7 +32,10 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           <Nav />
         </header>
         <div className="source-bar" data-testid="data-source">
-          <span className="source-pill">{reader.source === "fixture" ? "Fixture data" : "GitHub (read-only)"}</span>
+          <span className="source-pill" data-testid="source-kind">
+            {SOURCE_LABEL[reader.source]}
+            {container.configError !== null && " · 설정 오류"}
+          </span>
           <span>
             {reader.source === "fixture"
               ? "고정 데이터로 동작한다. 실제 GitHub 는 읽지 않는다."
@@ -50,7 +55,17 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
               "없음"
             )}
           </span>
-          {status.lastError && <span className="source-error">동기화 실패: {status.lastError}</span>}
+          {status.lastResult && (
+            <span data-testid="last-sync-result">
+              저장소 {status.lastResult.repositories} · PR {status.lastResult.pullRequests}
+              {status.lastResult.skipped > 0 && ` · 건너뜀 ${status.lastResult.skipped}`}
+            </span>
+          )}
+          {status.lastError && (
+            <span className="source-error" data-testid="sync-error">
+              {container.configError !== null ? "설정 오류" : "동기화 실패"}: {status.lastError}
+            </span>
+          )}
           {status.lastWarning && <span className="source-error">{status.lastWarning}</span>}
           <form action={syncAction}>
             <button type="submit" className="btn tiny">

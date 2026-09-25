@@ -7,7 +7,8 @@
 import type { PrSnapshot, Repository } from "../domain/model";
 
 /** 데이터가 어디서 왔나. 화면이 사용자에게 출처를 표시할 때 쓴다. */
-export type DataSource = "fixture" | "github";
+/** fixture: 고정 시연 데이터 · github: 개인 토큰(개발용) · github_app: GitHub App 설치 토큰 (결정 11) */
+export type DataSource = "fixture" | "github" | "github_app";
 
 export interface GitHubReader {
   readonly source: DataSource;
@@ -15,6 +16,8 @@ export interface GitHubReader {
   readonly limitNote?: string;
   /** 읽도록 설정된 저장소들의 현재 정보. 이름이 바뀌었으면 새 이름이 온다 (숫자 ID 는 그대로). */
   listRepositories(): Promise<Repository[]>;
+  /** 마지막 동기화에서 사람이 알아야 할 것(예: 설치되지 않은 저장소). 없으면 빈 목록 */
+  readonly lastRunNotes?: () => readonly string[];
   /** 저장소 하나의 PR 스냅샷 목록. 저장소는 listRepositories() 가 돌려준 값을 그대로 넘긴다. */
   listPullRequests(repository: Repository): Promise<PrSnapshot[]>;
 }

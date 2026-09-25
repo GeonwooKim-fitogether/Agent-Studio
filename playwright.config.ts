@@ -38,6 +38,9 @@ export default defineConfig({
     env: {
       GITHUB_TOKEN: "",
       GITHUB_REPOS: "",
+      GITHUB_APP_ID: "",
+      GITHUB_APP_INSTALLATION_ID: "",
+      GITHUB_APP_PRIVATE_KEY_PATH: "",
       DATABASE_URL: POSTGRES ? TEST_DATABASE_URL : "",
       APP_ENV: POSTGRES ? "test" : "local",
     },

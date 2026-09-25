@@ -9,6 +9,7 @@
  *                                          #15  fix/studio-work-a1b2c3-session 브랜치 이름에 같은 표식      자동 연결 → 로그인 화면 만들기
  *                                          #18  patch-1 (복제본 990001 의 브랜치) 본문 studio-work-a1b2c3   Inbox (복제본, 결정 10)
  *   코치 대시보드    demo-org/coach-web     #12  feat/login-page               없음                         Inbox (표식 없음)
+ *                                          #7   exp/old-login (닫힘)          없음                         Inbox 목록에 없음, 개수로만 (결정 11)
  *   선수 앱          demo-org/player-app    #12  feat/login-page               결제 서비스 업무의 표식       Inbox (다른 프로젝트)
  *                                          #9   chore/deps-bump               없는 업무 studio-work-zz9999  Inbox (없는 업무)
  *   사내 관리 도구   demo-org/admin-console #12  feat/login-page               본문 studio-work-d0e1f2        자동 연결 → 관리자 로그인 보안 점검
@@ -100,6 +101,19 @@ const pullRequests: PrSnapshot[] = [
     author: "outside-contributor",
     state: "open",
     checks: "pending",
+    review: "none",
+  }),
+  pr({
+    // 연결 안 된 채 닫힌 PR — Inbox 목록에는 없고 "닫히거나 병합된 연결 안 된 PR 1개" 로만 보인다 (결정 11)
+    repoId: DEMO_REPO.coachWeb,
+    number: 7,
+    title: "예전 로그인 실험",
+    body: "쓰지 않기로 한 실험이다.",
+    branch: "exp/old-login",
+    headSha: "9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b",
+    author: "teammate",
+    state: "closed",
+    checks: "none",
     review: "none",
   }),
   pr({

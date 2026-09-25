@@ -123,6 +123,39 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
+/** 소스 안의 HTTP 메서드 글자(POST · PUT · PATCH · DELETE). 주석 · 설명 문장 속 낱말은 세지 않고, 문자열 값만 센다. */
+export function writeMethodLiterals(fileName: string, source: string): string[] {
+  const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
+  const found: string[] = [];
+  const visit = (node: ts.Node): void => {
+    const text = literalText(node);
+    if (text !== undefined && /^(post|put|patch|delete)$/i.test(text.trim())) found.push(text);
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return found;
+}
+
+describe("GitHub 에 쓰는 요청의 경계 (docs/plan/03-github-app.md §2)", () => {
+  const AUTH_MODULE = "src/adapters/github/app-auth/app-auth.ts";
+
+  it("POST · PUT · PATCH · DELETE 라는 요청 메서드 값은 src 전체에서 인증 모듈에만 있다 (데이터 리더에는 POST 길이 없다)", () => {
+    const files = sourceFiles(join(ROOT, "src"));
+    expect(files.length).toBeGreaterThan(20);
+    const offenders = files
+      .map((file) => relative(ROOT, file).split(sep).join("/"))
+      .filter((file) => file !== AUTH_MODULE)
+      .flatMap((file) => writeMethodLiterals(file, readFileSync(join(ROOT, file), "utf8")).map((m) => `${file} → "${m}"`));
+    expect(offenders).toEqual([]);
+    expect(writeMethodLiterals(AUTH_MODULE, readFileSync(join(ROOT, AUTH_MODULE), "utf8"))).toEqual(["POST", "POST", "POST"]);
+  });
+
+  it("스캐너 자체 시험: 문자열 값의 메서드는 잡고, 설명 문장의 낱말은 잡지 않는다", () => {
+    expect(writeMethodLiterals("x.ts", 'fetch(u, { method: "POST" }); const m = `patch`; // POST 를 보내지 않는다')).toEqual(["POST", "patch"]);
+    expect(writeMethodLiterals("x.ts", 'const s = "POST 를 보내지 않는다";')).toEqual([]);
+  });
+});
+
 describe("아키텍처 경계", () => {
   for (const rule of RULES) {
     it(`${rule.layer} 는 ${rule.allowed.join(", ")} 밖을 import 하지 않고, 바깥 세계에 닿는 전역을 쓰지 않는다`, () => {

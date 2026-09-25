@@ -531,7 +531,7 @@ describe("저장할 수 없는 PR 하나가 동기화 전체를 멈추지 않는
 
     expect(result.skipped).toEqual([bad]);
     expect(await inner.getSnapshot(bad)).toBeUndefined();
-    expect(await inner.listSnapshots()).toHaveLength(7); // 8건 중 1건만 빠졌다
+    expect(await inner.listSnapshots()).toHaveLength(8); // 9건 중 1건만 빠졌다
     expect(result.autoLinked).toBe(3);
   });
 
@@ -539,5 +539,28 @@ describe("저장할 수 없는 PR 하나가 동기화 전체를 멈추지 않는
     const { deps } = setup();
     const store = { ...deps.store, saveSnapshot: async () => Promise.reject(new Error("connection lost")) };
     await expect(syncAll({ ...deps, store })).rejects.toThrow("connection lost");
+  });
+});
+
+describe("Inbox 에는 열린 PR 만 (계약 §4, 결정 11)", () => {
+  it("연결 안 된 닫힌 PR(coach-web#7)은 Inbox 목록에 없고 개수로만 보이며, Workspace 의 Inbox 수에도 들지 않는다", async () => {
+    const { deps } = setup();
+    await syncAll(deps);
+    const inbox = await getInbox(deps);
+    expect((await inboxCards(deps)).map((c) => c.pr.key)).not.toContain(prKey(ref(DEMO_REPO.coachWeb, 7)));
+    expect(inbox.closedUnlinkedCount).toBe(1);
+    expect((await getWorkspace(deps)).inboxCount).toBe(inbox.total);
+    for (const item of inbox.groups.flatMap((g) => g.items)) expect(item.pr.github.state).toBe("open");
+  });
+
+  it("이미 연결된 PR 은 닫히거나 병합돼도 업무에 그대로 있다", async () => {
+    const { data, deps } = setup();
+    await syncAll(deps);
+    expect((await getWorkDetail(deps, "a1b2c3"))?.prs.map((p) => [p.number, p.github.state])).toContainEqual([15, "merged"]);
+    data.pullRequests = data.pullRequests.map((p) =>
+      p.repoId === DEMO_REPO.adminConsole && p.number === 12 ? { ...p, state: "closed" } : p,
+    );
+    await syncAll(deps);
+    expect((await getWorkDetail(deps, "d0e1f2"))?.prs.map((p) => [p.number, p.github.state])).toEqual([[12, "closed"]]);
   });
 });
