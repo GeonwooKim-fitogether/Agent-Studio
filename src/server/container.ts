@@ -73,6 +73,27 @@ export function readGitHubConfig(env: Record<string, string | undefined>): GitHu
 
 /** GitHub 조직 이름 규칙: 영문 · 숫자 · 하이픈, 39자 이하, 하이픈으로 시작하지 않는다 */
 const ORG_NAME = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/;
+/** owner/name. owner 는 조직 이름 규칙, name 은 영문 · 숫자 · . _ - 100자 이하 */
+const REPO_FULL_NAME = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100}$/;
+/** owner/name 의 최대 길이(39 + 1 + 100). 이보다 긴 값은 저장소 이름이 아니라 붙여 넣은 무언가로 본다 */
+const MAX_FULL_NAME_LENGTH = 140;
+
+/** 토큰처럼 보이는 값인가 (GitHub 토큰 접두어, 또는 저장소 이름으로 볼 수 없을 만큼 긴 값) */
+export function looksLikeToken(value: string): boolean {
+  return /^(ghp_|github_pat_|gho_|ghu_|ghs_|ghr_)/i.test(value) || value.length > MAX_FULL_NAME_LENGTH;
+}
+
+/**
+ * GITHUB_REPOS 목록의 문제. 없으면 null. 문장에는 **위치만** 싣고 값은 싣지 않는다 —
+ * 토큰을 잘못 붙여 넣은 경우 그 값이 화면 · 오류에 나오지 않게 하기 위해서다.
+ */
+export function reposProblem(repos: readonly string[]): string | null {
+  for (const [index, repo] of repos.entries()) {
+    if (looksLikeToken(repo)) return `GITHUB_REPOS 의 ${index + 1}번째 항목이 토큰처럼 보인다 — 토큰은 GITHUB_TOKEN 에 넣고, GITHUB_REPOS 에는 owner/name 만 적는다.`;
+    if (!REPO_FULL_NAME.test(repo)) return `GITHUB_REPOS 의 ${index + 1}번째 항목이 owner/name 형식이 아니다.`;
+  }
+  return null;
+}
 
 /** GitHub App 변수의 이름 (docs/setup/github-app.md 와 같다). 비밀 키는 경로와 내용 중 하나만 적는다 */
 export const APP_ENV_VARS = ["GITHUB_APP_ID", "GITHUB_APP_INSTALLATION_ID", "GITHUB_APP_PRIVATE_KEY_PATH", "GITHUB_APP_PRIVATE_KEY"] as const;
@@ -109,12 +130,21 @@ function selectTokenSource(env: Record<string, string | undefined>): GitHubSourc
       message: "GITHUB_TOKEN 은 있는데 읽을 곳이 없다: GITHUB_TOKEN_ORGS(조직 이름) 나 GITHUB_REPOS(owner/name) 중 하나 이상을 적는다.",
     };
   }
+  const orgTokenAt = config.orgs.findIndex(looksLikeToken);
+  if (orgTokenAt >= 0) {
+    return {
+      kind: "token_config_error",
+      message: `GITHUB_TOKEN_ORGS 의 ${orgTokenAt + 1}번째 항목이 토큰처럼 보인다 — 토큰은 GITHUB_TOKEN 에 넣고, GITHUB_TOKEN_ORGS 에는 조직 이름만 적는다.`,
+    };
+  }
   if (!config.orgs.every((org) => ORG_NAME.test(org))) {
     return {
       kind: "token_config_error",
       message: "GITHUB_TOKEN_ORGS 에 조직 이름이 아닌 값이 있다 — 영문 · 숫자 · 하이픈으로 된 조직 이름을 쉼표로 구분해 적는다.",
     };
   }
+  const repos = reposProblem(config.repos);
+  if (repos !== null) return { kind: "token_config_error", message: repos };
   return { kind: "token", token: config.token, repos: config.repos, orgs: config.orgs };
 }
 
@@ -143,6 +173,8 @@ export function selectAppSource(
   if (missing.length > 0) {
     return { kind: "app_config_error", message: `GitHub App 설정이 모자라다: ${missing.join(", ")} 가 비어 있다. 셋을 모두 적거나 모두 비운다.` };
   }
+  const reposError = reposProblem(repos);
+  if (reposError !== null) return { kind: "app_config_error", message: reposError };
   if (hasPath && hasContent) {
     return {
       kind: "app_config_error",

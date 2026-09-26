@@ -18,7 +18,7 @@ describe("조립부의 어댑터 선택", () => {
   it.each([
     [{ GITHUB_TOKEN: "t" }, "읽을 곳이 없다"],
     [{ GITHUB_TOKEN: "t", GITHUB_REPOS: " , " }, "읽을 곳이 없다"],
-    [{ GITHUB_TOKEN: "t", GITHUB_TOKEN_ORGS: "ghp_PASTED_BY_MISTAKE_123" }, "조직 이름이 아닌 값"],
+    [{ GITHUB_TOKEN: "t", GITHUB_TOKEN_ORGS: "ghp_PASTED_BY_MISTAKE_123" }, "1번째 항목이 토큰처럼 보인다 — 토큰은 GITHUB_TOKEN 에 넣고"],
     [{ GITHUB_TOKEN: "t", GITHUB_TOKEN_ORGS: "-bad" }, "조직 이름이 아닌 값"],
   ])("토큰은 있는데 읽을 곳이 없거나 조직 이름이 틀리면(%j) fixture 로 떨어지지 않고 설정 오류 — 값은 싣지 않는다", (env, message) => {
     const container = createContainer(env);
@@ -80,6 +80,7 @@ describe("조립부의 REST 모드", () => {
           updated_at: "2026-09-24T00:00:00Z",
           user: { login: "a" },
           head: { ref: "feat/x", sha, repo: { id: 710001 } },
+          base: { repo: { id: 710001 } },
         },
       ],
       [`https://api.github.com/repos/demo-org/payments/commits/${sha}/check-runs?per_page=100`]: { check_runs: [] },
@@ -101,5 +102,33 @@ describe("조립부의 REST 모드", () => {
     expect(inbox.groups.map((g) => [g.project.name, g.items.map((i) => [i.pr.key, i.reason])])).toEqual([
       ["demo-org/payments", [["710001#3", "no_marker"]]],
     ]);
+  });
+});
+
+describe("GITHUB_REPOS 에 잘못 넣은 값 (8차)", () => {
+  const TOKEN_LIKE = ["ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", "github_pat_11ABCDEFG0_abcdefghijklmnopqrstuvwxyz", "x".repeat(200)];
+
+  it.each(TOKEN_LIKE)("토큰 같은 값(%#)을 넣으면 위치와 안내만 보이고 값은 화면 · 오류 어디에도 없다", async (value) => {
+    for (const env of [
+      { GITHUB_TOKEN: "t", GITHUB_REPOS: `acme/web, ${value}` },
+      { GITHUB_APP_ID: "11", GITHUB_APP_INSTALLATION_ID: "22", GITHUB_APP_PRIVATE_KEY_PATH: "/k/app.pem", GITHUB_REPOS: `acme/web,${value}` },
+    ]) {
+      const container = createContainer(env, () => "unused");
+      expect(container.configError).toBe("GITHUB_REPOS 의 2번째 항목이 토큰처럼 보인다 — 토큰은 GITHUB_TOKEN 에 넣고, GITHUB_REPOS 에는 owner/name 만 적는다.");
+      await container.sync();
+      const everything = JSON.stringify({ status: container.status(), configError: container.configError, note: container.deps.reader.limitNote });
+      expect(everything).not.toContain(value);
+      expect(everything).not.toContain(value.slice(4, 20));
+    }
+  });
+
+  it.each([["just-a-name"], ["a/b/c"], ["acme/"], ["ac me/web"]])("owner/name 형식이 아닌 값(%s)은 위치만 알린다", (value) => {
+    const container = createContainer({ GITHUB_TOKEN: "t", GITHUB_REPOS: `${value},acme/web` });
+    expect(container.configError).toBe("GITHUB_REPOS 의 1번째 항목이 owner/name 형식이 아니다.");
+    expect(container.configError).not.toContain(value);
+  });
+
+  it("올바른 owner/name 은 그대로 받는다", () => {
+    expect(createContainer({ GITHUB_TOKEN: "t", GITHUB_REPOS: "fitogether-org/web.app, a/b_c-1" }).configError).toBeNull();
   });
 });

@@ -13,6 +13,9 @@
  *   - 한 번의 동기화에서 실제로 나가는 요청은 요청 예산(기본 MAX_REQUESTS_PER_SYNC)까지. 다른 출처와 함께 읽으면 예산을 나눠 쓴다.
  *   - 조직 저장소 목록의 다음 페이지(Link)와 리디렉션은 같은 경로로만 따라간다.
  *
+ *   - 응답 PR 의 base.repo.id 가 요청한 저장소가 아니면(또는 없으면) 그 PR 은 버리고 알린다.
+ *   - PR 목록은 한 페이지만 읽고, 리디렉션은 같은 저장소의 /pulls 경로로만 따라간다.
+ *
  * 한 번 동기화할 때 저장소마다 요청 수는 1(저장소, repos 로 적은 것만) + 1(PR 목록) + 2 × PR 수(검사 · 리뷰) 다.
  */
 import type { ChecksState, GitHubReviewState, PrSnapshot, PrState, Repository } from "../../../domain/model";
@@ -72,8 +75,10 @@ export function createGitHubRestReader(options: RestReaderOptions): GitHubReader
       return out;
     }
 
+    const notes: string[] = [];
+
     return {
-      notes: () => [],
+      notes: () => notes,
 
       async listRepositories() {
         const out: Repository[] = [];
@@ -90,12 +95,24 @@ export function createGitHubRestReader(options: RestReaderOptions): GitHubReader
 
       async listPullRequests(repository) {
         const base = `/repos/${repoPath(repository.fullName)}`;
+        // PR 목록은 한 페이지(최근 PULLS_PER_REPO 개)만 읽는다. 다음 페이지(Link)는 따라가지 않고,
+        // 리디렉션은 같은 저장소의 /pulls 경로로만 따라간다(App 리더와 같은 규칙).
         const pulls = asArray(
-          await get(api(`${base}/pulls?state=all&sort=updated&direction=desc&per_page=${PULLS_PER_REPO}`)),
+          (
+            await get.page(api(`${base}/pulls?state=all&sort=updated&direction=desc&per_page=${PULLS_PER_REPO}`), {
+              allowRedirect: (target) => target.pathname === `${base}/pulls`,
+            })
+          ).json,
           "PR 목록",
         );
         const out: PrSnapshot[] = [];
+        const foreign: number[] = [];
         for (const raw of pulls) {
+          // 이 PR 이 정말 요청한 저장소의 것인가 — 아니면(또는 알 수 없으면) 받아 적지 않는다
+          if (baseRepoId(raw) !== repository.id) {
+            foreign.push(isObject(raw) && isNumber(raw["number"]) ? raw["number"] : 0);
+            continue;
+          }
           const pull = parsePull(raw);
           const checks = await get(api(`${base}/commits/${pull.headSha}/check-runs?per_page=${CHECK_RUNS_PER_COMMIT}`));
           const reviews = await get(api(`${base}/pulls/${pull.number}/reviews?per_page=${REVIEWS_PER_PR}`));
@@ -114,6 +131,9 @@ export function createGitHubRestReader(options: RestReaderOptions): GitHubReader
             checks: summarizeChecks(checks),
             review: summarizeReviews(reviews),
           });
+        }
+        if (foreign.length > 0) {
+          notes.push(`${repository.fullName} 에 요청했는데 다른 저장소의 것으로 보이는 PR ${foreign.length}개를 버렸다: #${foreign.join(", #")}`);
         }
         return out;
       },
@@ -134,7 +154,8 @@ export function createGitHubRestReader(options: RestReaderOptions): GitHubReader
 export function repoPath(fullName: string): string {
   const parts = fullName.split("/");
   if (parts.length !== 2 || parts.some((p) => p.trim() === "")) {
-    throw new GitHubReadError(`저장소 이름은 owner/name 형식이어야 한다: "${fullName}"`);
+    // 값은 싣지 않는다 — 잘못 붙여 넣은 토큰일 수 있다
+    throw new GitHubReadError("저장소 이름이 owner/name 형식이 아니라 요청하지 않는다.");
   }
   return parts.map((p) => encodeURIComponent(p.trim())).join("/");
 }
@@ -145,6 +166,12 @@ type Json = Record<string, unknown>;
 
 export function isObject(value: unknown): value is Json {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** 응답 PR 의 base.repo.id (PR 이 속한 저장소). 없거나 숫자가 아니면 undefined */
+export function baseRepoId(raw: unknown): unknown {
+  const baseRepo = isObject(raw) && isObject(raw["base"]) ? raw["base"]["repo"] : undefined;
+  return isObject(baseRepo) ? baseRepo["id"] : undefined;
 }
 
 export function asArray(value: unknown, what: string): unknown[] {

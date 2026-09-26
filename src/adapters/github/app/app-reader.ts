@@ -27,7 +27,7 @@ import {
   MAX_REQUESTS_PER_SYNC,
   type TokenProvider,
 } from "../rest/guarded-get";
-import { asArray, isNumber, isObject, parsePull, repoPath, summarizeChecks, summarizeReviews } from "../rest/rest-reader";
+import { asArray, baseRepoId, isNumber, isObject, parsePull, repoPath, summarizeChecks, summarizeReviews } from "../rest/rest-reader";
 
 export const CLOSED_PER_REPO = 30;
 export const PAGE_SIZE = 100;
@@ -101,9 +101,7 @@ export function createGitHubAppReader(options: AppReaderOptions): GitHubReader {
         const foreign: number[] = [];
         for (const raw of [...open, ...closed]) {
           // 이 PR 이 정말 요청한 저장소의 것인가 — 아니면(또는 알 수 없으면) 받아 적지 않는다
-          const baseRepo = isObject(raw) && isObject(raw["base"]) ? raw["base"]["repo"] : undefined;
-          const baseRepoId = isObject(baseRepo) ? baseRepo["id"] : undefined;
-          if (baseRepoId !== repository.id) {
+          if (baseRepoId(raw) !== repository.id) {
             foreign.push(isObject(raw) && isNumber(raw["number"]) ? raw["number"] : 0);
             continue;
           }

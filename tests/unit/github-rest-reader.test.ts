@@ -144,6 +144,7 @@ describe("REST 읽기 어댑터", () => {
         updated_at: "2026-09-24T09:00:00Z",
         user: { login: "claude-cloud" },
         head: { ref: "feat/login-page", sha: sha("a"), repo: { id: 710001, full_name: "demo-org/payments" } },
+        base: { repo: { id: 710001 } },
       },
       {
         number: 15,
@@ -155,6 +156,7 @@ describe("REST 읽기 어댑터", () => {
         updated_at: "2026-09-23T00:00:00Z",
         user: { login: "local-dev" },
         head: { ref: "fix/session", sha: sha("b"), repo: null }, // 복제본이 지워지면 GitHub 가 head.repo 를 null 로 준다
+        base: { repo: { id: 710001 } },
       },
       {
         number: 18,
@@ -166,6 +168,7 @@ describe("REST 읽기 어댑터", () => {
         updated_at: "2026-09-24T10:00:00Z",
         user: { login: "outsider" },
         head: { ref: "patch-1", sha: sha("d"), repo: { id: 990001, full_name: "outsider/payments" } }, // 복제본
+        base: { repo: { id: 710001 } },
       },
     ]),
     [`https://api.github.com/repos/demo-org/payments/commits/${sha("a")}/check-runs?per_page=100`]: json({
@@ -241,7 +244,9 @@ describe("REST 읽기 어댑터", () => {
   it("owner/name 형식이 아닌 저장소 이름은 요청하지 않는다", async () => {
     const { fetch, calls } = fakeFetch({});
     const reader = createGitHubRestReader({ token: TOKEN, repos: ["just-a-name"], fetch });
-    await expect(reader.listRepositories()).rejects.toBeInstanceOf(GitHubReadError);
+    const error = await caught(reader.listRepositories());
+    expect(error).toBeInstanceOf(GitHubReadError);
+    expect(error.message).not.toContain("just-a-name"); // 값은 싣지 않는다 — 잘못 붙여 넣은 토큰일 수 있다
     expect(calls).toHaveLength(0);
   });
 
@@ -268,5 +273,63 @@ describe("REST 읽기 어댑터", () => {
         { state: "CHANGES_REQUESTED", user: { login: "b" } },
       ]),
     ).toBe("changes_requested");
+  });
+});
+
+describe("토큰 경로의 PR 저장소 대조 (8차)", () => {
+  const sha = (c: string) => c.repeat(40);
+  const repo = { id: 710001, fullName: "demo-org/payments" };
+  const pullsUrl = `https://api.github.com/repos/demo-org/payments/pulls?state=all&sort=updated&direction=desc&per_page=${PULLS_PER_REPO}`;
+  const pr = (number: number, base: unknown) => ({
+    number,
+    title: `PR ${number}`,
+    body: "",
+    state: "open",
+    merged_at: null,
+    html_url: `https://github.com/demo-org/payments/pull/${number}`,
+    updated_at: "2026-09-26T00:00:00Z",
+    user: { login: "dev" },
+    head: { ref: `feat/${number}`, sha: sha(String(number % 10)), repo: { id: 710001 } },
+    base,
+  });
+  const empty = {
+    "https://api.github.com/repos/demo-org/payments/commits": json({ check_runs: [] }),
+  };
+
+  it("base.repo.id 가 요청한 저장소와 다르거나 없으면 그 PR 은 버리고, 검사 · 리뷰도 요청하지 않고, 알림을 남긴다", async () => {
+    const { fetch, calls } = fakeFetch({
+      ...empty,
+      [pullsUrl]: json([pr(1, { repo: { id: 710001 } }), pr(2, { repo: { id: 999999 } }), pr(3, undefined), pr(4, { repo: null })]),
+      [`https://api.github.com/repos/demo-org/payments/commits/${sha("1")}/check-runs?per_page=100`]: json({ check_runs: [] }),
+      "https://api.github.com/repos/demo-org/payments/pulls/1/reviews?per_page=100": json([]),
+    });
+    const run = createGitHubRestReader({ token: TOKEN, repos: [], fetch }).startRun?.();
+    if (run === undefined) throw new Error("실행이 없다");
+    const prs = await run.listPullRequests(repo);
+    expect(prs.map((p) => p.number)).toEqual([1]);
+    expect(run.notes()).toEqual(["demo-org/payments 에 요청했는데 다른 저장소의 것으로 보이는 PR 3개를 버렸다: #2, #3, #4"]);
+    expect(calls.some((c) => c.url.includes("/pulls/2/") || c.url.includes("/pulls/3/") || c.url.includes("/pulls/4/"))).toBe(false);
+  });
+
+  it("PR 목록의 다음 페이지는 따라가지 않고, 다른 경로로 가는 리디렉션은 막는다", async () => {
+    const other = "https://api.github.com/repos/other-org/secret/pulls?page=2";
+    const withNext = fakeFetch({
+      [pullsUrl]: () => new Response("[]", { status: 200, headers: { link: `<${other}>; rel="next"` } }),
+    });
+    await createGitHubRestReader({ token: TOKEN, repos: [], fetch: withNext.fetch }).listPullRequests(repo);
+    expect(withNext.calls.map((c) => c.url)).toEqual([pullsUrl]); // next 주소는 요청하지 않았다
+
+    const redirecting = fakeFetch({
+      [pullsUrl]: () => new Response(null, { status: 307, headers: { location: "https://api.github.com/repos/other-org/secret/pulls" } }),
+    });
+    const error = await caught(createGitHubRestReader({ token: TOKEN, repos: [], fetch: redirecting.fetch }).listPullRequests(repo));
+    expect(error).toBeInstanceOf(GitHubRequestBlockedError);
+    expect(redirecting.calls).toHaveLength(1);
+
+    const renamed = fakeFetch({
+      [pullsUrl]: () => new Response(null, { status: 301, headers: { location: "https://api.github.com/repos/demo-org/payments/pulls?state=all&page=1" } }),
+      "https://api.github.com/repos/demo-org/payments/pulls?state=all&page=1": json([]),
+    });
+    await expect(createGitHubRestReader({ token: TOKEN, repos: [], fetch: renamed.fetch }).listPullRequests(repo)).resolves.toEqual([]); // 같은 /pulls 경로는 따라간다
   });
 });
