@@ -17,20 +17,21 @@
  *   - 응답 PR 의 base.repo.id 가 요청한 저장소가 아니면 그 PR 은 버리고 알린다.
  */
 import type { PrSnapshot, Repository } from "../../../domain/model";
-import type { GitHubReader, ReaderRun } from "../../../ports/github-reader";
+import type { GitHubReader, ReaderRun, RequestBudget } from "../../../ports/github-reader";
 import {
   createGuardedGet,
   createRequestMeter,
   type FetchLike,
   GITHUB_API_ORIGIN,
   GitHubReadError,
+  MAX_REQUESTS_PER_SYNC,
   type TokenProvider,
 } from "../rest/guarded-get";
 import { asArray, isNumber, isObject, parsePull, repoPath, summarizeChecks, summarizeReviews } from "../rest/rest-reader";
 
 export const CLOSED_PER_REPO = 30;
 export const PAGE_SIZE = 100;
-export const MAX_REQUESTS_PER_SYNC = 1500;
+export { MAX_REQUESTS_PER_SYNC };
 
 export interface AppReaderOptions {
   readonly tokens: TokenProvider;
@@ -45,8 +46,9 @@ export function createGitHubAppReader(options: AppReaderOptions): GitHubReader {
   const only = new Set((options.onlyRepos ?? []).map((r) => r.trim().toLowerCase()).filter((r) => r !== ""));
   const api = (path: string) => `${GITHUB_API_ORIGIN}${path}`;
 
-  function startRun(): ReaderRun {
-    const meter = createRequestMeter(maxRequests);
+  /** budget 을 넘기면(여러 출처를 함께 읽을 때) 그 예산을 나눠 쓰고, 없으면 이번 실행만의 예산을 만든다 */
+  function startRun(budget?: RequestBudget): ReaderRun {
+    const meter = budget ?? createRequestMeter(maxRequests);
     const get = createGuardedGet({ tokens: options.tokens, fetch: options.fetch, meter });
     const notes: string[] = [];
 

@@ -19,6 +19,7 @@ Agent Studio 는 여러 프로젝트를 Claude 클라우드 · 로컬 · 동료�
 | 다음 단위의 범위 (PostgreSQL 저장 · Unlink · 복제본 PR 차단) | [`docs/plan/02-persistence-and-unlink.md`](docs/plan/02-persistence-and-unlink.md) |
 | 세 번째 단위의 범위 (GitHub App 으로 진짜 저장소 읽기) | [`docs/plan/03-github-app.md`](docs/plan/03-github-app.md) |
 | GitHub App 을 만드는 사람용 안내 | [`docs/setup/github-app.md`](docs/setup/github-app.md) |
+| 조직 저장소용 토큰을 만드는 사람용 안내 | [`docs/setup/org-token.md`](docs/setup/org-token.md) |
 | 실행 · 테스트 명령 | [`README.md`](README.md) 의 "실행하기" |
 | 체계의 어색함을 발견했을 때 적는 곳 | [`docs/lessons.md`](docs/lessons.md) |
 

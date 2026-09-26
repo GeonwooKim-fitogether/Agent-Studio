@@ -23,9 +23,9 @@ npm run test:unit    # 단위 테스트 (계약 확인 시나리오 5개 포함)
 npm run test:e2e     # 첫 화면에서 출발하는 브라우저 테스트
 ```
 
-진짜 저장소를 읽으려면 GitHub App 을 만들어 설치하고 세 값을 `.env.local` 에 적습니다 — [`docs/setup/github-app.md`](docs/setup/github-app.md).
+진짜 저장소를 읽으려면 GitHub App 을 만들어 설치하고 세 값을 `.env.local` 에 적습니다 — [`docs/setup/github-app.md`](docs/setup/github-app.md). Owner 가 아닌 조직의 저장소는 내 읽기 전용 토큰으로 함께 읽습니다 — [`docs/setup/org-token.md`](docs/setup/org-token.md).
 
-`GITHUB_TOKEN` 과 `GITHUB_REPOS` 를 설정하지 않으면 고정 시연 데이터로 돌고, 화면 상단에 "Fixture data" 로 표시됩니다. 두 값의 뜻은 [`.env.example`](.env.example) 에 있습니다.
+GitHub App 변수와 `GITHUB_TOKEN` 을 모두 설정하지 않으면 고정 시연 데이터로 돌고, 화면 상단에 "Fixture data" 로 표시됩니다. 변수의 뜻은 [`.env.example`](.env.example) 에 있습니다.
 
 `DATABASE_URL` 이 없으면 저장은 서버 메모리라서 서버를 다시 켜면 처음 상태로 돌아갑니다(상단에 "Stored in memory"). 서버를 다시 켜도 업무와 연결이 남게 하려면 로컬 PostgreSQL 을 씁니다(Docker 필요, 상단에 "Stored in PostgreSQL"):
 

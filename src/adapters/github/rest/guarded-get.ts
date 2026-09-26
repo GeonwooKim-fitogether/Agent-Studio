@@ -22,13 +22,18 @@ export class GitHubRequestBlockedError extends Error {
   }
 }
 
-/** GitHub 가 요청을 거절했거나 네트워크가 실패했을 때의 오류. */
+/** GitHub 가 요청을 거절했거나 네트워크가 실패했을 때의 오류. GitHub 가 거절했으면 그 상태 코드를 status 에 둔다. */
 export class GitHubReadError extends Error {
-  constructor(message: string) {
+  readonly status: number | undefined;
+  constructor(message: string, status?: number) {
     super(message);
     this.name = "GitHubReadError";
+    this.status = status;
   }
 }
+
+/** 한 번의 Sync 에서 실제로 나가는 요청의 상한. 여러 출처를 함께 읽으면 모든 출처가 이 수를 나눠 쓴다. */
+export const MAX_REQUESTS_PER_SYNC = 1500;
 
 export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 
@@ -139,7 +144,7 @@ export function createGuardedGet(options: GuardedGetOptions) {
         continue;
       }
       if (!response.ok) {
-        throw new GitHubReadError(`GitHub 가 요청을 거절했다: ${response.status} (GET ${target.pathname})`);
+        throw new GitHubReadError(`GitHub 가 요청을 거절했다: ${response.status} (GET ${target.pathname})`, response.status);
       }
       try {
         return { json: await response.json(), next: nextPageUrl(response.headers.get("link")) };

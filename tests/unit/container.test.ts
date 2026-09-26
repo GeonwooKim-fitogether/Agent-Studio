@@ -6,17 +6,34 @@ import { createContainer, readGitHubConfig } from "../../src/server/container";
 describe("조립부의 어댑터 선택", () => {
   it.each([
     [{}, "fixture"],
-    [{ GITHUB_TOKEN: "t" }, "fixture"],
     [{ GITHUB_REPOS: "a/b" }, "fixture"],
     [{ GITHUB_TOKEN: "  ", GITHUB_REPOS: "a/b" }, "fixture"],
-    [{ GITHUB_TOKEN: "t", GITHUB_REPOS: " , " }, "fixture"],
     [{ GITHUB_TOKEN: "t", GITHUB_REPOS: "a/b" }, "github"],
+    [{ GITHUB_TOKEN: "t", GITHUB_TOKEN_ORGS: "fitogether-org" }, "github"],
   ])("환경변수 %j 이면 %s 어댑터", (env, source) => {
     expect(createContainer(env).deps.reader.source).toBe(source);
+    expect(createContainer(env).configError).toBeNull();
   });
 
-  it("저장소 목록을 쉼표로 나누고 앞뒤 공백을 지운다", () => {
-    expect(readGitHubConfig({ GITHUB_TOKEN: " t ", GITHUB_REPOS: " a/b, c/d ,," })).toEqual({ token: "t", repos: ["a/b", "c/d"] });
+  it.each([
+    [{ GITHUB_TOKEN: "t" }, "읽을 곳이 없다"],
+    [{ GITHUB_TOKEN: "t", GITHUB_REPOS: " , " }, "읽을 곳이 없다"],
+    [{ GITHUB_TOKEN: "t", GITHUB_TOKEN_ORGS: "ghp_PASTED_BY_MISTAKE_123" }, "조직 이름이 아닌 값"],
+    [{ GITHUB_TOKEN: "t", GITHUB_TOKEN_ORGS: "-bad" }, "조직 이름이 아닌 값"],
+  ])("토큰은 있는데 읽을 곳이 없거나 조직 이름이 틀리면(%j) fixture 로 떨어지지 않고 설정 오류 — 값은 싣지 않는다", (env, message) => {
+    const container = createContainer(env);
+    expect(container.deps.reader.source).toBe("github");
+    expect(container.configError).toContain(message);
+    expect(container.configError).not.toContain("ghp_PASTED_BY_MISTAKE_123");
+  });
+
+  it("저장소 목록과 조직 목록을 쉼표로 나누고 앞뒤 공백을 지운다", () => {
+    expect(readGitHubConfig({ GITHUB_TOKEN: " t ", GITHUB_REPOS: " a/b, c/d ,,", GITHUB_TOKEN_ORGS: " org-a ,, org-b " })).toEqual({
+      token: "t",
+      repos: ["a/b", "c/d"],
+      orgs: ["org-a", "org-b"],
+    });
+    expect(readGitHubConfig({ GITHUB_REPOS: "a/b" })).toBeNull();
   });
 
   it("fixture 모드는 첫 동기화를 한 번만 하고 시각을 남긴다", async () => {

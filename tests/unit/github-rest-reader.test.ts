@@ -234,7 +234,7 @@ describe("REST 읽기 어댑터", () => {
 
   it("어댑터에는 읽는 메서드만 있고, 읽기 범위의 상한을 화면용 문장으로 알린다", () => {
     const reader = createGitHubRestReader({ token: TOKEN, repos: [], fetch: fakeFetch({}).fetch });
-    expect(Object.keys(reader).sort()).toEqual(["limitNote", "listPullRequests", "listRepositories", "source"]);
+    expect(Object.keys(reader).sort()).toEqual(["limitNote", "listPullRequests", "listRepositories", "source", "startRun"]);
     expect(reader.limitNote).toContain(String(PULLS_PER_REPO));
   });
 

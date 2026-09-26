@@ -19,7 +19,7 @@ import { createMemoryStore } from "../../src/adapters/store/memory/memory-store"
 import type { AppDeps } from "../../src/application/deps";
 import { getInbox, getWorkspace } from "../../src/application/queries";
 import { syncAll } from "../../src/application/sync";
-import { createContainer, selectGitHubSource } from "../../src/server/container";
+import { createContainer, selectAppSource, selectGitHubSources } from "../../src/server/container";
 
 const { privateKey: PEM } = generateKeyPairSync("rsa", {
   modulusLength: 2048,
@@ -206,42 +206,46 @@ describe("조립부 — 어느 GitHub 연결을 쓸지", () => {
     throw new Error(`ENOENT: no such file ${path} (secret detail)`);
   };
 
-  it("App 변수 셋이 모두 있으면 GitHub App 을 쓴다 (개인 토큰이 함께 있어도)", () => {
-    const source = selectGitHubSource({ ...app, GITHUB_TOKEN: "ghp_dev", GITHUB_REPOS: "acme/web" }, readKey);
-    expect(source).toMatchObject({ kind: "app", appId: 11, installationId: 22, repos: ["acme/web"] });
+  it("App 변수 셋과 토큰이 함께 있으면 두 출처를 모두 읽는다 — App 이 앞이다 (결정 12)", () => {
+    const sources = selectGitHubSources({ ...app, GITHUB_TOKEN: "ghp_dev", GITHUB_REPOS: "acme/web" }, readKey);
+    expect(sources).toMatchObject([
+      { kind: "app", appId: 11, installationId: 22, repos: ["acme/web"] },
+      { kind: "token", repos: ["acme/web"], orgs: [] },
+    ]);
   });
 
   it.each([
-    [{ GITHUB_APP_ID: "11" }, "GITHUB_APP_INSTALLATION_ID, GITHUB_APP_PRIVATE_KEY_PATH"],
-    [{ GITHUB_APP_ID: "11", GITHUB_APP_INSTALLATION_ID: "22" }, "GITHUB_APP_PRIVATE_KEY_PATH"],
+    [{ GITHUB_APP_ID: "11" }, "GITHUB_APP_INSTALLATION_ID, GITHUB_APP_PRIVATE_KEY_PATH(또는 GITHUB_APP_PRIVATE_KEY)"],
+    [{ GITHUB_APP_ID: "11", GITHUB_APP_INSTALLATION_ID: "22" }, "GITHUB_APP_PRIVATE_KEY_PATH(또는 GITHUB_APP_PRIVATE_KEY)"],
     [{ GITHUB_APP_PRIVATE_KEY_PATH: "/secure/agent-studio.pem" }, "GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID"],
+    [{ GITHUB_APP_PRIVATE_KEY: "anything" }, "GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID"],
   ])("일부만 있으면(%j) fixture 로 떨어지지 않고 설정 오류로 모자란 이름을 알린다", (env, missing) => {
-    expect(selectGitHubSource(env, readKey)).toEqual({
+    expect(selectAppSource(env, readKey)).toEqual({
       kind: "app_config_error",
       message: `GitHub App 설정이 모자라다: ${missing} 가 비어 있다. 셋을 모두 적거나 모두 비운다.`,
     });
   });
 
   it("비밀 키 파일을 못 읽으면 경로만 싣고 원래 오류 문장은 싣지 않는다", () => {
-    const source = selectGitHubSource({ ...app, GITHUB_APP_PRIVATE_KEY_PATH: "/nowhere/key.pem" }, readKey);
+    const source = selectAppSource({ ...app, GITHUB_APP_PRIVATE_KEY_PATH: "/nowhere/key.pem" }, readKey);
     expect(source).toEqual({ kind: "app_config_error", message: "비밀 키 파일을 읽지 못했다: key.pem" }); // 파일 이름만
   });
 
   it("비밀 키 파일의 내용이 비밀 키가 아니면 내용을 싣지 않는다", () => {
-    const source = selectGitHubSource(app, () => "not a key SECRET_FILE_CONTENT_123");
-    expect(source.kind).toBe("app_config_error");
+    const source = selectAppSource(app, () => "not a key SECRET_FILE_CONTENT_123");
+    expect(source?.kind).toBe("app_config_error");
     expect(JSON.stringify(source)).not.toContain("SECRET_FILE_CONTENT_123");
     expect(JSON.stringify(source)).toContain("agent-studio.pem");
     expect(JSON.stringify(source)).not.toContain("/secure/"); // 서버의 폴더 구조는 싣지 않는다
   });
 
   it("App ID · 설치 ID 가 숫자가 아니면 설정 오류", () => {
-    expect(selectGitHubSource({ ...app, GITHUB_APP_ID: "Iv1.abc" }, readKey).kind).toBe("app_config_error");
+    expect(selectAppSource({ ...app, GITHUB_APP_ID: "Iv1.abc" }, readKey)?.kind).toBe("app_config_error");
   });
 
-  it("App 변수가 없으면 개인 토큰(개발용), 그것도 없으면 fixture", () => {
-    expect(selectGitHubSource({ GITHUB_TOKEN: "ghp_dev", GITHUB_REPOS: "acme/web" }, readKey).kind).toBe("token");
-    expect(selectGitHubSource({}, readKey).kind).toBe("fixture");
+  it("App 변수가 없으면 토큰 출처만, 둘 다 없으면 출처 없음(= fixture)", () => {
+    expect(selectGitHubSources({ GITHUB_TOKEN: "ghp_dev", GITHUB_REPOS: "acme/web" }, readKey).map((s) => s.kind)).toEqual(["token"]);
+    expect(selectGitHubSources({}, readKey)).toEqual([]);
   });
 
   it("설정 오류인 조립부는 시연 데이터를 심지 않고, 화면에 보일 설정 오류와 동기화 실패 이유를 갖는다", async () => {
@@ -427,10 +431,10 @@ describe("조립부의 단일 비행과 비밀 키 경로 (6차)", () => {
     ["줄바꿈이 든 값", "/secure/app.pem\nMIIEowIBAAKCAQEA"],
     ["매우 긴 값", `/secure/${"a".repeat(2000)}.pem`],
   ])("경로 칸에 %s 면 그 값을 싣지 않고 경로를 적으라고 안내한다", (_name, value) => {
-    const source = selectGitHubSource({ ...app, GITHUB_APP_PRIVATE_KEY_PATH: value }, () => PEM);
+    const source = selectAppSource({ ...app, GITHUB_APP_PRIVATE_KEY_PATH: value }, () => PEM);
     expect(source).toEqual({
       kind: "app_config_error",
-      message: "GITHUB_APP_PRIVATE_KEY_PATH 에 파일 경로가 아니라 키 내용이 들어 있는 것 같다 — .pem 파일의 경로를 적는다.",
+      message: "GITHUB_APP_PRIVATE_KEY_PATH 에 파일 경로가 아니라 키 내용이 들어 있는 것 같다 — 경로만 적고, 키 내용은 GITHUB_APP_PRIVATE_KEY 에 넣는다.",
     });
   });
 
@@ -439,11 +443,11 @@ describe("조립부의 단일 비행과 비밀 키 경로 (6차)", () => {
     const big = join(dir, "big.pem");
     writeFileSync(big, "x".repeat(64 * 1024 + 1));
     try {
-      expect(selectGitHubSource({ ...app, GITHUB_APP_PRIVATE_KEY_PATH: big })).toEqual({
+      expect(selectAppSource({ ...app, GITHUB_APP_PRIVATE_KEY_PATH: big })).toEqual({
         kind: "app_config_error",
         message: "비밀 키 파일이 너무 크다(64KB 초과): big.pem",
       });
-      expect(selectGitHubSource({ ...app, GITHUB_APP_PRIVATE_KEY_PATH: "/k/huge.pem" }, () => "y".repeat(70_000))).toMatchObject({
+      expect(selectAppSource({ ...app, GITHUB_APP_PRIVATE_KEY_PATH: "/k/huge.pem" }, () => "y".repeat(70_000))).toMatchObject({
         message: "비밀 키 파일이 너무 크다(64KB 초과): huge.pem",
       });
     } finally {
@@ -453,7 +457,7 @@ describe("조립부의 단일 비행과 비밀 키 경로 (6차)", () => {
 
   it("RSA 2048비트 미만의 키 파일은 설정 오류", () => {
     const short = generateKeyPairSync("rsa", { modulusLength: 1024, privateKeyEncoding: { type: "pkcs8", format: "pem" }, publicKeyEncoding: { type: "spki", format: "pem" } });
-    const source = selectGitHubSource({ ...app, GITHUB_APP_PRIVATE_KEY_PATH: "/k/short.pem" }, () => short.privateKey);
+    const source = selectAppSource({ ...app, GITHUB_APP_PRIVATE_KEY_PATH: "/k/short.pem" }, () => short.privateKey);
     expect(source).toEqual({ kind: "app_config_error", message: "비밀 키 파일의 내용이 RSA 2048비트 이상의 비밀 키(PEM)가 아니다: short.pem" });
   });
 });

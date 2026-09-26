@@ -1,21 +1,35 @@
 /**
- * GitHub REST API 를 GET 으로만 부르는 읽기 어댑터.
+ * GitHub REST API 를 GET 으로만 부르는 읽기 어댑터 (개인 토큰 · fine-grained 토큰 경로, 결정 12).
  *
- * 읽는 범위의 상한 — 페이지 넘김을 하지 않고 한 번의 요청으로 받은 것만 쓴다.
+ * 읽을 저장소는 두 가지로 정한다. 둘 다 쓸 수 있고, 둘 다 없으면 조립부가 설정 오류로 막는다.
+ *   - orgs: 조직 이름. 동기화할 때마다 GET /orgs/{org}/repos 를 페이지 끝까지 읽어, 조직에 새로 생긴 저장소도 들어온다.
+ *   - repos: owner/name 목록. 저장소마다 GET /repos/{owner}/{name} 으로 다시 찾는다.
+ *   같은 저장소(숫자 ID 같음)가 두 목록에 다 있으면 한 번만 읽는다.
+ *
+ * 읽는 범위의 상한 — 화면에도 한 문장으로 표시된다(limitNote). 조용히 자르지 않기 위해서다.
  *   - PR: 저장소마다 최근에 수정된 순으로 PULLS_PER_REPO(50)개까지. 그보다 오래된 PR 은 읽지 않는다.
  *   - 검사 결과: 커밋마다 check run CHECK_RUNS_PER_COMMIT(100)개까지. 옛 방식의 commit status API 는 읽지 않는다.
  *   - 리뷰: PR 마다 REVIEWS_PER_PR(100)개까지.
- * 이 상한은 화면에도 한 문장으로 표시된다(limitNote). 조용히 자르지 않기 위해서다.
+ *   - 한 번의 동기화에서 실제로 나가는 요청은 요청 예산(기본 MAX_REQUESTS_PER_SYNC)까지. 다른 출처와 함께 읽으면 예산을 나눠 쓴다.
+ *   - 조직 저장소 목록의 다음 페이지(Link)와 리디렉션은 같은 경로로만 따라간다.
  *
- * 한 번 동기화할 때 저장소마다 요청 수는 1(저장소) + 1(PR 목록) + 2 × PR 수(검사 · 리뷰) 다.
+ * 한 번 동기화할 때 저장소마다 요청 수는 1(저장소, repos 로 적은 것만) + 1(PR 목록) + 2 × PR 수(검사 · 리뷰) 다.
  */
 import type { ChecksState, GitHubReviewState, PrSnapshot, PrState, Repository } from "../../../domain/model";
-import type { GitHubReader } from "../../../ports/github-reader";
-import { createGuardedGet, type FetchLike, GITHUB_API_ORIGIN, GitHubReadError } from "./guarded-get";
+import type { GitHubReader, ReaderRun, RequestBudget } from "../../../ports/github-reader";
+import {
+  createGuardedGet,
+  createRequestMeter,
+  type FetchLike,
+  GITHUB_API_ORIGIN,
+  GitHubReadError,
+  MAX_REQUESTS_PER_SYNC,
+} from "./guarded-get";
 
 export const PULLS_PER_REPO = 50;
 export const CHECK_RUNS_PER_COMMIT = 100;
 export const REVIEWS_PER_PR = 100;
+export const ORG_REPOS_PAGE_SIZE = 100;
 
 export interface RestReaderOptions {
   readonly token: string;
@@ -25,55 +39,94 @@ export interface RestReaderOptions {
    * 이름이 바뀐 저장소는 GitHub 의 리디렉션을 관문을 다시 거쳐 따라가 찾는다.
    */
   readonly repos: readonly string[];
+  /** 저장소를 모두 읽을 조직 이름들 (GET /orgs/{org}/repos). 조직에 새로 생긴 저장소도 다음 동기화에 들어온다 */
+  readonly orgs?: readonly string[];
   readonly fetch: FetchLike;
+  /** 이 리더만 읽을 때의 요청 상한. 다른 출처와 예산을 나눠 쓸 때는 startRun 에 넘긴 예산이 이긴다 */
+  readonly maxRequests?: number;
 }
 
 export function createGitHubRestReader(options: RestReaderOptions): GitHubReader {
-  const get = createGuardedGet({ token: options.token, fetch: options.fetch });
+  const maxRequests = options.maxRequests ?? MAX_REQUESTS_PER_SYNC;
+  const orgs = options.orgs ?? [];
   const api = (path: string) => `${GITHUB_API_ORIGIN}${path}`;
+
+  function startRun(budget?: RequestBudget): ReaderRun {
+    const meter = budget ?? createRequestMeter(maxRequests);
+    const get = createGuardedGet({ token: options.token, fetch: options.fetch, meter });
+
+    /** 조직 저장소 목록을 페이지 끝까지 읽는다. 다음 페이지와 리디렉션은 첫 주소와 같은 경로로만 따라간다. */
+    async function orgRepositories(org: string): Promise<Repository[]> {
+      const path = `/orgs/${encodeURIComponent(org)}/repos`;
+      const samePath = (target: URL) => target.pathname === path;
+      const out: Repository[] = [];
+      let next: string | null = api(`${path}?type=all&sort=full_name&per_page=${ORG_REPOS_PAGE_SIZE}`);
+      while (next !== null) {
+        const page = await get.page(next, { allowRedirect: samePath });
+        for (const raw of asArray(page.json, `조직(${org}) 저장소 목록`)) out.push(parseRepository(raw, org));
+        next = page.next;
+        if (next !== null && !samePath(new URL(next))) {
+          throw new GitHubReadError(`다음 페이지 주소가 다른 경로를 가리켜 따라가지 않는다 (${path})`);
+        }
+      }
+      return out;
+    }
+
+    return {
+      notes: () => [],
+
+      async listRepositories() {
+        const out: Repository[] = [];
+        const seen = new Set<number>();
+        const add = (repository: Repository) => {
+          if (seen.has(repository.id)) return;
+          seen.add(repository.id);
+          out.push(repository);
+        };
+        for (const org of orgs) for (const repository of await orgRepositories(org)) add(repository);
+        for (const fullName of options.repos) add(parseRepository(await get(api(`/repos/${repoPath(fullName)}`)), fullName));
+        return out;
+      },
+
+      async listPullRequests(repository) {
+        const base = `/repos/${repoPath(repository.fullName)}`;
+        const pulls = asArray(
+          await get(api(`${base}/pulls?state=all&sort=updated&direction=desc&per_page=${PULLS_PER_REPO}`)),
+          "PR 목록",
+        );
+        const out: PrSnapshot[] = [];
+        for (const raw of pulls) {
+          const pull = parsePull(raw);
+          const checks = await get(api(`${base}/commits/${pull.headSha}/check-runs?per_page=${CHECK_RUNS_PER_COMMIT}`));
+          const reviews = await get(api(`${base}/pulls/${pull.number}/reviews?per_page=${REVIEWS_PER_PR}`));
+          out.push({
+            repoId: repository.id,
+            number: pull.number,
+            title: pull.title,
+            body: pull.body,
+            branch: pull.branch,
+            headRepoId: pull.headRepoId,
+            headSha: pull.headSha,
+            url: pull.url,
+            author: pull.author,
+            state: pull.state,
+            updatedAt: pull.updatedAt,
+            checks: summarizeChecks(checks),
+            review: summarizeReviews(reviews),
+          });
+        }
+        return out;
+      },
+    };
+  }
 
   return {
     source: "github",
     limitNote: `저장소마다 최근 수정된 PR ${PULLS_PER_REPO}개까지 읽는다.`,
-
-    async listRepositories() {
-      const out: Repository[] = [];
-      for (const fullName of options.repos) {
-        const json = await get(api(`/repos/${repoPath(fullName)}`));
-        out.push(parseRepository(json, fullName));
-      }
-      return out;
-    },
-
-    async listPullRequests(repository) {
-      const base = `/repos/${repoPath(repository.fullName)}`;
-      const pulls = asArray(
-        await get(api(`${base}/pulls?state=all&sort=updated&direction=desc&per_page=${PULLS_PER_REPO}`)),
-        "PR 목록",
-      );
-      const out: PrSnapshot[] = [];
-      for (const raw of pulls) {
-        const pull = parsePull(raw);
-        const checks = await get(api(`${base}/commits/${pull.headSha}/check-runs?per_page=${CHECK_RUNS_PER_COMMIT}`));
-        const reviews = await get(api(`${base}/pulls/${pull.number}/reviews?per_page=${REVIEWS_PER_PR}`));
-        out.push({
-          repoId: repository.id,
-          number: pull.number,
-          title: pull.title,
-          body: pull.body,
-          branch: pull.branch,
-          headRepoId: pull.headRepoId,
-          headSha: pull.headSha,
-          url: pull.url,
-          author: pull.author,
-          state: pull.state,
-          updatedAt: pull.updatedAt,
-          checks: summarizeChecks(checks),
-          review: summarizeReviews(reviews),
-        });
-      }
-      return out;
-    },
+    startRun,
+    // 실행 없이 바로 부르면 그때마다 새 실행으로 읽는다(동기화는 startRun 을 쓴다)
+    listRepositories: () => startRun().listRepositories(),
+    listPullRequests: (repository) => startRun().listPullRequests(repository),
   };
 }
 

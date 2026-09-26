@@ -3,13 +3,19 @@ import type { ReactNode } from "react";
 import { getContainer } from "../server/container";
 import { syncAction } from "./actions";
 import { formatKst } from "./components/labels";
+import { SourceStatusList } from "./components/source-status";
 import { Nav } from "./nav";
 import "./globals.css";
 
 // 화면은 저장소(메모리 또는 PostgreSQL)의 현재 상태를 그린다. 빌드 때 미리 굳혀 두면 안 되므로 매 요청마다 그린다.
 export const dynamic = "force-dynamic";
 
-const SOURCE_LABEL = { fixture: "Fixture data", github: "GitHub token (read-only, dev)", github_app: "GitHub App (read-only)" } as const;
+const SOURCE_LABEL = {
+  fixture: "Fixture data",
+  github: "GitHub token (read-only)",
+  github_app: "GitHub App (read-only)",
+  github_combined: "GitHub App + token (read-only)",
+} as const;
 
 export const metadata: Metadata = { title: "Agent Studio" };
 
@@ -61,6 +67,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
               {status.lastResult.skipped > 0 && ` · 건너뜀 ${status.lastResult.skipped}`}
             </span>
           )}
+          <SourceStatusList sources={status.sources} />
           {status.lastError && (
             <span className="source-error" data-testid="sync-error">
               {container.configError !== null ? "설정 오류" : "동기화 실패"}: {status.lastError}
