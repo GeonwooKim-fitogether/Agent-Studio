@@ -12,6 +12,7 @@ Agent Studio 는 여러 프로젝트를 Claude 클라우드 · 로컬 · 동료�
 |---|---|
 | 왜 만드는가, 사용자는 어떻게 일하는가 (비전공자용) | [`docs/product/ceo-brief.md`](docs/product/ceo-brief.md) |
 | 누가 · 어디에서 · 무엇을 · 왜, 화면 버튼이 실제로 할 일, 개발 순서 | [`docs/product/user-workflow-plan.html`](docs/product/user-workflow-plan.html) |
+| 시안의 기능을 언제 만드나, 기능별 사용자 이야기 · 통과 기준 (2 · 2.5 · 3단계 기획) | [`docs/product/feature-plan.md`](docs/product/feature-plan.md) |
 | 화면의 모습 (클릭 시안, Demo mode) | [`docs/product/agent-studio-prototype.html`](docs/product/agent-studio-prototype.html) |
 | 무엇을 하기로 정했나, 무엇이 아직 열려 있나 | [`decisions.md`](decisions.md) |
 | 업무와 PR 이 이어지는 규칙 (0단계 계약) | [`docs/plan/00-domain-contract.md`](docs/plan/00-domain-contract.md) |
