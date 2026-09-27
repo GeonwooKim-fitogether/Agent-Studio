@@ -33,6 +33,8 @@ function ruleReason(rule: StatusRule, to: WorkStatus): string {
   switch (rule) {
     case "R1":
       return "첫 PR 이 연결됐다";
+    case "R1b":
+      return "연결된 PR 이 모두 빠져 검토할 PR 이 없다";
     case "R2":
       return to === "needs_review"
         ? "최신 커밋의 검사가 끝났고 아직 판단하지 않았다"

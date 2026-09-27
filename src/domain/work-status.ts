@@ -5,6 +5,7 @@
  * 업무 상태는 "사람이 볼 PR 이 하나라도 있는가" 로 정한다(R3 의 반례).
  *
  *   R1  초안인 업무에 PR 이 연결된다                       → 진행 중. PR 이 모두 빠져도 초안으로 되돌리지 않는다
+ *   R1b 검토 필요인 업무에서 PR 이 모두 빠진다(Unlink)      → 진행 중. 볼 PR 이 없는데 검토 필요로 남지 않게 한다 (결정 17)
  *   R2  열린 PR 하나라도 최신 커밋의 검사가 끝났고(통과 · 검사 없음) 그 커밋에 결정이 없다 → 검토 필요
  *       (검사 실패 · 진행 중은 검토 필요로 만들지 않는다. 검토 필요에서 새 커밋이 와 다시 검사 중이면 진행 중으로 돌아간다)
  *   R3  최신 커밋에 Request Changes                          → 진행 중 (다른 PR 이 R2 면 검토 필요 유지)
@@ -28,7 +29,7 @@ export function isWorkStatus(value: unknown): value is WorkStatus {
   return typeof value === "string" && (WORK_STATUSES as readonly string[]).includes(value);
 }
 
-export type StatusRule = "R1" | "R2" | "R3" | "R3b" | "R4" | "R5";
+export type StatusRule = "R1" | "R1b" | "R2" | "R3" | "R3b" | "R4" | "R5";
 
 /** 규칙이 근거로 삼은 PR 과 그때의 최신 커밋 */
 export interface StatusEvidence extends PrRef {
@@ -96,7 +97,10 @@ export function decideWorkStatus(input: StatusInput): StatusDecision {
 
 function step(status: WorkStatus, input: StatusInput): StatusTransition | null {
   const prs = [...input.prs].sort(byRef);
-  if (prs.length === 0) return null; // R1 의 반례: PR 이 모두 빠져도 상태를 되돌리지 않는다
+  if (prs.length === 0) {
+    // R1 의 반례: PR 이 모두 빠져도 초안으로 되돌리지 않는다. 다만 검토 필요는 볼 PR 이 없으므로 진행 중으로 내린다(R1b)
+    return status === "needs_review" ? rule(status, "in_progress", "R1b", []) : null;
+  }
   const open = prs.filter((p) => p.state === "open");
   if (status === "draft") return rule(status, "in_progress", "R1", prs);
   if (status === "done") return open.length === 0 ? null : rule(status, "in_progress", "R5", open);
