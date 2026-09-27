@@ -51,11 +51,18 @@ describe("R1 — 초안인 업무에 처음으로 PR 이 연결되면 진행 중
     expect(steps(decide("draft", [pr(1, { state: "merged" })]))).toEqual(["R1:draft->in_progress", "R4:in_progress->done_candidate"]);
   });
 
-  it("반례: PR 이 모두 빠져도(Unlink) 초안으로 되돌리지 않는다 — 어느 상태든 그대로다", () => {
-    for (const status of ["in_progress", "needs_review", "done_candidate", "done"] as const) {
+  it("반례: PR 이 모두 빠져도(Unlink) 초안으로 되돌리지 않는다 — 검토 필요가 아닌 상태는 그대로다", () => {
+    for (const status of ["in_progress", "done_candidate", "done"] as const) {
       expect(decide(status, []).transitions).toEqual([]);
     }
     expect(decide("draft", []).status).toBe("draft");
+  });
+
+  it("R1b: 검토 필요인 업무에서 PR 이 모두 빠지면 진행 중으로 내린다 (결정 17)", () => {
+    const d = decide("needs_review", []);
+    expect(d.status).toBe("in_progress");
+    expect(steps(d)).toEqual(["R1b:needs_review->in_progress"]);
+    expect(decide("in_progress", []).transitions).toEqual([]); // 두 번째 판정은 아무것도 바꾸지 않는다
   });
 });
 
