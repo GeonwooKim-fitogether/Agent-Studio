@@ -15,8 +15,11 @@ import { Pool } from "pg";
 import { demoFixtureData, demoStudioSeed } from "../adapters/github/fixture/demo-scenario";
 import { createFixtureReader } from "../adapters/github/fixture/fixture-reader";
 import { createGitHubAppReader } from "../adapters/github/app/app-reader";
-import { createInstallationTokenSource, loadPrivateKey, MIN_RSA_BITS } from "../adapters/github/app-auth/app-auth";
-import { type FetchLike, GitHubReadError } from "../adapters/github/rest/guarded-get";
+import { createInstallationTokenSource, loadPrivateKey, MIN_RSA_BITS, type TokenSource } from "../adapters/github/app-auth/app-auth";
+import { type FetchLike, GitHubReadError, type TokenProvider } from "../adapters/github/rest/guarded-get";
+import { createGitHubTarballSource } from "../adapters/github/tarball/tarball-source";
+import { createLocalRepoSource } from "../adapters/preview/local/local-repo-source";
+import { createLocalPreviewRunner } from "../adapters/preview/local/local-runner";
 import { createGitHubRestReader } from "../adapters/github/rest/rest-reader";
 import { createMultiReader } from "../adapters/github/multi/multi-reader";
 import type { GitHubReader, SourceReport } from "../ports/github-reader";
@@ -306,32 +309,54 @@ function isConfigError(source: GitHubSource): source is Extract<GitHubSource, { 
   return source.kind === "app_config_error" || source.kind === "token_config_error";
 }
 
-function createReaderFor(sources: readonly GitHubSource[]): GitHubReader {
+function createReaderFor(sources: readonly GitHubSource[], tokensFor: (source: GitHubSource) => TokenProvider | null): GitHubReader {
   if (sources.length === 0) return createFixtureReader(demoFixtureData());
   const [only] = sources;
-  if (sources.length === 1 && only !== undefined) return createReader(only);
-  return createMultiReader(sources.map((source) => ({ label: sourceLabel(source), reader: createReader(source) })));
+  if (sources.length === 1 && only !== undefined) return createReader(only, tokensFor);
+  return createMultiReader(sources.map((source) => ({ label: sourceLabel(source), reader: createReader(source, tokensFor) })));
 }
 
-function createReader(source: GitHubSource): GitHubReader {
-  // fetch 를 여기서 직접 부르지 않는다 — 부르는 곳은 GET 관문(guarded-get)과 인증 모듈(app-auth) 두 파일뿐이다
-  const fetchImpl: FetchLike = globalThis.fetch.bind(globalThis);
-  switch (source.kind) {
-    case "app":
-      return createGitHubAppReader({
-        tokens: createInstallationTokenSource({
+// fetch 를 여기서 직접 부르지 않는다 — 부르는 곳은 GET 관문(guarded-get)과 인증 모듈(app-auth) 두 파일뿐이다
+// 조립할 때마다 그 순간의 전역 fetch 를 묶는다(시험이 전역 fetch 를 바꿔 끼운 뒤 조립하므로 모듈을 읽을 때 묶어 두지 않는다)
+const currentFetch = (): FetchLike => globalThis.fetch.bind(globalThis);
+
+/**
+ * 출처마다 토큰 공급자 하나. GitHub App 의 설치 토큰 공급자는 PR 읽기와 미리보기 코드 받기가 **같은 것**을 쓴다
+ * (토큰을 한 번 받아 함께 쓰고, 만료 전 갱신도 한 곳에서 한다). 설정 오류인 출처는 null.
+ */
+function tokenProviders(sources: readonly GitHubSource[]): (source: GitHubSource) => TokenProvider | null {
+  const cache = new Map<GitHubSource, TokenProvider>();
+  for (const source of sources) {
+    if (source.kind === "app") {
+      cache.set(
+        source,
+        createInstallationTokenSource({
           appId: source.appId,
           installationId: source.installationId,
           privateKey: loadPrivateKey(source.privateKeyPem),
-          fetch: fetchImpl,
+          fetch: currentFetch(),
         }),
-        fetch: fetchImpl,
+      );
+    } else if (source.kind === "token") {
+      const token = source.token;
+      cache.set(source, { getToken: async () => token });
+    }
+  }
+  return (source) => cache.get(source) ?? null;
+}
+
+function createReader(source: GitHubSource, tokensFor: (source: GitHubSource) => TokenProvider | null): GitHubReader {
+  switch (source.kind) {
+    case "app":
+      return createGitHubAppReader({
+        tokens: tokensFor(source) as TokenSource,
+        fetch: currentFetch(),
         onlyRepos: source.repos,
       });
     case "app_config_error":
       return unavailableReader(source.message, "github_app");
     case "token":
-      return createGitHubRestReader({ token: source.token, repos: source.repos, orgs: source.orgs, fetch: fetchImpl });
+      return createGitHubRestReader({ token: source.token, repos: source.repos, orgs: source.orgs, fetch: currentFetch() });
     case "token_config_error":
       return unavailableReader(source.message, "github");
   }
@@ -401,8 +426,9 @@ export function createContainer(
   // 쉬고 있는 연결이 끊겨도 서버 프로세스가 죽지 않게 한다. 오류 내용에는 연결 문자열을 싣지 않는다.
   pool?.on("error", () => console.error("PostgreSQL 연결 하나가 끊겼다. 다음 요청에서 새로 연결한다."));
   const seed = github ? {} : demoStudioSeed();
+  const tokensFor = tokenProviders(githubSources);
   const deps: AppDeps = {
-    reader: createReaderFor(githubSources),
+    reader: createReaderFor(githubSources, tokensFor),
     store: pool === null ? createMemoryStore(seed) : createPostgresStore(pool),
     now: () => new Date(),
     newId: () => randomBytes(3).toString("hex"),
@@ -410,7 +436,19 @@ export function createContainer(
 
   const previewConfig = selectPreviewConfig(env, githubSources);
   const preview: PreviewRunner =
-    previewConfig.kind === "off" ? createOfflinePreviewRunner(previewConfig.reason) : createOfflinePreviewRunner("이 판에는 아직 실행기가 없다.");
+    previewConfig.kind === "off"
+      ? createOfflinePreviewRunner(previewConfig.reason)
+      : createLocalPreviewRunner({
+          workdir: previewConfig.workdir,
+          bindHost: previewConfig.bindHost,
+          publicHost: previewConfig.publicHost,
+          parentEnv: env,
+          source:
+            previewConfig.code.kind === "local_repos"
+              ? createLocalRepoSource(previewConfig.code.dir, env)
+              : // App 이 앞에 있으므로 설치 토큰으로 먼저 받고, 거절되면 조직 토큰으로 한 번 더 받는다(결정 12)
+                createGitHubTarballSource({ tokens: githubSources.flatMap((source) => tokensFor(source) ?? []), fetch: currentFetch() }),
+        });
 
   let status: SyncStatus = {
     lastSyncedAt: null,

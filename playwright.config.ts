@@ -1,6 +1,12 @@
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 
 const PORT = 3100;
+/** 미리보기 기기를 연결한 두 번째 서버 (docs/plan/04-remote-preview.md §9 기준 3). 고정 데이터 + 로컬 시연 저장소로 돈다 */
+export const PREVIEW_PORT = 3101;
+const PREVIEW_ROOT = join(tmpdir(), "agent-studio-e2e-preview");
+const PREVIEW_REPOS = join(PREVIEW_ROOT, "repos");
 
 /**
  * 저장 종류. 기본은 메모리이고, E2E_STORAGE=postgres 이면 TEST_DATABASE_URL 의 PostgreSQL 로 돈다(`npm run test:e2e:postgres`).
@@ -29,7 +35,8 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
-  webServer: {
+  webServer: [
+    {
     command: POSTGRES ? `node tests/e2e/prepare-db.mjs && ${START}` : START,
     url: `http://127.0.0.1:${PORT}`,
     reuseExistingServer: false,
@@ -49,5 +56,28 @@ export default defineConfig({
       DATABASE_URL: POSTGRES ? TEST_DATABASE_URL : "",
       APP_ENV: POSTGRES ? "test" : "local",
     },
-  },
+    },
+    {
+      // 미리보기 기기를 연결한 서버. 시연 저장소(admin-console#12 의 커밋)를 만든 뒤 켠다. 저장은 늘 메모리다.
+      command: `node scripts/preview-demo-repo.mjs ${JSON.stringify(PREVIEW_REPOS)} && npm run start -- --port ${PREVIEW_PORT} --hostname 127.0.0.1`,
+      url: `http://127.0.0.1:${PREVIEW_PORT}`,
+      reuseExistingServer: false,
+      timeout: 60_000,
+      env: {
+        GITHUB_TOKEN: "",
+        GITHUB_REPOS: "",
+        GITHUB_APP_ID: "",
+        GITHUB_APP_INSTALLATION_ID: "",
+        GITHUB_APP_PRIVATE_KEY_PATH: "",
+        GITHUB_APP_PRIVATE_KEY: "",
+        GITHUB_TOKEN_ORGS: "",
+        DATABASE_URL: "",
+        APP_ENV: "local",
+        PREVIEW_WORKDIR: join(PREVIEW_ROOT, "work"),
+        PREVIEW_LOCAL_REPOS_DIR: PREVIEW_REPOS,
+        PREVIEW_BIND_HOST: "127.0.0.1",
+        PREVIEW_PUBLIC_HOST: "",
+      },
+    },
+  ],
 });

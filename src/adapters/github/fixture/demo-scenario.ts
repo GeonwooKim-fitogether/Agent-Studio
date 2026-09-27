@@ -1,6 +1,7 @@
 /**
  * 시연용 고정 데이터 — 계약의 확인 시나리오를 화면에서도 볼 수 있게 짠 것이다.
- * 저장소 이름과 PR 내용은 모두 지어낸 것이다(`demo-org/...` 는 실재하지 않는다).
+ * 저장소 이름과 PR 내용은 모두 지어낸 것이다(`demo-org/...` 는 GitHub 에 실재하지 않는다).
+ * 단 하나, admin-console#12 의 최신 커밋은 로컬 시연 저장소(scripts/preview-demo-repo.mjs)에 실제로 있다 — 미리보기 시연용이다.
  *
  * 무엇이 어디로 가야 하나 (첫 동기화 직후):
  *
@@ -40,7 +41,9 @@ export const DEMO_FORK_REPO = 990001;
 export const DEMO_SHA = {
   payments12Head: "3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d",
   payments12Reviewed: "9f8e7d6c5b4a39281706f5e4d3c2b1a098765432",
-  admin12Head: "5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f",
+  // 미리보기 시연(docs/plan/04-remote-preview.md §3): `npm run preview:demo-repo` 가 만드는 커밋과 같은 SHA 다.
+  // 시연 앱 파일(scripts/preview-demo-repo.mjs)을 바꾸면 이 값도 바꾼다 — tests/unit/preview-local-runner.test.ts 가 둘을 대조한다.
+  admin12Head: "9e289610d6f0a17bb65b62c2831f24ba52a48bd3",
 } as const;
 
 const repositories: Repository[] = [

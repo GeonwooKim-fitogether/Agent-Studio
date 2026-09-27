@@ -6,11 +6,17 @@
  *   2. 주소가 https://api.github.com 인가 — 다른 호스트, http, 주소 안의 계정 정보는 거절한다.
  * 리디렉션도 자동으로 따라가지 않고, 새 주소를 같은 관문에 다시 통과시킨 뒤에만 따라간다.
  *
+ * 코드 묶음 내려받기(download, 2단계 미리보기)는 한 곳만 더 허용한다 — GitHub 가 tarball 요청을 돌려보내는
+ * https://codeload.github.com 의 서명된 일회용 주소. 그리로 따라갈 때는 Authorization 을 **떼고** 보낸다
+ * (그 주소는 주소 자체가 권한이고, 토큰은 api.github.com 밖으로 나가지 않는다). 역시 GET 뿐이다.
+ *
  * 토큰은 Authorization 헤더에만 싣는다. 오류 메시지에는 메서드 · 경로 · 상태 코드만 담고,
  * 헤더와 응답 본문은 담지 않는다 — 토큰이 로그나 화면에 새어 나갈 길을 막기 위해서다.
  */
 
 export const GITHUB_API_ORIGIN = "https://api.github.com";
+/** 코드 묶음(tarball)을 실제로 내주는 곳. download 만 이리로 따라간다 */
+export const GITHUB_CODELOAD_ORIGIN = "https://codeload.github.com";
 const MAX_REDIRECTS = 3;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
@@ -155,12 +161,89 @@ export function createGuardedGet(options: GuardedGetOptions) {
     throw new GitHubReadError(`리디렉션이 ${MAX_REDIRECTS}번을 넘었다`);
   }
 
+  /**
+   * 코드 묶음을 내려받는다 (2단계 미리보기, docs/plan/04-remote-preview.md §5).
+   * api.github.com 에 토큰을 실어 GET 하고, GitHub 가 codeload.github.com 으로 돌려보내면 토큰을 **떼고** 그 한 곳으로만 따라간다.
+   * 받은 크기가 maxBytes 를 넘으면 읽기를 멈추고 오류를 낸다.
+   */
+  async function download(url: string, limits: { readonly maxBytes: number }): Promise<Uint8Array> {
+    let target = assertAllowed("GET", url);
+    let token = await tokens.getToken(meter);
+    let retriedAfter401 = false;
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+      const toCodeload = target.origin === GITHUB_CODELOAD_ORIGIN;
+      let response: Response;
+      meter?.count();
+      try {
+        response = await fetchImpl(target.href, {
+          method: "GET",
+          redirect: "manual",
+          headers: toCodeload
+            ? { Accept: "application/octet-stream" } // 서명된 주소 — 토큰을 싣지 않는다
+            : { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28" },
+        });
+      } catch {
+        throw new GitHubReadError(`GitHub 에 닿지 못했다 (GET ${target.pathname})`);
+      }
+      if (response.status === 401 && !toCodeload && tokens.invalidate !== undefined && !retriedAfter401) {
+        tokens.invalidate(token);
+        token = await tokens.getToken(meter);
+        retriedAfter401 = true;
+        hop -= 1;
+        continue;
+      }
+      if (REDIRECT_STATUSES.has(response.status)) {
+        const location = response.headers.get("location");
+        if (location === null) throw new GitHubReadError(`GitHub 가 이동할 주소 없이 ${response.status} 를 돌려줬다 (GET ${target.pathname})`);
+        const next = new URL(resolveLocation(location, target));
+        // codeload 에서 다시 다른 곳으로 가지 않는다. api.github.com 안의 이동은 관문을 다시 거친다.
+        if (!toCodeload && next.origin === GITHUB_CODELOAD_ORIGIN && next.username === "" && next.password === "") target = next;
+        else if (!toCodeload) target = assertAllowed("GET", next.href);
+        else throw new GitHubRequestBlockedError(`예상하지 않은 곳으로의 리디렉션은 따라가지 않는다 (${next.origin})`);
+        continue;
+      }
+      if (!response.ok) {
+        throw new GitHubReadError(`GitHub 가 요청을 거절했다: ${response.status} (GET ${target.pathname})`, response.status);
+      }
+      return readLimited(response, limits.maxBytes);
+    }
+    throw new GitHubReadError(`리디렉션이 ${MAX_REDIRECTS}번을 넘었다`);
+  }
+
   async function guardedGet(url: string, init: { readonly method?: string } = {}): Promise<unknown> {
     return (await send(url, init.method ?? "GET")).json;
   }
   /** 한 페이지를 읽고 다음 페이지 주소도 돌려준다. */
   guardedGet.page = (url: string, pageOptions?: PageOptions): Promise<GuardedPage> => send(url, "GET", pageOptions);
+  guardedGet.download = download;
   return guardedGet;
+}
+
+/** 응답 본문을 상한까지만 읽는다. 넘으면 읽기를 멈추고 오류를 낸다. */
+async function readLimited(response: Response, maxBytes: number): Promise<Uint8Array> {
+  const declared = Number(response.headers.get("content-length") ?? "0");
+  if (declared > maxBytes) throw new GitHubReadError(`받을 코드 묶음이 상한(${Math.round(maxBytes / 1024 / 1024)}MB)보다 크다`);
+  const reader = response.body?.getReader();
+  if (reader === undefined) return new Uint8Array(0);
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      throw new GitHubReadError(`받을 코드 묶음이 상한(${Math.round(maxBytes / 1024 / 1024)}MB)보다 크다`);
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
 }
 
 /** 리디렉션 주소를 절대 주소로. 해석할 수 없는 주소면 날것의 TypeError 대신 GitHubReadError 를 낸다(주소도 토큰도 싣지 않는다). */

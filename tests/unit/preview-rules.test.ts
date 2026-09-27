@@ -181,3 +181,22 @@ describe("미리보기 설정 (조립부)", () => {
     expect(off({ PREVIEW_WORKDIR: "/tmp/pv", GITHUB_TOKEN: "t" })).toMatchObject({ kind: "off", reason: expect.stringContaining("설정 오류") });
   });
 });
+
+describe("자식 환경의 허용 목록과 로그 가림 (adapters/preview/local/child-env)", () => {
+  it("허용 목록의 이름만 옮기고, 프록시는 코드 받기 · 설치 단계에만 준다", async () => {
+    const { previewChildEnv } = await import("../../src/adapters/preview/local/child-env");
+    const parent = { PATH: "/bin", HOME: "/h", HTTPS_PROXY: "http://proxy:3128", GITHUB_TOKEN: "x", DATABASE_URL: "y", NODE_OPTIONS: "z" };
+    expect(previewChildEnv(parent, "install")).toEqual({ PATH: "/bin", HOME: "/h", HTTPS_PROXY: "http://proxy:3128" });
+    expect(previewChildEnv(parent, "run", { PORT: "4000" })).toEqual({ PATH: "/bin", HOME: "/h", PORT: "4000" });
+  });
+
+  it("토큰 모양 · Authorization · 주소 속 계정 · *_TOKEN= 값 · 알려 준 값을 가린다", async () => {
+    const { redactSecrets } = await import("../../src/adapters/preview/local/child-env");
+    expect(redactSecrets("t=ghp_abcdefghij1234 and github_pat_11ABCDEFG_xyz")).toBe("t=[가림] and [가림]");
+    expect(redactSecrets("Authorization: Bearer abc")).toBe("Authorization: [가림]");
+    expect(redactSecrets("git clone https://x-access-token:ghs_zzz@github.com/a/b")).toBe("git clone https://[가림]@github.com/a/b");
+    expect(redactSecrets("NPM_TOKEN=abc123 DB_PASSWORD=p")).toBe("NPM_TOKEN=[가림] DB_PASSWORD=[가림]");
+    expect(redactSecrets("value 0123456789abcdef here", ["0123456789abcdef"])).toBe("value [가림] here");
+    expect(redactSecrets("평범한 로그 줄")).toBe("평범한 로그 줄");
+  });
+});
