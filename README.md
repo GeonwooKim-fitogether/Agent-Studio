@@ -11,6 +11,7 @@
 | 기술 스택 | TypeScript 한 벌 — Next.js + Node + PostgreSQL ([`decisions.md`](decisions.md) 결정 8) |
 | 1단계 PR 모으기 | 두 단위 작업완료. PR 을 업무에 모으고 Inbox 에서 연결 · 해제(Unlink)하며, 복제본 PR 은 자동 연결하지 않습니다. 저장은 PostgreSQL(없으면 메모리)입니다. [`01`](docs/plan/01-pr-collection.md) · [`02`](docs/plan/02-persistence-and-unlink.md) |
 | 1단계 GitHub App 연결 | 세 번째 단위 작업완료. 읽기 전용 GitHub App(과 조직용 토큰)으로 실제 저장소를 읽습니다. 2026-09-28 사용자 Windows PC 에서 실데이터로 확인했습니다(저장소 17 · PR 102). [`03`](docs/plan/03-github-app.md) |
+| 2단계 원격 미리보기 | 첫 단위 진행 중. 업무 화면의 PR 카드에 Open Preview 가 있고, 미리보기 기기(`PREVIEW_WORKDIR`)를 연결하지 않으면 비활성 버튼과 이유가 보입니다. 휴대전화 확인은 Mac Pro 에서만 가능해 **실기기 미확인**입니다. [`04`](docs/plan/04-remote-preview.md) |
 
 ## 실행하기
 
@@ -58,7 +59,7 @@ PostgreSQL 시험은 스키마를 지웠다 다시 만들므로 개발용 데이
 | 누가 · 어디에서 · 무엇을 · 왜, 버튼이 실제로 할 일, 개발 순서 | [`docs/product/user-workflow-plan.html`](docs/product/user-workflow-plan.html) |
 | 화면 시안 (브라우저에서 클릭 가능, Demo mode) | [`docs/product/agent-studio-prototype.html`](docs/product/agent-studio-prototype.html) |
 | 무엇을 정했고 무엇이 열려 있나 | [`decisions.md`](decisions.md) |
-| 지금 만드는 단위의 범위와 통과 기준 | [`docs/plan/01-pr-collection.md`](docs/plan/01-pr-collection.md) · [`docs/plan/02-persistence-and-unlink.md`](docs/plan/02-persistence-and-unlink.md) |
+| 지금 만드는 단위의 범위와 통과 기준 | [`docs/plan/01-pr-collection.md`](docs/plan/01-pr-collection.md) · [`docs/plan/02-persistence-and-unlink.md`](docs/plan/02-persistence-and-unlink.md) · [`docs/plan/03-github-app.md`](docs/plan/03-github-app.md) · [`docs/plan/04-remote-preview.md`](docs/plan/04-remote-preview.md) |
 | 세션이 이 저장소에서 일할 때 지킬 것 | [`CLAUDE.md`](CLAUDE.md) |
 | 체계의 어색함을 기록하는 곳 | [`docs/lessons.md`](docs/lessons.md) |
 

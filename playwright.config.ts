@@ -41,6 +41,11 @@ export default defineConfig({
       GITHUB_APP_ID: "",
       GITHUB_APP_INSTALLATION_ID: "",
       GITHUB_APP_PRIVATE_KEY_PATH: "",
+      // 미리보기 기기를 연결하지 않은 상태로 띄운다(연결 안 됨 화면). .env.local 에 값이 있어도 덮어쓴다
+      PREVIEW_WORKDIR: "",
+      PREVIEW_LOCAL_REPOS_DIR: "",
+      PREVIEW_BIND_HOST: "",
+      PREVIEW_PUBLIC_HOST: "",
       DATABASE_URL: POSTGRES ? TEST_DATABASE_URL : "",
       APP_ENV: POSTGRES ? "test" : "local",
     },

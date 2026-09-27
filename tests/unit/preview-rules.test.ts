@@ -1,0 +1,183 @@
+/**
+ * 미리보기의 규칙 (docs/plan/04-remote-preview.md §4 · §7 · §9 기준 1 · 2 · 5).
+ * 실행기는 가짜를 쓴다 — 실제 프로세스를 띄우는 시험은 preview-local-runner.test.ts 에 있다.
+ */
+import { describe, expect, it } from "vitest";
+import { DEMO_FORK_REPO, DEMO_REPO, DEMO_SHA } from "../../src/adapters/github/fixture/demo-scenario";
+import { createOfflinePreviewRunner } from "../../src/adapters/preview/offline/offline-runner";
+import { getPreviewCards, getPreviewDevice, startPreview } from "../../src/application/preview";
+import { syncAll } from "../../src/application/sync";
+import { StudioError } from "../../src/domain/model";
+import { isFullSha, isSafeRepoFullName, previewBlockOf, previewTargetOf, type PreviewSession, type PreviewTarget } from "../../src/domain/preview";
+import type { PreviewRunner } from "../../src/ports/preview-runner";
+import { PREVIEW_NOT_CONNECTED, selectGitHubSources, selectPreviewConfig } from "../../src/server/container";
+import { setup } from "./helpers";
+
+const repo = { id: 1, fullName: "acme/web" };
+const sha = "a".repeat(40);
+
+/** 부른 대상을 기억하고, 곧바로 준비 중 기록을 돌려주는 가짜 실행기 */
+function fakeRunner(): PreviewRunner & { started: PreviewTarget[]; set(session: PreviewSession | null): void } {
+  let session: PreviewSession | null = null;
+  const started: PreviewTarget[] = [];
+  return {
+    started,
+    set: (s) => {
+      session = s;
+    },
+    status: () => ({ online: true, label: "this computer · 127.0.0.1" }),
+    start(target) {
+      started.push(target);
+      session = { id: "s1", target, phase: "fetching", startedAt: "2026-09-27T00:00:00.000Z", url: null, failure: null, logTail: [], replaced: null };
+      return session;
+    },
+    async stop() {},
+    current: () => session,
+  };
+}
+
+describe("대상 제한 (domain/preview)", () => {
+  it("전체 SHA 만 받는다 — 40자 또는 64자 소문자 16진수", () => {
+    expect(isFullSha(sha)).toBe(true);
+    expect(isFullSha("b".repeat(64))).toBe(true);
+    expect(isFullSha("abc1234")).toBe(false);
+    expect(isFullSha("A".repeat(40))).toBe(false);
+    expect(isFullSha(`${"a".repeat(39)}g`)).toBe(false);
+    expect(isFullSha(`${sha} `)).toBe(false);
+  });
+
+  it("저장소 이름은 owner/name 모양만 받는다 (코드를 받을 주소 · 폴더 이름이 되므로)", () => {
+    expect(isSafeRepoFullName("acme/web")).toBe(true);
+    expect(isSafeRepoFullName("acme/web.site_2")).toBe(true);
+    for (const bad of ["acme/..", "acme/.", "../etc", "acme/web/x", "acme", "-acme/web", "acme/we b", "acme\\web"]) {
+      expect(isSafeRepoFullName(bad), bad).toBe(false);
+    }
+  });
+
+  it("복제본(fork)에서 온 PR 은 실행하지 않는다. 복제본 여부를 모르면 복제본으로 본다", () => {
+    expect(previewBlockOf({ repoId: 1, headRepoId: 1, headSha: sha }, repo)).toBeNull();
+    expect(previewBlockOf({ repoId: 1, headRepoId: 2, headSha: sha }, repo)).toBe("fork");
+    expect(previewBlockOf({ repoId: 1, headRepoId: null, headSha: sha }, repo)).toBe("fork");
+    expect(previewBlockOf({ repoId: 1, headRepoId: 1, headSha: "abc1234" }, repo)).toBe("sha_not_full");
+    expect(previewBlockOf({ repoId: 1, headRepoId: 1, headSha: sha }, { id: 1, fullName: "acme/.." })).toBe("bad_repo");
+  });
+
+  it("실행 대상은 PR 의 지금 최신 커밋으로 고정된다", () => {
+    const { data } = setup();
+    const admin = data.pullRequests.find((p) => p.repoId === DEMO_REPO.adminConsole && p.number === 12)!;
+    expect(previewTargetOf(admin, { id: DEMO_REPO.adminConsole, fullName: "demo-org/admin-console" })).toEqual({
+      repoId: DEMO_REPO.adminConsole,
+      number: 12,
+      repoFullName: "demo-org/admin-console",
+      commitSha: DEMO_SHA.admin12Head,
+    });
+  });
+});
+
+describe("연결 안 됨 (단위 A)", () => {
+  it("실행기가 연결 안 됨이면 모든 카드가 이유와 함께 막히고, 위쪽 띠는 그 이유를 보인다", async () => {
+    const { deps } = setup();
+    await syncAll(deps);
+    const runner = createOfflinePreviewRunner(PREVIEW_NOT_CONNECTED);
+    const cards = await getPreviewCards(deps, runner, [{ repoId: DEMO_REPO.payments, number: 12 }]);
+    expect(cards.get(`${DEMO_REPO.payments}#12`)).toEqual({
+      availability: { kind: "runner_offline", reason: PREVIEW_NOT_CONNECTED },
+      session: null,
+      otherActive: null,
+    });
+    expect(await getPreviewDevice(deps, runner)).toEqual({ online: false, text: PREVIEW_NOT_CONNECTED, active: null });
+    await expect(startPreview(deps, runner, { repoId: DEMO_REPO.payments, number: 12 })).rejects.toThrow(StudioError);
+  });
+});
+
+describe("미리보기 유스케이스", () => {
+  it("복제본 PR 은 실행기가 연결돼 있어도 막히고, 유스케이스도 거절한다 (오래된 화면에서 누른 경우)", async () => {
+    const { deps } = setup();
+    await syncAll(deps);
+    const runner = fakeRunner();
+    const fork = { repoId: DEMO_REPO.payments, number: 18 };
+    const cards = await getPreviewCards(deps, runner, [fork, { repoId: DEMO_REPO.payments, number: 12 }]);
+    expect(cards.get(`${DEMO_REPO.payments}#18`)?.availability).toEqual({ kind: "blocked", block: "fork" });
+    expect(cards.get(`${DEMO_REPO.payments}#12`)?.availability).toEqual({ kind: "available" });
+    await expect(startPreview(deps, runner, fork)).rejects.toThrow("미리보기로 실행하지 않는다");
+    expect(runner.started).toEqual([]);
+    // 가짜 데이터의 복제본 PR 은 실제로 다른 저장소의 브랜치다
+    expect((await deps.store.getSnapshot(fork))?.headRepoId).toBe(DEMO_FORK_REPO);
+  });
+
+  it("Open Preview 는 저장된 PR 의 최신 커밋을 실행기에 넘긴다", async () => {
+    const { deps } = setup();
+    await syncAll(deps);
+    const runner = fakeRunner();
+    await startPreview(deps, runner, { repoId: DEMO_REPO.adminConsole, number: 12 });
+    expect(runner.started.map((t) => t.commitSha)).toEqual([DEMO_SHA.admin12Head]);
+  });
+
+  it("PR 에 새 커밋이 오면 실행 중인 미리보기는 이전 버전이다 (계약 §6)", async () => {
+    const { data, deps } = setup();
+    await syncAll(deps);
+    const runner = fakeRunner();
+    const ref = { repoId: DEMO_REPO.adminConsole, number: 12 };
+    const session = await startPreview(deps, runner, ref);
+    runner.set({ ...session, phase: "running", url: "http://127.0.0.1:4000/" });
+    const before = (await getPreviewCards(deps, runner, [ref])).get(`${ref.repoId}#12`);
+    expect(before?.session).toMatchObject({ phase: "running", freshness: "current", url: "http://127.0.0.1:4000/" });
+
+    data.pullRequests = data.pullRequests.map((p) => (p.repoId === ref.repoId && p.number === 12 ? { ...p, headSha: "c".repeat(40) } : p));
+    await syncAll(deps);
+    const after = (await getPreviewCards(deps, runner, [ref])).get(`${ref.repoId}#12`);
+    expect(after?.session).toMatchObject({ freshness: "outdated", commitSha: DEMO_SHA.admin12Head });
+  });
+
+  it("다른 PR 의 미리보기가 살아 있으면 그 PR 을 알려 준다 (열면 그것이 꺼진다)", async () => {
+    const { deps } = setup();
+    await syncAll(deps);
+    const runner = fakeRunner();
+    await startPreview(deps, runner, { repoId: DEMO_REPO.adminConsole, number: 12 });
+    const cards = await getPreviewCards(deps, runner, [{ repoId: DEMO_REPO.payments, number: 12 }]);
+    expect(cards.get(`${DEMO_REPO.payments}#12`)?.otherActive).toEqual({ repoName: "demo-org/admin-console", number: 12 });
+    expect((await getPreviewDevice(deps, runner)).active).toEqual({ repoName: "demo-org/admin-console", number: 12, phase: "fetching" });
+  });
+});
+
+describe("미리보기 설정 (조립부)", () => {
+  const off = (env: Record<string, string>) => selectPreviewConfig(env, selectGitHubSources(env));
+
+  it("PREVIEW_WORKDIR 가 없으면 연결 안 됨이고, 이유는 무엇을 하면 되는지 말한다", () => {
+    expect(off({})).toEqual({ kind: "off", reason: PREVIEW_NOT_CONNECTED });
+    expect(PREVIEW_NOT_CONNECTED).toContain("PREVIEW_WORKDIR");
+  });
+
+  it("경로는 절대 경로만, 주소는 IP · 호스트 이름만 받는다. 이유 문장에 값을 싣지 않는다", () => {
+    expect(off({ PREVIEW_WORKDIR: "relative/dir" })).toMatchObject({ kind: "off", reason: expect.stringContaining("절대 경로") });
+    const badHost = off({ PREVIEW_WORKDIR: "/tmp/pv", PREVIEW_LOCAL_REPOS_DIR: "/tmp/repos", PREVIEW_BIND_HOST: "evil.example/x" });
+    expect(badHost).toMatchObject({ kind: "off" });
+    expect(JSON.stringify(badHost)).not.toContain("evil.example");
+  });
+
+  it("고정 데이터 모드에서는 로컬 시연 저장소가 있어야 켜진다", () => {
+    expect(off({ PREVIEW_WORKDIR: "/tmp/pv" })).toMatchObject({ kind: "off", reason: expect.stringContaining("PREVIEW_LOCAL_REPOS_DIR") });
+    expect(off({ PREVIEW_WORKDIR: "/tmp/pv", PREVIEW_LOCAL_REPOS_DIR: "/tmp/repos" })).toEqual({
+      kind: "on",
+      workdir: "/tmp/pv",
+      bindHost: "127.0.0.1",
+      publicHost: "127.0.0.1",
+      code: { kind: "local_repos", dir: "/tmp/repos" },
+    });
+  });
+
+  it("모든 주소에 묶으면 화면 주소는 127.0.0.1, 사설망 이름을 주면 그 이름을 보인다", () => {
+    const env = { PREVIEW_WORKDIR: "/tmp/pv", PREVIEW_LOCAL_REPOS_DIR: "/tmp/repos", PREVIEW_BIND_HOST: "0.0.0.0" };
+    expect(off(env)).toMatchObject({ bindHost: "0.0.0.0", publicHost: "127.0.0.1" });
+    expect(off({ ...env, PREVIEW_PUBLIC_HOST: "mac-pro.tail1234.ts.net" })).toMatchObject({ publicHost: "mac-pro.tail1234.ts.net" });
+    expect(off({ ...env, PREVIEW_BIND_HOST: "100.64.0.7" })).toMatchObject({ bindHost: "100.64.0.7", publicHost: "100.64.0.7" });
+  });
+
+  it("GitHub 출처가 있으면 GitHub 에서 받고, GitHub 설정 오류가 있으면 켜지지 않는다", () => {
+    expect(off({ PREVIEW_WORKDIR: "/tmp/pv", GITHUB_TOKEN: "t", GITHUB_REPOS: "acme/web" })).toMatchObject({
+      kind: "on",
+      code: { kind: "github" },
+    });
+    expect(off({ PREVIEW_WORKDIR: "/tmp/pv", GITHUB_TOKEN: "t" })).toMatchObject({ kind: "off", reason: expect.stringContaining("설정 오류") });
+  });
+});

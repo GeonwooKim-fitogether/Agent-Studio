@@ -39,10 +39,16 @@ async function expectSeparateStateRows(card: Locator) {
   await expect(card.getByTestId("studio-status")).toContainText("Studio");
 }
 
-/** 아직 만들지 않은 기능의 메뉴 · 버튼이 이 화면 어디에도 없다 (결정 7: 실행되지 않는 버튼을 두지 않는다) */
+/**
+ * 아직 만들지 않은 기능의 메뉴 · 버튼이 이 화면 어디에도 없다 (결정 7: 실행되지 않는 버튼을 두지 않는다).
+ * Open Preview 는 2단계에서 생겼다(docs/plan/04-remote-preview.md). 이 서버는 미리보기 기기를 연결하지 않고 띄우므로,
+ * 보이는 Open Preview 는 모두 비활성이어야 한다 — 누를 수 있는데 동작하지 않는 버튼이 없다는 같은 규칙이다.
+ */
 async function expectNoUnbuiltFeatures(page: Page) {
-  const unbuilt = /^(Run|Open Preview|Chat|Flow|Agents)$/;
+  const unbuilt = /^(Run|Chat|Flow|Agents)$/;
   await expect(page.getByRole("button", { name: unbuilt })).toHaveCount(0);
+  const previewButtons = page.getByRole("button", { name: "Open Preview" });
+  for (const button of await previewButtons.all()) await expect(button).toBeDisabled();
   await expect(page.getByRole("link", { name: unbuilt })).toHaveCount(0);
   await expect(page.getByText(unbuilt)).toHaveCount(0);
   await expect(nav(page).getByRole("link")).toHaveText(["Workspace", "Inbox"]);

@@ -1,21 +1,31 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { getPreviewCards } from "../../../application/preview";
 import { getWorkDetail } from "../../../application/queries";
 import { getContainer } from "../../../server/container";
 import { WORK_STATUS } from "../../components/labels";
 import { unlinkAction } from "../../actions";
 import { PrCard, StateLegend } from "../../components/pr-card";
+import { PreviewControls } from "../../components/preview-controls";
 
 export const dynamic = "force-dynamic";
 
 /** 업무 화면 — 그 업무에 연결된 PR 카드와, 사용자가 PR 에 넣을 업무 표식. */
-export default async function WorkPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function WorkPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { id } = await params;
+  const refused = (await searchParams)["preview"] === "refused";
   const container = getContainer();
   await container.ensureSynced();
   const detail = await getWorkDetail(container.deps, id);
   if (detail === undefined) notFound();
   const { work, project, marker, prs } = detail;
+  const previews = await getPreviewCards(container.deps, container.preview, prs);
 
   return (
     <div className="page-inner">
@@ -26,6 +36,12 @@ export default async function WorkPage({ params }: { params: Promise<{ id: strin
         <h1>{work.title}</h1>
         <span className={`status status-${work.status}`}>{WORK_STATUS[work.status]}</span>
       </div>
+
+      {refused && (
+        <p className="source-error" data-testid="preview-refused">
+          미리보기를 열지 않았다 — 화면이 오래됐을 수 있다. 아래 PR 카드의 이유를 확인한다.
+        </p>
+      )}
 
       <section className="marker-box">
         <p className="eyebrow">Work marker</p>
@@ -51,7 +67,9 @@ export default async function WorkPage({ params }: { params: Promise<{ id: strin
                 pr={pr}
                 source={container.deps.reader.source}
                 actions={
-                  // 오조작을 막는 확인 한 단계: 체크박스를 체크해야 제출된다. 자바스크립트 없이도 브라우저가 막는다(required).
+                  <>
+                    {previews.get(pr.key) !== undefined && <PreviewControls view={previews.get(pr.key)!} pr={pr} workId={work.id} />}
+                    {/* 오조작을 막는 확인 한 단계: 체크박스를 체크해야 제출된다. 자바스크립트 없이도 브라우저가 막는다(required). */}
                   <form action={unlinkAction} className="unlink-form" data-testid="unlink-form">
                     <input type="hidden" name="repoId" value={pr.repoId} />
                     <input type="hidden" name="number" value={pr.number} />
@@ -64,6 +82,7 @@ export default async function WorkPage({ params }: { params: Promise<{ id: strin
                       Unlink
                     </button>
                   </form>
+                  </>
                 }
               />
             ))}

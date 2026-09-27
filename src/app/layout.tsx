@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { getPreviewDevice } from "../application/preview";
 import { getContainer } from "../server/container";
 import { syncAction } from "./actions";
-import { formatKst } from "./components/labels";
+import { formatKst, PREVIEW_PHASE } from "./components/labels";
 import { SourceStatusList } from "./components/source-status";
 import { Nav } from "./nav";
 import "./globals.css";
@@ -24,6 +25,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   await container.ensureSynced();
   const { reader } = container.deps;
   const status = container.status();
+  const device = await getPreviewDevice(container.deps, container.preview);
 
   return (
     <html lang="ko">
@@ -74,6 +76,13 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             </span>
           )}
           {status.lastWarning && <span className="source-error">{status.lastWarning}</span>}
+          <span className={device.online ? "source-pill preview-device" : "source-pill preview-device offline"} data-testid="preview-device">
+            {device.online ? "Preview device: connected" : "Preview device: not connected"}
+          </span>
+          <span data-testid="preview-device-detail">
+            {device.text}
+            {device.active !== null && ` · ${PREVIEW_PHASE[device.active.phase]} · ${device.active.repoName}#${device.active.number}`}
+          </span>
           <form action={syncAction}>
             <button type="submit" className="btn tiny">
               Sync

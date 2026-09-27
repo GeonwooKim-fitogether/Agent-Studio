@@ -10,6 +10,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createWorkFromPr, linkPrToWork, unlinkPr } from "../application/inbox-actions";
+import { startPreview, stopPreview } from "../application/preview";
 import { isValidPrRef, type PrRef, StudioError } from "../domain/model";
 import { getContainer } from "../server/container";
 
@@ -78,4 +79,36 @@ export async function unlinkAction(form: FormData): Promise<void> {
 export async function syncAction(): Promise<void> {
   await getContainer().sync();
   revalidatePath("/", "layout");
+}
+
+/** 업무 화면으로 돌아갈 주소. 업무 ID 는 영문 소문자 · 숫자뿐이지만, 그래도 주소에 넣기 전에 인코딩한다. */
+function workPath(form: FormData, notice?: string): string {
+  const path = `/works/${encodeURIComponent(String(form.get("workId") ?? ""))}`;
+  return notice === undefined ? path : `${path}?${new URLSearchParams({ preview: notice }).toString()}`;
+}
+
+/**
+ * Open Preview. PR 의 **지금** 최신 커밋으로 미리보기를 연다(화면에서 온 SHA 는 받지 않는다). 준비는 기다리지 않고 업무 화면으로 돌아가며,
+ * 화면이 진행을 2초마다 다시 그린다. 실행기가 오프라인이거나 대상 제한에 걸리면(오래된 화면에서 누른 경우) 거절 알림과 함께 돌아간다.
+ */
+export async function startPreviewAction(form: FormData): Promise<void> {
+  let target: string;
+  try {
+    const ref = readPrRef(form);
+    const container = getContainer();
+    await container.ensureSynced();
+    await startPreview(container.deps, container.preview, ref);
+    target = workPath(form);
+  } catch (error) {
+    if (!(error instanceof StudioError)) throw error;
+    target = workPath(form, "refused");
+  }
+  revalidatePath("/", "layout");
+  redirect(target);
+}
+
+export async function stopPreviewAction(form: FormData): Promise<void> {
+  await stopPreview(getContainer().preview);
+  revalidatePath("/", "layout");
+  redirect(workPath(form));
 }

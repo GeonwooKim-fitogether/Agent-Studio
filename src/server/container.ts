@@ -10,7 +10,7 @@
  */
 import { randomBytes } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, isAbsolute } from "node:path";
 import { Pool } from "pg";
 import { demoFixtureData, demoStudioSeed } from "../adapters/github/fixture/demo-scenario";
 import { createFixtureReader } from "../adapters/github/fixture/fixture-reader";
@@ -22,6 +22,8 @@ import { createMultiReader } from "../adapters/github/multi/multi-reader";
 import type { GitHubReader, SourceReport } from "../ports/github-reader";
 import { createMemoryStore } from "../adapters/store/memory/memory-store";
 import { createPostgresStore, seedIfEmpty } from "../adapters/store/postgres/postgres-store";
+import { createOfflinePreviewRunner } from "../adapters/preview/offline/offline-runner";
+import type { PreviewRunner } from "../ports/preview-runner";
 import type { AppDeps } from "../application/deps";
 import { syncAll } from "../application/sync";
 
@@ -41,6 +43,8 @@ export type StorageKind = "memory" | "postgres";
 
 export interface Container {
   readonly deps: AppDeps;
+  /** 미리보기 실행기 (2단계). 설정이 없으면 "연결 안 됨" 실행기이고, 화면은 그 이유를 버튼 옆에 보인다 */
+  readonly preview: PreviewRunner;
   readonly storage: StorageKind;
   /** GitHub 연결 설정이 틀렸으면 그 이유(화면에 보인다). 없으면 null */
   readonly configError: string | null;
@@ -333,6 +337,57 @@ function createReader(source: GitHubSource): GitHubReader {
   }
 }
 
+/**
+ * 미리보기 설정 (docs/plan/04-remote-preview.md §3). 실행기는 명시적 설정이 있을 때만 켜진다.
+ *   PREVIEW_WORKDIR         격리 폴더들의 부모(절대 경로). 없으면 실행기는 "연결 안 됨"
+ *   PREVIEW_BIND_HOST       미리보기 앱에 넘길 주소(기본 127.0.0.1). 휴대전화는 사설망(Tailscale 류)의 주소로 연다
+ *   PREVIEW_PUBLIC_HOST     화면에 보일 주소의 호스트(없으면 PREVIEW_BIND_HOST, 그것이 0.0.0.0 · :: 이면 127.0.0.1)
+ *   PREVIEW_LOCAL_REPOS_DIR 코드를 GitHub 대신 이 폴더의 로컬 git 저장소(<owner>/<name>)에서 받는다. 시연 · 시험용
+ * 이유 문장에는 변수 이름만 싣고 값(경로)은 싣지 않는다.
+ */
+export type PreviewConfig =
+  | { readonly kind: "off"; readonly reason: string }
+  | {
+      readonly kind: "on";
+      readonly workdir: string;
+      readonly bindHost: string;
+      readonly publicHost: string;
+      readonly code: { readonly kind: "local_repos"; readonly dir: string } | { readonly kind: "github" };
+    };
+
+export const PREVIEW_NOT_CONNECTED = "미리보기 기기가 연결되지 않았다 — PREVIEW_WORKDIR 를 설정한 컴퓨터에서 Studio 를 띄운다.";
+
+/** IP 주소(IPv4 · IPv6) 또는 호스트 이름. 공백 · 슬래시 · 포트는 받지 않는다 */
+const HOST_NAME = /^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*|[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*)$/;
+
+export function selectPreviewConfig(env: Record<string, string | undefined>, githubSources: readonly GitHubSource[]): PreviewConfig {
+  const value = (name: string) => env[name]?.trim() ?? "";
+  const workdir = value("PREVIEW_WORKDIR");
+  if (workdir === "") return { kind: "off", reason: PREVIEW_NOT_CONNECTED };
+  if (!isAbsolute(workdir)) return { kind: "off", reason: "PREVIEW_WORKDIR 는 절대 경로로 적는다." };
+  const bindHost = value("PREVIEW_BIND_HOST") || "127.0.0.1";
+  const publicHost = value("PREVIEW_PUBLIC_HOST") || (bindHost === "0.0.0.0" || bindHost === "::" ? "127.0.0.1" : bindHost);
+  if (!HOST_NAME.test(bindHost) || !HOST_NAME.test(publicHost)) {
+    return { kind: "off", reason: "PREVIEW_BIND_HOST · PREVIEW_PUBLIC_HOST 에는 IP 주소나 호스트 이름만 적는다(포트 · 경로 없이)." };
+  }
+  const localRepos = value("PREVIEW_LOCAL_REPOS_DIR");
+  if (localRepos !== "") {
+    if (!isAbsolute(localRepos)) return { kind: "off", reason: "PREVIEW_LOCAL_REPOS_DIR 는 절대 경로로 적는다." };
+    return { kind: "on", workdir, bindHost, publicHost, code: { kind: "local_repos", dir: localRepos } };
+  }
+  if (githubSources.length === 0) {
+    return {
+      kind: "off",
+      reason:
+        "고정 데이터의 저장소는 GitHub 에 없어 코드를 받을 곳이 없다 — 시연하려면 PREVIEW_LOCAL_REPOS_DIR 에 시연 저장소를 만든다(npm run preview:demo-repo).",
+    };
+  }
+  if (githubSources.some(isConfigError)) {
+    return { kind: "off", reason: "GitHub 설정 오류가 있어 코드를 받을 수 없다 — 위쪽 띠의 설정 오류를 먼저 고친다." };
+  }
+  return { kind: "on", workdir, bindHost, publicHost, code: { kind: "github" } };
+}
+
 export function createContainer(
   env: Record<string, string | undefined> = process.env,
   readFile?: (path: string) => string,
@@ -352,6 +407,10 @@ export function createContainer(
     now: () => new Date(),
     newId: () => randomBytes(3).toString("hex"),
   };
+
+  const previewConfig = selectPreviewConfig(env, githubSources);
+  const preview: PreviewRunner =
+    previewConfig.kind === "off" ? createOfflinePreviewRunner(previewConfig.reason) : createOfflinePreviewRunner("이 판에는 아직 실행기가 없다.");
 
   let status: SyncStatus = {
     lastSyncedAt: null,
@@ -408,6 +467,7 @@ export function createContainer(
 
   return {
     deps,
+    preview,
     storage: pool === null ? "memory" : "postgres",
     configError,
     close: async () => {
