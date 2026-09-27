@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import type { PrCardView } from "../../application/queries";
+import { visibleReviews } from "../../application/review";
 import type { DataSource } from "../../ports/github-reader";
-import { CHECKS, GITHUB_REVIEW, linkLabel, NO_INTERNAL_REVIEW, PR_STATE, shortSha, STATE_LEGEND, VERDICT } from "./labels";
+import { CHECKS, GITHUB_REVIEW, linkLabel, NO_INTERNAL_REVIEW, PR_STATE, shortSha, STATE_LEGEND, VERDICT, VERDICT_MEANING } from "./labels";
 
 /** 카드가 있는 화면마다 한 번 두는 범례. 두 줄이 누구의 상태인지 알려 준다. */
 export function StateLegend() {
@@ -50,12 +51,17 @@ export function PrCard({ pr, source, actions }: { pr: PrCardView; source: DataSo
               {linkLabel(studio.linkOrigin, studio.markerFoundIn)}
             </span>
             {studio.reviews.length === 0 && studio.linkOrigin && <span className="chip quiet">{NO_INTERNAL_REVIEW}</span>}
-            {studio.reviews.map((r) => (
-              <span key={r.id} className={`chip ${r.freshness}`} data-testid="review-decision" data-freshness={r.freshness}>
-                {VERDICT[r.verdict]}
-                {r.freshness === "outdated"
-                  ? ` · 이전 버전 (커밋 ${shortSha(r.commitSha)} 에 대한 결정)`
-                  : ` · 최신 커밋 ${shortSha(r.commitSha)}`}
+            {/* 커밋마다 마지막 결정 하나만 보인다. 이전 커밋에 대한 결정은 지우지 않고 그렇다고 표시한다 (계약 §6) */}
+            {visibleReviews(studio.reviews).map((r) => (
+              <span
+                key={r.id}
+                className={`chip ${r.freshness}`}
+                data-testid="review-decision"
+                data-freshness={r.freshness}
+                data-verdict={r.verdict}
+              >
+                {VERDICT[r.verdict]} · {VERDICT_MEANING[r.verdict]} · 커밋 {shortSha(r.commitSha)}
+                {r.freshness === "outdated" && " · 이전 커밋에 대한 결정"}
               </span>
             ))}
             {studio.previews.map((p) => (
