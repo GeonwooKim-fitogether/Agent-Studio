@@ -9,7 +9,8 @@
 | 기획 | 확정. 문제 정의 · 사용자 흐름 · 화면 시안 · 개발 순서가 [`docs/product/`](docs/product/) 에 있습니다 |
 | 0단계 계약 정의 | 문서로 정리됨. [`docs/plan/00-domain-contract.md`](docs/plan/00-domain-contract.md) |
 | 기술 스택 | TypeScript 한 벌 — Next.js + Node + PostgreSQL ([`decisions.md`](decisions.md) 결정 8) |
-| 1단계 PR 모으기 | 두 단위 작업완료. PR 을 업무에 모으고 Inbox 에서 연결 · 해제(Unlink)하며, 복제본 PR 은 자동 연결하지 않습니다. 저장은 PostgreSQL(없으면 메모리)입니다. 진짜 GitHub 로는 아직 돌려 보지 않았습니다. [`01`](docs/plan/01-pr-collection.md) · [`02`](docs/plan/02-persistence-and-unlink.md) |
+| 1단계 PR 모으기 | 두 단위 작업완료. PR 을 업무에 모으고 Inbox 에서 연결 · 해제(Unlink)하며, 복제본 PR 은 자동 연결하지 않습니다. 저장은 PostgreSQL(없으면 메모리)입니다. [`01`](docs/plan/01-pr-collection.md) · [`02`](docs/plan/02-persistence-and-unlink.md) |
+| 1단계 GitHub App 연결 | 세 번째 단위 작업완료. 읽기 전용 GitHub App(과 조직용 토큰)으로 실제 저장소를 읽습니다. 2026-09-28 사용자 Windows PC 에서 실데이터로 확인했습니다(저장소 17 · PR 102). [`03`](docs/plan/03-github-app.md) |
 
 ## 실행하기
 
