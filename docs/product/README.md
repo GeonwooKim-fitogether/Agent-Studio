@@ -7,14 +7,15 @@
 | [`ceo-brief.md`](./ceo-brief.md) | 의사결정자 | 해결할 문제, 사용자가 일하는 순서, 클라우드와 실제 서버가 이어지는 그림, 단계별 성공 기준. 비전공자용 5장 요약 |
 | [`user-workflow-plan.html`](./user-workflow-plan.html) | 기획·개발자 | "누가 · 어디에서 · 무엇을 · 왜" 표, 매일의 흐름 7단계, 기존 화면의 버튼이 실제로 해야 할 동작, 개발 순서(0~3단계). 브라우저로 연다 |
 | [`feature-plan.md`](./feature-plan.md) | 기획 · 디자인 · 개발 | 시안의 기능을 어느 단계에 만드는가(2 · 2.5 · 3단계), 기능마다 사용자 이야기 · 규칙 · 통과 기준, 화면 구조안, 업무 상태 규칙. 2026-09-28 확정(결정 13 · 14 · 15) |
-| [`agent-studio-prototype.html`](./agent-studio-prototype.html) | 디자이너·개발자 | 클릭 시안. Workspace · Chat · Flow · Agents 네 화면과 Inbox. 브라우저에서 열면 동작하며, 입력은 그 브라우저의 로컬 저장소에만 남는다 |
+| [`agent-studio-prototype.html`](./agent-studio-prototype.html) | 디자이너·개발자 | 클릭 시안 v2 (2026-09-28 컨펌, 결정 16). PR 중심 방향으로 다시 그렸다. 위쪽 조작 띠로 2단계(Workspace · Inbox · 업무 화면)와 2.5단계(Chat)를 오가고, 휴대전화 화면과 다크 모드를 본다. 3단계(Flow · Agents · Run)는 그리지 않았다. 브라우저에서 열면 동작하며 저장하지 않는다. 옛 시안(v1)은 [`archive/agent-studio-prototype-v1.html`](./archive/agent-studio-prototype-v1.html) |
 
 ## 시안을 읽을 때 알아 둘 것
 
-- 시안은 **Demo mode** 다. Claude · GitHub · 서버에 연결되지 않고, 버튼을 눌러도 실제 작업은 일어나지 않는다. 상단 "Demo mode" 표시가 그 사실을 화면에서 알린다.
-- 시안의 데이터 단위는 `flow`(업무 하나) 다. 업무 하나에 채널(Chat)과 흐름도(Flow)가 함께 붙는다. 개발에서는 이 단위를 **업무(Work)** 라 부르고, 정확한 정의는 [`../plan/00-domain-contract.md`](../plan/00-domain-contract.md) 에 있다.
-- 이 저장소에 반입된 시안 판본은 Agents 화면에 **이름 · Role · 스킬**만 있다. 기획 대화의 마지막 단계에서 정한 **소개(What it does) · 지시문(Instructions, AI 에 전달할 프롬프트) · AI model** 세 칸으로 나눈 판본은 아직 반입되지 않았다. 그 결정 자체는 [`../../decisions.md`](../../decisions.md) 결정 7 에 적혀 있으므로, 구현은 결정을 따르고 시안은 참고로만 본다.
-- 버튼과 기능 이름은 영어(Workspace · Chat · Flow · Agents · Inbox · New Flow · Review · Approve · Request Changes), 사용자가 적는 내용은 한국어다. 이 원칙은 결정 2 다.
+- 시안은 **시연용**이다. GitHub · 서버에 연결되지 않고, 버튼을 누르면 화면 상태만 바뀐다. 맨 위 "Prototype · 동작은 시연" 표시가 그 사실을 알린다.
+- 시안 v2 는 [`feature-plan.md`](./feature-plan.md)(결정 13 · 14 · 15)를 그대로 그린 것이다. 기획서가 정하지 않은 다섯 곳은 시안의 기본값으로 채웠고, 그 기본값은 결정 16 으로 확정됐다.
+- 시안은 실제 앱(`src/app/globals.css`)의 색과 문구를 이어받는다. 시안과 구현이 다시 갈라지지 않게 하려는 것이다.
+- 옛 시안 v1 은 방향이 PR 중심으로 바뀌기 전의 모습(AI 팀이 문서를 쓰는 일반 업무 도구)이다. 참고용으로 `archive/` 에만 둔다.
+- 버튼과 기능 이름은 영어, 사용자가 적는 내용은 한국어다(결정 2).
 
 ## 이 자산이 정하지 않은 것
 

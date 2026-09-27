@@ -5,6 +5,7 @@ import { decideLink } from "../domain/auto-link";
 import { type Project, prKey, type RepoId, StudioError } from "../domain/model";
 import type { SourceReport } from "../ports/github-reader";
 import type { AppDeps } from "./deps";
+import { refreshWorkStatuses } from "./work-status";
 
 /** 요청한 저장소와 저장소 ID 가 달라 받아 적지 않고 버린 스냅샷 */
 export interface DiscardedSnapshot {
@@ -21,6 +22,8 @@ export interface SyncResult {
   readonly discarded: readonly DiscardedSnapshot[];
   /** 값이 저장할 수 없는 모양이라(invalid_input) 받아 적지 못하고 건너뛴 PR. 나머지 PR 은 계속 동기화한다 */
   readonly skipped: readonly { readonly repoId: RepoId; readonly number: number }[];
+  /** 이번 동기화 끝에 규칙이 업무 상태를 바꾼 횟수(쌓인 상태 이력 수, feature-plan F3) */
+  readonly statusChanges: number;
   /** 리더가 이번 동기화에 대해 알린 것 */
   readonly notes: readonly string[];
   /** 출처별 결과 (여러 출처를 함께 읽을 때만 채워진다) */
@@ -40,6 +43,7 @@ export interface SyncResult {
  * 4. 이미 연결된 PR 은 다시 판정하지 않는다. 사람이 연결한 것이든 표식으로 연결된 것이든, 연결은 동기화가 바꾸지 않는다.
  *    연결이 없는 PR 만 표식 규칙으로 판정하고, 확실하지 않으면 그대로 둔다(= Inbox 에 남는다).
  *    다른 요청(동시에 도는 동기화, 사람의 연결)이 먼저 연결해 버린 PR 은 건너뛰고 계속 간다.
+ * 5. 끝으로 모든 업무의 상태를 규칙(계약 §5-1)으로 다시 판정한다. 새 커밋 · 병합 · 닫힘 · 새 연결이 상태에 반영되는 자리다.
  */
 export async function syncAll(deps: AppDeps): Promise<SyncResult> {
   const { store } = deps;
@@ -112,5 +116,15 @@ export async function syncAll(deps: AppDeps): Promise<SyncResult> {
     }
   }
 
-  return { repositories: repositories.length, pullRequests, autoLinked, discarded, skipped, notes: reader.notes(), sources: reader.sources?.() ?? [] };
+  const statusChanges = await refreshWorkStatuses(deps);
+  return {
+    repositories: repositories.length,
+    pullRequests,
+    autoLinked,
+    discarded,
+    skipped,
+    statusChanges,
+    notes: reader.notes(),
+    sources: reader.sources?.() ?? [],
+  };
 }

@@ -10,6 +10,7 @@ import { createWorkFromPr, linkPrToWork, unlinkPr } from "../../src/application/
 import { getPrNotice, getWorkspace } from "../../src/application/queries";
 import { syncAll } from "../../src/application/sync";
 import type { PrLink, PrSnapshot, Work } from "../../src/domain/model";
+import type { StatusChange } from "../../src/domain/work-status";
 import type { StudioSeed, StudioStore } from "../../src/ports/studio-store";
 import { setup } from "./helpers";
 
@@ -232,6 +233,101 @@ export function describeStoreContract(kind: string, make: StoreFactory): void {
           branch: "b\uFFFD",
           author: "x\uFFFD",
         });
+      });
+    });
+
+    describe("업무 상태와 상태 이력 (feature-plan F3)", () => {
+      const ruleChange = (id: string, from: Work["status"], to: Work["status"], at = "2026-09-28T00:00:00.000Z"): StatusChange => ({
+        id,
+        workId: "w1",
+        from,
+        to,
+        cause: { kind: "rule", rule: "R1", evidence: [{ repoId: 1, number: 1, commitSha: "c".repeat(40) }] },
+        changedAt: at,
+      });
+      const personChange: StatusChange = {
+        id: "sc-p",
+        workId: "w1",
+        from: "done_candidate",
+        to: "done",
+        cause: { kind: "person", action: "mark_done" },
+        changedAt: "2026-09-28T00:00:02.000Z",
+      };
+
+      it("상태 · 기준점 · 이력이 함께 쓰이고, 이력은 쌓인 순서대로 그대로 돌아온다 (같은 시각이어도)", async () => {
+        const store = await make({ projects: [project], works: [work] });
+        const pin = { "1#1": "open:" + "c".repeat(40) };
+        const ok = await store.updateWorkStatus({
+          workId: "w1",
+          expected: "draft",
+          status: "done_candidate",
+          pin: null,
+          changes: [ruleChange("sc-1", "draft", "in_progress"), { ...ruleChange("sc-2", "in_progress", "done_candidate"), cause: { kind: "rule", rule: "R4", evidence: [] } }],
+        });
+        expect(ok).toBe(true);
+        expect(await store.updateWorkStatus({ workId: "w1", expected: "done_candidate", status: "done", pin, changes: [personChange] })).toBe(true);
+        expect((await store.getWork("w1"))?.status).toBe("done");
+        expect(await store.listStatusPins()).toEqual({ w1: pin });
+        expect((await store.listStatusChanges()).map((c) => c.id)).toEqual(["sc-1", "sc-2", "sc-p"]);
+        expect((await store.listStatusChanges())[2]).toEqual(personChange);
+        expect((await store.listStatusChanges())[0]).toEqual(ruleChange("sc-1", "draft", "in_progress"));
+
+        // 기준점을 놓으면(null) 목록에서 빠진다
+        await store.updateWorkStatus({ workId: "w1", expected: "done", status: "done", pin: null, changes: [] });
+        expect(await store.listStatusPins()).toEqual({});
+      });
+
+      it("지금 상태가 expected 와 다르면 false 이고 아무것도 쓰지 않는다", async () => {
+        const store = await make({ projects: [project], works: [work] });
+        const stale = await store.updateWorkStatus({
+          workId: "w1",
+          expected: "needs_review",
+          status: "in_progress",
+          pin: { x: "y" },
+          changes: [ruleChange("sc-1", "needs_review", "in_progress")],
+        });
+        expect(stale).toBe(false);
+        expect((await store.getWork("w1"))?.status).toBe("draft");
+        expect(await store.listStatusChanges()).toEqual([]);
+        expect(await store.listStatusPins()).toEqual({});
+      });
+
+      it("같은 판정이 동시에 두 번 들어와도 한 번만 쓰이고 이력이 한 줄이다", async () => {
+        const store = await make({ projects: [project], works: [work] });
+        const update = (id: string) =>
+          store.updateWorkStatus({ workId: "w1", expected: "draft", status: "in_progress", pin: null, changes: [ruleChange(id, "draft", "in_progress")] });
+        const results = await Promise.all([update("sc-a"), update("sc-b")]);
+        expect(results.sort()).toEqual([false, true]);
+        expect(await store.listStatusChanges()).toHaveLength(1);
+      });
+
+      it("없는 업무면 not_found, 목록 밖의 상태 값이면 invalid_input 이고 아무것도 쓰지 않는다", async () => {
+        const store = await make({ projects: [project], works: [work] });
+        await expect(store.updateWorkStatus({ workId: "nowork", expected: "draft", status: "done", pin: null, changes: [] })).rejects.toMatchObject({
+          code: "not_found",
+        });
+        await expect(
+          store.updateWorkStatus({ workId: "w1", expected: "draft", status: "finished" as Work["status"], pin: null, changes: [] }),
+        ).rejects.toMatchObject({ code: "invalid_input" });
+        expect((await store.getWork("w1"))?.status).toBe("draft");
+        expect(await store.listStatusChanges()).toEqual([]);
+      });
+
+      it("완료 후보(done_candidate)로 처음 심은 업무도 그대로 돌아온다", async () => {
+        const store = await make({ projects: [project], works: [{ ...work, status: "done_candidate" }] });
+        expect((await store.getWork("w1"))?.status).toBe("done_candidate");
+        expect(await store.getWork("w1")).toEqual({ ...work, status: "done_candidate" }); // 기준점은 업무 값에 섞이지 않는다
+      });
+
+      it("돌려받은 이력과 기준점을 고쳐도 저장된 값은 바뀌지 않는다", async () => {
+        const store = await make({ projects: [project], works: [work] });
+        await store.updateWorkStatus({ workId: "w1", expected: "draft", status: "draft", pin: { a: "b" }, changes: [ruleChange("sc-1", "draft", "draft")] });
+        const pins = await store.listStatusPins();
+        (pins as Record<string, Record<string, string>>)["w1"]!["a"] = "고침";
+        const changes = await store.listStatusChanges();
+        (changes[0] as { id: string }).id = "고침";
+        expect(await store.listStatusPins()).toEqual({ w1: { a: "b" } });
+        expect((await store.listStatusChanges())[0]?.id).toBe("sc-1");
       });
     });
 

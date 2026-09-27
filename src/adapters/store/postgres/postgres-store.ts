@@ -25,6 +25,7 @@ import {
   withoutNul,
 } from "../../../domain/model";
 import { isValidWorkId } from "../../../domain/work-marker";
+import { isWorkStatus, type PrFingerprint, type StatusCause, type StatusChange, type StatusEvidence } from "../../../domain/work-status";
 import type { StudioSeed, StudioStore } from "../../../ports/studio-store";
 
 type Row = Record<string, unknown>;
@@ -87,6 +88,25 @@ const toUnlink = (r: Row): UnlinkRecord => ({
   workId: String(r["work_id"]),
   unlinkedAt: iso(r["unlinked_at"]),
 });
+
+const toStatusChange = (r: Row): StatusChange => {
+  const cause: StatusCause =
+    r["actor"] === "rule"
+      ? {
+          kind: "rule",
+          rule: r["rule"] as Extract<StatusCause, { kind: "rule" }>["rule"],
+          evidence: (r["evidence"] as StatusEvidence[]).map((e) => ({ repoId: num(e.repoId), number: num(e.number), commitSha: String(e.commitSha) })),
+        }
+      : { kind: "person", action: r["action"] as Extract<StatusCause, { kind: "person" }>["action"] };
+  return {
+    id: String(r["id"]),
+    workId: String(r["work_id"]),
+    from: r["from_status"] as StatusChange["from"],
+    to: r["to_status"] as StatusChange["to"],
+    cause,
+    changedAt: iso(r["changed_at"]),
+  };
+};
 
 /** 트랜잭션 하나 안에서 fn 을 돌린다. 던지면 되돌린다. */
 async function inTransaction<T>(pool: Pool, fn: (client: PoolClient) => Promise<T>): Promise<T> {
@@ -301,6 +321,51 @@ export function createPostgresStore(pool: Pool): StudioStore {
          values ($1, $2, $3, $4, $5, $6, $7)`,
         [d.id, d.workId, d.repoId, d.number, d.commitSha, d.verdict, d.decidedAt],
       );
+    },
+
+    async updateWorkStatus(update) {
+      // 확인 순서는 메모리 구현과 같다: 상태 값 → 없는 업무 → 지금 상태가 expected 와 같은가
+      const statuses = [update.expected, update.status, ...update.changes.flatMap((c) => [c.from, c.to])];
+      if (!statuses.every(isWorkStatus)) throw new StudioError("invalid_input", "업무 상태 값이 올바르지 않다.");
+      if (update.changes.some((c) => c.workId !== update.workId)) throw new StudioError("invalid_input", "이력이 다른 업무를 가리킨다.");
+      return inTransaction(pool, async (db) => {
+        // 업무 행을 잠근 뒤 지금 상태를 본다 — 두 판정이 겹쳐도 한쪽만 쓰고, 이력이 두 번 쌓이지 않는다
+        const current = await db.query("select status from work where id = $1 for update", [update.workId]);
+        const row = current.rows[0] as Row | undefined;
+        if (row === undefined) throw new StudioError("not_found", "상태를 바꿀 업무가 없다.");
+        if (row["status"] !== update.expected) return false;
+        await db.query("update work set status = $2, status_pin = $3 where id = $1", [
+          update.workId,
+          update.status,
+          update.pin === null ? null : JSON.stringify(update.pin),
+        ]);
+        for (const c of update.changes) {
+          const rule = c.cause.kind === "rule" ? c.cause : null;
+          await db.query(
+            `insert into work_status_change (id, work_id, from_status, to_status, actor, rule, evidence, action, changed_at)
+             values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+            [
+              c.id,
+              c.workId,
+              c.from,
+              c.to,
+              c.cause.kind,
+              rule?.rule ?? null,
+              rule === null ? null : JSON.stringify(rule.evidence),
+              c.cause.kind === "person" ? c.cause.action : null,
+              c.changedAt,
+            ],
+          );
+        }
+        return true;
+      });
+    },
+    async listStatusPins() {
+      const pins = await rows("select id, status_pin from work where status_pin is not null order by id");
+      return Object.fromEntries(pins.map((r) => [String(r["id"]), r["status_pin"] as PrFingerprint]));
+    },
+    async listStatusChanges() {
+      return (await rows("select * from work_status_change order by ord")).map(toStatusChange);
     },
 
     async listPreviewRecords() {

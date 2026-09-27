@@ -105,8 +105,11 @@ export interface Project {
   readonly repoIds: readonly RepoId[];
 }
 
-/** 업무 상태 (계약 §5: 초안 · 진행 중 · 검토 필요 · 완료). */
-export type WorkStatus = "draft" | "in_progress" | "needs_review" | "done";
+/**
+ * 업무 상태 (계약 §5: 초안 · 진행 중 · 검토 필요 · 완료). "완료 후보" 는 규칙 R4 가 붙이는 표시이고,
+ * 사람이 Mark as Done 을 눌러야 완료가 된다(결정 14). 상태가 바뀌는 규칙은 work-status.ts 에 있다.
+ */
+export type WorkStatus = "draft" | "in_progress" | "needs_review" | "done_candidate" | "done";
 
 /** 목표 하나를 가진 작업 단위. 업무는 Studio 가 발급한 ID 로만 같다 — 제목이 같아도 다른 업무다. */
 export interface Work {

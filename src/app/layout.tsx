@@ -3,7 +3,8 @@ import type { ReactNode } from "react";
 import { getPreviewDevice } from "../application/preview";
 import { getContainer } from "../server/container";
 import { syncAction } from "./actions";
-import { formatKst, PREVIEW_PHASE } from "./components/labels";
+import { AutoRefresh } from "./components/auto-refresh";
+import { formatAgo, formatKst, PREVIEW_PHASE } from "./components/labels";
 import { SourceStatusList } from "./components/source-status";
 import { Nav } from "./nav";
 import "./globals.css";
@@ -17,6 +18,11 @@ const SOURCE_LABEL = {
   github_app: "GitHub App (read-only)",
   github_combined: "GitHub App + token (read-only)",
 } as const;
+
+/** 주기 동기화 간격을 짧게 (예: 300 → "5 min", 90 → "90 s") */
+function autoSyncLabel(seconds: number): string {
+  return seconds % 60 === 0 ? `${seconds / 60} min` : `${seconds} s`;
+}
 
 export const metadata: Metadata = { title: "Agent Studio" };
 
@@ -56,12 +62,18 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           <span className="source-sync">
             Last sync{" "}
             {status.lastSyncedAt ? (
-              <time dateTime={status.lastSyncedAt} data-testid="last-sync">
-                {formatKst(status.lastSyncedAt)}
-              </time>
+              <>
+                <time dateTime={status.lastSyncedAt} data-testid="last-sync">
+                  {formatKst(status.lastSyncedAt)}
+                </time>{" "}
+                <span data-testid="last-sync-ago">({formatAgo(status.lastSyncedAt, Date.now())})</span>
+              </>
             ) : (
               "없음"
             )}
+          </span>
+          <span className="source-pill" data-testid="auto-sync">
+            {container.syncIntervalSeconds > 0 ? `Auto sync every ${autoSyncLabel(container.syncIntervalSeconds)}` : "Auto sync off"}
           </span>
           {status.lastResult && (
             <span data-testid="last-sync-result">
@@ -90,6 +102,8 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           </form>
         </div>
         <main className="page">{children}</main>
+        {/* 주기 동기화의 결과(업무 상태 변화 포함)가 열어 둔 화면에도 보이도록 같은 간격으로 다시 그린다 */}
+        {container.syncIntervalSeconds > 0 && <AutoRefresh everyMs={container.syncIntervalSeconds * 1000} />}
       </body>
     </html>
   );

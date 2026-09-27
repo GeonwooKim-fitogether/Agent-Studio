@@ -12,6 +12,7 @@
 import { isValidPrRef, type PrRef, type PrState, type ReviewDecision, type ReviewVerdict, StudioError } from "../domain/model";
 import { isValidWorkId } from "../domain/work-marker";
 import type { AppDeps } from "./deps";
+import { refreshWorkStatuses } from "./work-status";
 
 const VERDICTS: readonly ReviewVerdict[] = ["internal_review_done", "changes_requested"];
 
@@ -52,6 +53,8 @@ export async function recordReviewDecision(
     decidedAt: deps.now().toISOString(),
   };
   await deps.store.addReviewDecision(decision);
+  // 결정은 업무 상태의 재료다 — Request Changes 는 R3, Approve 는 R3b (계약 §5-1)
+  await refreshWorkStatuses(deps, [input.workId]);
   return decision;
 }
 

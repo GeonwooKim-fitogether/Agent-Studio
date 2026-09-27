@@ -27,6 +27,7 @@ import {
   type Work,
 } from "../domain/model";
 import { markerFor } from "../domain/work-marker";
+import type { PrFingerprint, StatusChange, StatusRule } from "../domain/work-status";
 import type { StudioStore } from "../ports/studio-store";
 import type { AppDeps } from "./deps";
 
@@ -69,10 +70,24 @@ export interface PrCardView {
   };
 }
 
+/** 상태 이력 한 줄을 화면에 보일 모양. 근거 PR 에는 저장소의 현재 이름을 붙인다 */
+export interface StatusChangeView {
+  readonly from: StatusChange["from"];
+  readonly to: StatusChange["to"];
+  readonly at: string;
+  readonly cause:
+    | { readonly kind: "rule"; readonly rule: StatusRule; readonly evidence: readonly { readonly repoName: string; readonly number: number; readonly commitSha: string }[] }
+    | { readonly kind: "person"; readonly action: "mark_done" | "set_status" };
+}
+
 export interface WorkSummaryView {
   readonly work: Work;
   readonly marker: string;
   readonly prs: readonly PrCardView[];
+  /** 가장 최근의 상태 이력. 규칙이든 사람이든 아직 상태를 바꾼 적이 없으면 null */
+  readonly latestChange: StatusChangeView | null;
+  /** 사람이 손으로 바꾼 상태를, 다음 PR 변화까지 규칙이 덮지 않고 있다(R6) */
+  readonly statusPinned: boolean;
 }
 
 export interface WorkspaceView {
@@ -197,10 +212,12 @@ interface Loaded {
   readonly reviews: readonly ReviewDecision[];
   readonly previews: readonly PreviewRecord[];
   readonly unlinks: ReadonlyMap<string, UnlinkRecord>;
+  readonly statusChanges: readonly StatusChange[];
+  readonly statusPins: Readonly<Record<string, PrFingerprint>>;
 }
 
 async function loadAll(store: StudioStore): Promise<Loaded> {
-  const [projects, works, repositories, snapshots, links, reviews, previews, unlinks] = await Promise.all([
+  const [projects, works, repositories, snapshots, links, reviews, previews, unlinks, statusChanges, statusPins] = await Promise.all([
     store.listProjects(),
     store.listWorks(),
     store.listRepositories(),
@@ -209,6 +226,8 @@ async function loadAll(store: StudioStore): Promise<Loaded> {
     store.listReviewDecisions(),
     store.listPreviewRecords(),
     store.listUnlinks(),
+    store.listStatusChanges(),
+    store.listStatusPins(),
   ]);
   return {
     projects,
@@ -219,6 +238,8 @@ async function loadAll(store: StudioStore): Promise<Loaded> {
     reviews,
     previews,
     unlinks: new Map(unlinks.map((u) => [prKey(u), u])),
+    statusChanges,
+    statusPins,
   };
 }
 
@@ -227,7 +248,35 @@ function summarizeWork(s: Loaded, work: Work): WorkSummaryView {
     .filter((snapshot) => s.links.get(prKey(snapshot))?.workId === work.id)
     .map((snapshot) => toCard(s, snapshot))
     .sort(byRepoThenNumber);
-  return { work, marker: markerFor(work.id), prs };
+  const latest = s.statusChanges.filter((c) => c.workId === work.id).at(-1);
+  return {
+    work,
+    marker: markerFor(work.id),
+    prs,
+    latestChange: latest === undefined ? null : toChangeView(s, latest),
+    statusPinned: s.statusPins[work.id] !== undefined,
+  };
+}
+
+function toChangeView(s: Loaded, change: StatusChange): StatusChangeView {
+  const cause = change.cause;
+  return {
+    from: change.from,
+    to: change.to,
+    at: change.changedAt,
+    cause:
+      cause.kind === "person"
+        ? cause
+        : {
+            kind: "rule",
+            rule: cause.rule,
+            evidence: cause.evidence.map((e) => ({
+              repoName: s.repositories.get(e.repoId)?.fullName ?? `저장소 ${e.repoId}`,
+              number: e.number,
+              commitSha: e.commitSha,
+            })),
+          },
+  };
 }
 
 function unlinkedInProjects(s: Loaded): { snapshot: PrSnapshot; project: Project }[] {
