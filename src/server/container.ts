@@ -55,8 +55,10 @@ export interface Container {
   close(): Promise<void>;
   /** 동기화를 한 번 돌린다. 실패해도 던지지 않고 status() 에 이유를 남긴다. */
   sync(): Promise<void>;
-  /** 서버가 켜진 뒤 첫 요청에서 한 번만 동기화한다. */
+  /** 서버가 켜진 뒤 첫 요청에서 한 번만 동기화한다. 주기 동기화가 켜져 있으면 이때부터 간격마다 돈다. */
   ensureSynced(): Promise<void>;
+  /** 주기 동기화 간격(초). 0 이면 꺼져 있다 (SYNC_INTERVAL_SECONDS, feature-plan F6) */
+  readonly syncIntervalSeconds: number;
   status(): SyncStatus;
 }
 
@@ -413,6 +415,23 @@ export function selectPreviewConfig(env: Record<string, string | undefined>, git
   return { kind: "on", workdir, bindHost, publicHost, code: { kind: "github" } };
 }
 
+/** 주기 동기화의 기본 간격 — 5분 (feature-plan F6) */
+export const DEFAULT_SYNC_INTERVAL_SECONDS = 300;
+/** 가장 짧은 간격. GitHub 의 요청 한도를 지키려고 이보다 짧게 적어도 이 값으로 올린다 */
+export const MIN_SYNC_INTERVAL_SECONDS = 30;
+
+/**
+ * SYNC_INTERVAL_SECONDS 를 읽는다. 비어 있거나 정수가 아니면 기본 5분, 0 이면 끔, 30초보다 짧으면 30초.
+ * 시험(e2e)은 0 으로 꺼서 동기화가 버튼과 첫 요청에서만 일어나게 한다(결과가 시각에 따라 달라지지 않게).
+ */
+export function readSyncIntervalSeconds(env: Record<string, string | undefined>): number {
+  const raw = env["SYNC_INTERVAL_SECONDS"]?.trim() ?? "";
+  if (raw === "" || !/^\d+$/.test(raw)) return DEFAULT_SYNC_INTERVAL_SECONDS;
+  const seconds = Number(raw);
+  if (seconds === 0) return 0;
+  return Math.max(MIN_SYNC_INTERVAL_SECONDS, seconds);
+}
+
 export function createContainer(
   env: Record<string, string | undefined> = process.env,
   readFile?: (path: string) => string,
@@ -458,6 +477,8 @@ export function createContainer(
     sources: [],
   };
   let first: Promise<void> | null = null;
+  const syncIntervalSeconds = readSyncIntervalSeconds(env);
+  let timer: ReturnType<typeof setInterval> | null = null;
 
   // 단일 비행: 동기화가 진행 중이면 새로 시작하지 않고 진행 중인 것을 함께 기다린다(Sync 를 겹쳐 눌러도 한 번)
   let running: Promise<void> | null = null;
@@ -501,6 +522,12 @@ export function createContainer(
       }
     }
     await sync();
+    // 주기 동기화(결정 11 · feature-plan F6). 수동 Sync 와 겹치면 단일 비행(sync)이 한 번으로 합친다.
+    // 실패해도 던지지 않고 status() 에 이유를 남기므로 띠에 보인다. unref: 이 타이머 하나 때문에 프로세스가 끝나지 못하는 일이 없게.
+    if (syncIntervalSeconds > 0 && timer === null) {
+      timer = setInterval(() => void sync(), syncIntervalSeconds * 1000);
+      timer.unref?.();
+    }
   }
 
   return {
@@ -509,10 +536,13 @@ export function createContainer(
     storage: pool === null ? "memory" : "postgres",
     configError,
     close: async () => {
+      if (timer !== null) clearInterval(timer);
+      timer = null;
       await pool?.end();
     },
     sync,
     ensureSynced: () => (first ??= start()),
+    syncIntervalSeconds,
     status: () => status,
   };
 }

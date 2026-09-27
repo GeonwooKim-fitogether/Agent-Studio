@@ -24,6 +24,7 @@ import {
   type Work,
 } from "../../../domain/model";
 import { isValidWorkId } from "../../../domain/work-marker";
+import { isWorkStatus, type PrFingerprint, type StatusChange } from "../../../domain/work-status";
 import type { StudioSeed, StudioStore } from "../../../ports/studio-store";
 
 export type { StudioSeed } from "../../../ports/studio-store";
@@ -40,6 +41,8 @@ export function createMemoryStore(seed: StudioSeed = {}): StudioStore {
   const reviews: ReviewDecision[] = copies(seed.reviews ?? []);
   const previews: PreviewRecord[] = copies(seed.previews ?? []);
   const unlinks = new Map((seed.unlinks ?? []).map((u) => [prKey(u), copy(u)]));
+  const statusPins = new Map<string, PrFingerprint>();
+  const statusChanges: StatusChange[] = [];
 
   const rejectIfBadRef = (ref: PrRef) => {
     if (!isValidPrRef(ref)) throw new StudioError("invalid_input", "PR 을 가리키는 값이 올바르지 않다.");
@@ -140,6 +143,27 @@ export function createMemoryStore(seed: StudioSeed = {}): StudioStore {
       rejectIfBadRef(decision);
       if (!works.has(decision.workId)) throw new StudioError("not_found", "검토 결정을 남길 업무가 없다.");
       reviews.push(copy(decision));
+    },
+
+    async updateWorkStatus(update) {
+      // 확인 순서는 PostgreSQL 구현과 같다: 상태 값 → 없는 업무 → 지금 상태가 expected 와 같은가
+      const statuses = [update.expected, update.status, ...update.changes.flatMap((c) => [c.from, c.to])];
+      if (!statuses.every(isWorkStatus)) throw new StudioError("invalid_input", "업무 상태 값이 올바르지 않다.");
+      const work = works.get(update.workId);
+      if (work === undefined) throw new StudioError("not_found", "상태를 바꿀 업무가 없다.");
+      if (update.changes.some((c) => c.workId !== update.workId)) throw new StudioError("invalid_input", "이력이 다른 업무를 가리킨다.");
+      if (work.status !== update.expected) return false;
+      works.set(work.id, { ...work, status: update.status });
+      if (update.pin === null) statusPins.delete(work.id);
+      else statusPins.set(work.id, copy(update.pin));
+      statusChanges.push(...copies(update.changes));
+      return true;
+    },
+    async listStatusPins() {
+      return Object.fromEntries(copies(statusPins.entries()));
+    },
+    async listStatusChanges() {
+      return copies(statusChanges);
     },
 
     async listPreviewRecords() {

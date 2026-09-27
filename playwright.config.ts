@@ -54,6 +54,8 @@ export default defineConfig({
       PREVIEW_BIND_HOST: "",
       PREVIEW_PUBLIC_HOST: "",
       DATABASE_URL: POSTGRES ? TEST_DATABASE_URL : "",
+      // 주기 동기화를 끈다 — 동기화는 첫 요청과 Sync 버튼에서만 일어나 결과가 시각에 따라 달라지지 않는다
+      SYNC_INTERVAL_SECONDS: "0",
       APP_ENV: POSTGRES ? "test" : "local",
     },
     },
@@ -73,6 +75,7 @@ export default defineConfig({
         GITHUB_TOKEN_ORGS: "",
         DATABASE_URL: "",
         APP_ENV: "local",
+        SYNC_INTERVAL_SECONDS: "0",
         PREVIEW_WORKDIR: join(PREVIEW_ROOT, "work"),
         PREVIEW_LOCAL_REPOS_DIR: PREVIEW_REPOS,
         PREVIEW_BIND_HOST: "127.0.0.1",

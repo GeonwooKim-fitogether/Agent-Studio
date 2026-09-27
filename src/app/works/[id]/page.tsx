@@ -3,11 +3,11 @@ import { notFound } from "next/navigation";
 import { getPreviewCards } from "../../../application/preview";
 import { getWorkDetail } from "../../../application/queries";
 import { getContainer } from "../../../server/container";
-import { WORK_STATUS } from "../../components/labels";
 import { unlinkAction } from "../../actions";
 import { PrCard, StateLegend } from "../../components/pr-card";
 import { PreviewControls } from "../../components/preview-controls";
 import { ReviewControls } from "../../components/review-controls";
+import { StatusBadge, WorkStatusPanel } from "../../components/work-status";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +23,7 @@ export default async function WorkPage({
   const query = await searchParams;
   const refused = query["preview"] === "refused";
   const reviewRefused = query["review"] === "refused";
+  const statusRefused = query["status"] === "refused";
   const container = getContainer();
   await container.ensureSynced();
   const detail = await getWorkDetail(container.deps, id);
@@ -37,8 +38,15 @@ export default async function WorkPage({
       </nav>
       <div className="page-head work-head">
         <h1>{work.title}</h1>
-        <span className={`status status-${work.status}`}>{WORK_STATUS[work.status]}</span>
+        <StatusBadge status={work.status} />
       </div>
+      <WorkStatusPanel summary={detail} />
+
+      {statusRefused && (
+        <p className="source-error" data-testid="status-refused">
+          업무 상태를 바꾸지 않았다 — 화면이 오래됐을 수 있다(그사이 PR 이 바뀌어 더는 완료 후보가 아닐 수 있다). 지금 상태를 확인한다.
+        </p>
+      )}
 
       {refused && (
         <p className="source-error" data-testid="preview-refused">

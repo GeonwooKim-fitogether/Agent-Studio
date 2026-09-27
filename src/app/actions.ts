@@ -12,7 +12,9 @@ import { redirect } from "next/navigation";
 import { createWorkFromPr, linkPrToWork, unlinkPr } from "../application/inbox-actions";
 import { startPreview, stopPreview } from "../application/preview";
 import { isReviewVerdict, recordReviewDecision } from "../application/review";
-import { isValidPrRef, type PrRef, StudioError } from "../domain/model";
+import { setWorkStatusByPerson } from "../application/work-status";
+import { isWorkStatus } from "../domain/work-status";
+import { isValidPrRef, type PrRef, StudioError, type WorkStatus } from "../domain/model";
 import { getContainer } from "../server/container";
 
 function readPrRef(form: FormData): PrRef {
@@ -83,7 +85,10 @@ export async function syncAction(): Promise<void> {
 }
 
 /** 업무 화면으로 돌아갈 주소. 업무 ID 는 영문 소문자 · 숫자뿐이지만, 그래도 주소에 넣기 전에 인코딩한다. */
-function workPath(form: FormData, notice?: { readonly preview: "refused" } | { readonly review: "refused" }): string {
+function workPath(
+  form: FormData,
+  notice?: { readonly preview: "refused" } | { readonly review: "refused" } | { readonly status: "refused" },
+): string {
   const path = `/works/${encodeURIComponent(String(form.get("workId") ?? ""))}`;
   return notice === undefined ? path : `${path}?${new URLSearchParams(notice).toString()}`;
 }
@@ -132,6 +137,35 @@ export async function reviewAction(form: FormData): Promise<void> {
   } catch (error) {
     if (!(error instanceof StudioError)) throw error;
     target = workPath(form, { review: "refused" });
+  }
+  revalidatePath("/", "layout");
+  redirect(target);
+}
+
+/**
+ * 사람이 업무 상태를 바꾼다 — 완료 후보의 Mark as Done, 또는 업무 화면의 상태 선택(R6). Studio 저장소만 바꾸고 GitHub 에는 아무것도 보내지 않는다.
+ * 오래된 화면에서 눌러 거절되면(예: 그사이 PR 이 다시 열려 더는 완료 후보가 아니다) 업무 화면으로 돌아가 알린다.
+ */
+export async function markDoneAction(form: FormData): Promise<void> {
+  await changeStatus(form, "mark_done", "done");
+}
+
+export async function setStatusAction(form: FormData): Promise<void> {
+  const status = form.get("status");
+  await changeStatus(form, "set_status", isWorkStatus(status) ? status : null);
+}
+
+async function changeStatus(form: FormData, action: "mark_done" | "set_status", status: WorkStatus | null): Promise<void> {
+  let target: string;
+  try {
+    if (status === null) throw new StudioError("invalid_input", "업무 상태 값이 올바르지 않다.");
+    const container = getContainer();
+    await container.ensureSynced();
+    await setWorkStatusByPerson(container.deps, { workId: String(form.get("workId") ?? ""), status, action });
+    target = workPath(form);
+  } catch (error) {
+    if (!(error instanceof StudioError)) throw error;
+    target = workPath(form, { status: "refused" });
   }
   revalidatePath("/", "layout");
   redirect(target);

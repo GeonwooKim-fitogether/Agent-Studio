@@ -17,7 +17,9 @@ import type {
   ReviewDecision,
   UnlinkRecord,
   Work,
+  WorkStatus,
 } from "../domain/model";
+import type { PrFingerprint, StatusChange } from "../domain/work-status";
 
 /**
  * 서버가 처음 켜질 때 저장소에 심는 처음 상태(시연 데이터 등).
@@ -30,6 +32,20 @@ export interface StudioSeed {
   readonly reviews?: readonly ReviewDecision[];
   readonly previews?: readonly PreviewRecord[];
   readonly unlinks?: readonly UnlinkRecord[];
+}
+
+/**
+ * 업무 상태 한 번의 갱신 (feature-plan F3). expected 는 판정할 때 읽은 상태다 — 그사이 다른 요청이 상태를 바꿨으면
+ * 아무것도 쓰지 않고 false 를 돌려준다(같은 판정이 두 번 이력을 쌓지 않게). 상태 · 기준점 · 이력은 함께 쓰이거나 함께 안 쓰인다.
+ */
+export interface WorkStatusUpdate {
+  readonly workId: string;
+  readonly expected: WorkStatus;
+  readonly status: WorkStatus;
+  /** R6 의 기준점. 사람이 바꿨으면 그때의 PR 모습, 규칙이 판정했으면 null */
+  readonly pin: PrFingerprint | null;
+  /** 시간순으로 덧붙일 이력 (비어 있을 수 있다 — 기준점만 놓아 줄 때) */
+  readonly changes: readonly StatusChange[];
 }
 
 export interface StudioStore {
@@ -80,6 +96,16 @@ export interface StudioStore {
 
   listReviewDecisions(): Promise<ReviewDecision[]>;
   addReviewDecision(decision: ReviewDecision): Promise<void>;
+
+  /**
+   * 업무 상태를 바꾼다 (WorkStatusUpdate). 없는 업무면 not_found, 상태 값이 목록 밖이면 invalid_input.
+   * 지금 상태가 expected 와 다르면 false 를 돌려주고 아무것도 쓰지 않는다.
+   */
+  updateWorkStatus(update: WorkStatusUpdate): Promise<boolean>;
+  /** 사람이 손으로 바꾼 뒤 규칙이 아직 덮지 않은 업무의 기준점 (업무 ID → 기준점). 기준점이 없는 업무는 빠진다 */
+  listStatusPins(): Promise<Record<string, PrFingerprint>>;
+  /** 상태 이력 전부. 쌓인 순서(오래된 것부터)다 */
+  listStatusChanges(): Promise<StatusChange[]>;
 
   /** 미리보기 실행은 2단계에서 붙으므로 이번 단위에는 읽기만 있다. */
   listPreviewRecords(): Promise<PreviewRecord[]>;

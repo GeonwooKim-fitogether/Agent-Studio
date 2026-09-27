@@ -4,18 +4,67 @@
  * GitHub 의 리뷰와 Studio 의 내부 검토 결정은 같은 낱말(changes requested)을 쓰므로, Studio 쪽 검토 표기는
  * 모두 "Internal:" 로 시작한다. 한 카드에 둘이 함께 보여도 어느 쪽 것인지 글자만 보고 가릴 수 있어야 한다.
  */
+import type { StatusChangeView } from "../../application/queries";
 import type { ReviewBlock } from "../../application/review";
 import type { InboxReason } from "../../domain/auto-link";
 import type { ChecksState, GitHubReviewState, MarkerPlace, PrState, ReviewVerdict, WorkStatus } from "../../domain/model";
 import type { PreviewBlock, PreviewPhase } from "../../domain/preview";
 import { markerFor } from "../../domain/work-marker";
+import type { StatusRule } from "../../domain/work-status";
 
 export const WORK_STATUS: Record<WorkStatus, string> = {
   draft: "Draft",
   in_progress: "In progress",
   needs_review: "Needs review",
+  done_candidate: "Done candidate",
   done: "Done",
 };
+
+/** 완료 후보일 때 Mark as Done 옆의 이유 (결정 14, 시안 v2) */
+export const DONE_CANDIDATE_NOTE =
+  "연결된 PR 이 모두 병합됐다. 업무는 PR 보다 클 수 있어 자동으로 완료하지 않는다 — 남은 일이 없으면 Mark as Done 을 누른다.";
+
+/** 사람이 상태를 손으로 고를 때의 안내 (R6) */
+export const MANUAL_STATUS_NOTE =
+  "손으로 고른 상태는 다음 PR 변화(새 커밋 · 새 연결 · 병합 · 닫힘)가 올 때까지 규칙이 덮지 않는다.";
+
+/** 규칙이 상태를 바꾼 이유. 같은 규칙이라도 어느 상태로 갔느냐에 따라 뜻이 갈리는 것(R2 · R4)은 도착 상태로 나눈다 */
+function ruleReason(rule: StatusRule, to: WorkStatus): string {
+  switch (rule) {
+    case "R1":
+      return "첫 PR 이 연결됐다";
+    case "R2":
+      return to === "needs_review"
+        ? "최신 커밋의 검사가 끝났고 아직 판단하지 않았다"
+        : "최신 커밋의 검사가 아직 진행 중이거나 실패했다 — 판단할 차례가 아니다";
+    case "R3":
+      return "최신 커밋에 Request Changes 를 남겼다";
+    case "R3b":
+      return "최신 커밋에 Approve(내부 검토 완료)를 남겼다 — GitHub 병합을 기다린다";
+    case "R4":
+      return to === "done_candidate" ? "열린 PR 이 없고 병합된 PR 이 있다" : "연결된 PR 이 모두 병합 없이 닫혔다";
+    case "R5":
+      return "완료된 업무에 열린 PR 이 생겼다";
+  }
+}
+
+/**
+ * 업무 화면의 "상태 이력" 한 줄. 예: "규칙 R2 · demo-org/docs-site#12 커밋 6f7a8b9 · 최신 커밋의 검사가 끝났고 … · 2026-09-28 10:02:00 KST"
+ * 사람이 바꿨으면 그 사실과, 아직 규칙이 덮지 않고 있다면(R6) 그 약속을 함께 적는다.
+ */
+export function statusChangeText(change: StatusChangeView | null, pinned: boolean): string {
+  if (change === null) return "아직 규칙이나 사람이 상태를 바꾼 적이 없다";
+  const at = formatKst(change.at);
+  if (change.cause.kind === "person") {
+    const what =
+      change.cause.action === "mark_done" ? "사람이 Mark as Done 을 눌렀다" : `사람이 상태를 ${WORK_STATUS[change.to]} 로 바꿨다`;
+    return [what, pinned ? "다음 PR 변화까지 규칙이 덮지 않는다" : null, at].filter((p) => p !== null).join(" · ");
+  }
+  const evidence = change.cause.evidence.map((e) => `${e.repoName}#${e.number} 커밋 ${shortSha(e.commitSha)}`).join(", ");
+  return [`규칙 ${change.cause.rule}`, evidence === "" ? null : evidence, ruleReason(change.cause.rule, change.to), at]
+    .filter((p) => p !== null)
+    .join(" · ");
+}
 
 export const PR_STATE: Record<PrState, string> = { open: "Open", merged: "Merged", closed: "Closed" };
 
@@ -110,6 +159,14 @@ const KST = new Intl.DateTimeFormat("sv-SE", {
 /** ISO 시각을 한국 시간으로 (예: 2026-09-25 14:19:08 KST) */
 export function formatKst(iso: string): string {
   return `${KST.format(new Date(iso))} KST`;
+}
+
+/** 마지막 동기화가 얼마 전인지 (예: "방금", "3분 전", "2시간 전"). 화면을 그리는 순간 기준이다 */
+export function formatAgo(iso: string, nowMs: number): string {
+  const minutes = Math.floor((nowMs - new Date(iso).getTime()) / 60_000);
+  if (minutes < 1) return "방금";
+  if (minutes < 60) return `${minutes}분 전`;
+  return `${Math.floor(minutes / 60)}시간 전`;
 }
 
 /** 미리보기를 열 수 없는 PR 쪽 이유 (docs/plan/04-remote-preview.md §4) */

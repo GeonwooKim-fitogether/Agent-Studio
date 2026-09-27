@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { getWorkspace } from "../application/queries";
 import { getContainer } from "../server/container";
-import { WORK_STATUS } from "./components/labels";
 import { PrCard, StateLegend } from "./components/pr-card";
+import { StatusBadge, StatusHistoryLine } from "./components/work-status";
 
 export const dynamic = "force-dynamic";
 
@@ -49,14 +49,17 @@ export default async function WorkspacePage() {
             <small>{repositories.map((r) => r.fullName).join(", ")}</small>
           </header>
           {works.length === 0 && <p className="empty-note">업무가 아직 없다. Inbox 에서 PR 로 새 업무를 만들 수 있다.</p>}
-          {works.map(({ work, prs }) => (
+          {works.map((summary) => {
+            const { work, prs } = summary;
+            return (
             <article key={work.id} className="work-row" data-testid={`work-${work.id}`}>
               <div className="work-row-head">
                 <Link href={`/works/${work.id}`} className="work-title">
                   {work.title}
                 </Link>
-                <span className={`status status-${work.status}`}>{WORK_STATUS[work.status]}</span>
+                <StatusBadge status={work.status} />
               </div>
+              <StatusHistoryLine summary={summary} />
               {prs.length === 0 ? (
                 <p className="empty-note">연결된 PR 없음</p>
               ) : (
@@ -67,7 +70,8 @@ export default async function WorkspacePage() {
                 </div>
               )}
             </article>
-          ))}
+            );
+          })}
         </section>
       ))}
     </div>

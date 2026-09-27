@@ -3,6 +3,7 @@
  * 적용 명령의 APP_ENV 거부는 데이터베이스 없이도 돈다. 나머지는 TEST_DATABASE_URL 이 있을 때만 돈다.
  */
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import pg from "pg";
 import { beforeAll, describe, expect, it } from "vitest";
 import { DEMO_REPO } from "../../src/adapters/github/fixture/demo-scenario";
@@ -46,6 +47,9 @@ describe("마이그레이션 적용 명령 — 잘못된 연결 문자열 (데�
   });
 });
 
+/** 저장소에 있는 마이그레이션 전부 (만든 순서) */
+const MIGRATIONS = ["20260925070338_initial_schema", "20260927224929_work_status_history"];
+
 describe.skipIf(!HAS_POSTGRES)("PostgreSQL 통합", () => {
   const tables = async () => {
     const client = new pg.Client({ connectionString: TEST_DATABASE_URL });
@@ -63,14 +67,42 @@ describe.skipIf(!HAS_POSTGRES)("PostgreSQL 통합", () => {
 
   it("빈 데이터베이스에 처음부터 적용할 수 있고, 두 번째 실행은 아무것도 바꾸지 않는다", async () => {
     const first = await recreateSchema(TEST_DATABASE_URL);
-    expect(first).toContain("새로 적용 1개");
+    expect(first).toContain(`새로 적용 ${MIGRATIONS.length}개`);
     const before = await tables();
-    expect(before.migrations.map((m) => m.name)).toEqual(["20260925070338_initial_schema"]);
+    expect(before.migrations.map((m) => m.name)).toEqual(MIGRATIONS);
 
     const second = runMigrate(TEST_DATABASE_URL, "test");
-    expect(second).toContain("건너뜀 (이미 적용됨) 20260925070338_initial_schema.sql");
+    for (const name of MIGRATIONS) expect(second).toContain(`건너뜀 (이미 적용됨) ${name}.sql`);
     expect(second).toContain("새로 적용 0개");
     expect(await tables()).toEqual(before); // 표 · 칸 · 적용 이력(시각 포함) 모두 그대로
+  });
+
+  it("상태 이력 마이그레이션은 이미 쓰던 데이터베이스에 얹혀도 기존 업무를 그대로 두고, 완료 후보를 받아들인다", async () => {
+    // 첫 스키마만 있던 데이터베이스(= 이 단위 전의 로컬 데이터베이스)를 흉내 낸다
+    await recreateSchema(TEST_DATABASE_URL);
+    const client = new pg.Client({ connectionString: TEST_DATABASE_URL });
+    await client.connect();
+    try {
+      await client.query("drop schema public cascade");
+      await client.query("create schema public");
+      await client.query(readFileSync("db/migrations/20260925070338_initial_schema.sql", "utf8"));
+      await client.query("create table schema_migrations (name text primary key, applied_at timestamptz not null default now())");
+      await client.query("insert into schema_migrations (name) values ('20260925070338_initial_schema')");
+      await client.query("insert into project (id, name, repo_ids) values ('p', 'p', '{1}')");
+      await client.query("insert into work (id, project_id, title, status, created_at) values ('w1', 'p', '업무', 'needs_review', now())");
+      await expect(client.query("update work set status = 'done_candidate'")).rejects.toThrow(); // 옛 스키마는 모른다
+
+      const out = runMigrate(TEST_DATABASE_URL, "test");
+      expect(out).toContain("적용함 20260927224929_work_status_history.sql");
+      expect(out).toContain("새로 적용 1개");
+      const row = (await client.query("select status, status_pin from work where id = 'w1'")).rows[0];
+      expect(row).toEqual({ status: "needs_review", status_pin: null });
+      await client.query("update work set status = 'done_candidate'");
+      await expect(client.query("update work set status = 'finished'")).rejects.toThrow();
+      expect(runMigrate(TEST_DATABASE_URL, "test")).toContain("새로 적용 0개");
+    } finally {
+      await client.end();
+    }
   });
 
   it("출력에는 비밀번호도 연결 문자열 전체도 없다 (호스트 · 포트 · 데이터베이스 이름만)", () => {

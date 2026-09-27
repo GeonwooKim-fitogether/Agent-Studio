@@ -1,7 +1,7 @@
 /** 조립부 — 환경변수가 둘 다 있을 때만 REST 어댑터를, 아니면 fixture 어댑터를 고르는지 본다. */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getInbox } from "../../src/application/queries";
-import { createContainer, readGitHubConfig } from "../../src/server/container";
+import { createContainer, readGitHubConfig, readSyncIntervalSeconds } from "../../src/server/container";
 
 describe("조립부의 어댑터 선택", () => {
   it.each([
@@ -130,5 +130,70 @@ describe("GITHUB_REPOS 에 잘못 넣은 값 (8차)", () => {
 
   it("올바른 owner/name 은 그대로 받는다", () => {
     expect(createContainer({ GITHUB_TOKEN: "t", GITHUB_REPOS: "fitogether-org/web.app, a/b_c-1" }).configError).toBeNull();
+  });
+});
+
+describe("주기 동기화 (feature-plan F6)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it.each([
+    [undefined, 300],
+    ["", 300],
+    ["abc", 300],
+    ["-5", 300],
+    ["1.5", 300],
+    ["0", 0],
+    ["10", 30],
+    ["600", 600],
+  ])("SYNC_INTERVAL_SECONDS=%j 이면 %i 초 (비었거나 틀리면 5분, 0 은 끔, 30초 미만은 30초)", (value, seconds) => {
+    expect(readSyncIntervalSeconds({ SYNC_INTERVAL_SECONDS: value })).toBe(seconds);
+  });
+
+  it("간격마다 스스로 동기화하고, 수동 Sync 와 겹쳐도 한 번만 돈다. 0 이면 돌지 않는다", async () => {
+    vi.useFakeTimers({ now: new Date("2026-09-28T00:00:00.000Z") });
+    const container = createContainer({ SYNC_INTERVAL_SECONDS: "60" });
+    let calls = 0;
+    const inner = container.deps.reader.listRepositories;
+    (container.deps.reader as { listRepositories: typeof inner }).listRepositories = () => {
+      calls += 1;
+      return inner();
+    };
+    await container.ensureSynced();
+    expect(calls).toBe(1);
+    const first = container.status().lastSyncedAt;
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(calls).toBe(2);
+    expect(container.status().lastSyncedAt).not.toBe(first);
+
+    // 주기 동기화가 도는 순간 사람이 Sync 를 눌러도 한 번으로 합쳐진다
+    vi.advanceTimersByTime(60_000);
+    await container.sync();
+    expect(calls).toBe(3);
+
+    await container.close(); // 끄면 더 돌지 않는다
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(calls).toBe(3);
+
+    const off = createContainer({ SYNC_INTERVAL_SECONDS: "0" });
+    await off.ensureSynced();
+    const at = off.status().lastSyncedAt;
+    await vi.advanceTimersByTimeAsync(3_600_000);
+    expect(off.status().lastSyncedAt).toBe(at);
+    expect(off.syncIntervalSeconds).toBe(0);
+  });
+
+  it("주기 동기화가 실패하면 던지지 않고 띠에 보일 이유를 남긴다", async () => {
+    vi.useFakeTimers();
+    const container = createContainer({ SYNC_INTERVAL_SECONDS: "30" });
+    await container.ensureSynced();
+    (container.deps.reader as unknown as { listRepositories: () => Promise<never> }).listRepositories = async () => {
+      throw new Error("GitHub 에 닿지 못했다");
+    };
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(container.status().lastError).toBe("GitHub 에 닿지 못했다");
+    await container.close();
   });
 });

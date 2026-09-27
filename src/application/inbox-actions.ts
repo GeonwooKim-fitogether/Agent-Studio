@@ -1,10 +1,12 @@
 /**
  * Inbox 에서 사람이 하는 두 가지 — PR 을 기존 업무에 연결하기(Link to Work), PR 로 새 업무 만들기(New Work).
  * 둘 다 Studio 의 연결만 바꾸고, GitHub 에는 아무것도 보내지 않는다.
+ * 연결이 바뀐 업무는 그 자리에서 상태 규칙을 다시 판정한다(계약 §5-1 — 예: 첫 PR 이 연결되면 R1).
  */
 import { isValidWorkId } from "../domain/work-marker";
 import { isValidPrRef, type PrRef, type PrSnapshot, type Project, StudioError, type Work } from "../domain/model";
 import type { AppDeps } from "./deps";
+import { refreshWorkStatuses } from "./work-status";
 
 /**
  * PR 을 같은 프로젝트의 기존 업무에 연결한다.
@@ -18,6 +20,12 @@ export async function linkPrToWork(deps: AppDeps, input: PrRef & { readonly work
     if (existing.workId === input.workId) return;
     throw alreadyLinked();
   }
+  await addUserLink(deps, pr, input.workId);
+  await refreshWorkStatuses(deps, [input.workId]);
+}
+
+async function addUserLink(deps: AppDeps, pr: PrSnapshot, workId: string): Promise<void> {
+  const input = { repoId: pr.repoId, number: pr.number, workId };
   const project = await requireProjectOfRepo(deps, pr.repoId);
   const work = await deps.store.getWork(input.workId);
   if (work === undefined) throw new StudioError("not_found", "연결하려는 업무가 없다.");
@@ -46,6 +54,7 @@ export async function linkPrToWork(deps: AppDeps, input: PrRef & { readonly work
 export async function unlinkPr(deps: AppDeps, input: PrRef & { readonly workId: string }): Promise<void> {
   requireValidRef(input);
   await deps.store.unlink(input, deps.now().toISOString());
+  await refreshWorkStatuses(deps, [input.workId]); // PR 이 빠져도 초안으로 되돌리지는 않는다(R1). 남은 PR 로 다시 본다(예: R4)
 }
 
 /** PR 하나로 새 업무를 만들고 그 PR 을 연결한다. 업무 제목은 PR 제목을 그대로 쓴다. 업무와 연결은 한 번에 생긴다. */
@@ -68,6 +77,7 @@ export async function createWorkFromPr(deps: AppDeps, ref: PrRef): Promise<Work>
     origin: "user",
     linkedAt: createdAt,
   });
+  await refreshWorkStatuses(deps, [work.id]);
   return work;
 }
 

@@ -1,13 +1,17 @@
 /** 화면 라벨 — GitHub 와 Studio 의 표기가 겹치지 않는지, 연결 표기 · 사유 · 한국 시간이 맞는지. */
 import { describe, expect, it } from "vitest";
 import {
+  DONE_CANDIDATE_NOTE,
+  formatAgo,
   formatKst,
   GITHUB_REVIEW,
   inboxReasonText,
   linkLabel,
   NO_INTERNAL_REVIEW,
   STATE_LEGEND,
+  statusChangeText,
   VERDICT,
+  WORK_STATUS,
 } from "../../src/app/components/labels";
 
 describe("화면 라벨", () => {
@@ -40,5 +44,37 @@ describe("화면 라벨", () => {
   it("마지막 동기화 시각은 한국 시간(KST)으로 보인다", () => {
     expect(formatKst("2026-09-25T05:19:08.000Z")).toBe("2026-09-25 14:19:08 KST");
     expect(formatKst("2026-09-25T20:00:00.000Z")).toBe("2026-09-26 05:00:00 KST"); // 날짜가 넘어간다
+  });
+
+  it("업무 상태 이름은 시안 v2 와 같다 (Done candidate 포함)", () => {
+    expect(Object.values(WORK_STATUS)).toEqual(["Draft", "In progress", "Needs review", "Done candidate", "Done"]);
+    expect(DONE_CANDIDATE_NOTE).toContain("연결된 PR 이 모두 병합됐다. 업무는 PR 보다 클 수 있어 자동으로 완료하지 않는다");
+  });
+
+  it("상태 이력 한 줄: 규칙 번호 · 근거 PR 과 커밋 · 이유 · 한국 시간. 사람이 바꿨으면 그 사실과 R6 의 약속", () => {
+    const at = "2026-09-28T01:02:00.000Z";
+    expect(
+      statusChangeText(
+        { from: "in_progress", to: "needs_review", at, cause: { kind: "rule", rule: "R2", evidence: [{ repoName: "demo-org/docs-site", number: 12, commitSha: "6f7a8b9c0d" }] } },
+        false,
+      ),
+    ).toBe("규칙 R2 · demo-org/docs-site#12 커밋 6f7a8b9 · 최신 커밋의 검사가 끝났고 아직 판단하지 않았다 · 2026-09-28 10:02:00 KST");
+    expect(statusChangeText({ from: "needs_review", to: "in_progress", at, cause: { kind: "rule", rule: "R4", evidence: [] } }, false)).toContain(
+      "모두 병합 없이 닫혔다",
+    );
+    expect(statusChangeText({ from: "done_candidate", to: "done", at, cause: { kind: "person", action: "mark_done" } }, true)).toBe(
+      "사람이 Mark as Done 을 눌렀다 · 다음 PR 변화까지 규칙이 덮지 않는다 · 2026-09-28 10:02:00 KST",
+    );
+    expect(statusChangeText({ from: "draft", to: "in_progress", at, cause: { kind: "person", action: "set_status" } }, false)).toBe(
+      "사람이 상태를 In progress 로 바꿨다 · 2026-09-28 10:02:00 KST",
+    );
+    expect(statusChangeText(null, false)).toBe("아직 규칙이나 사람이 상태를 바꾼 적이 없다");
+  });
+
+  it("마지막 동기화가 얼마 전인지: 1분 전까지는 방금, 그다음은 분, 한 시간부터는 시간", () => {
+    const now = new Date("2026-09-28T01:00:00.000Z").getTime();
+    expect(formatAgo("2026-09-28T00:59:30.000Z", now)).toBe("방금");
+    expect(formatAgo("2026-09-28T00:57:00.000Z", now)).toBe("3분 전");
+    expect(formatAgo("2026-09-27T22:30:00.000Z", now)).toBe("2시간 전");
   });
 });
