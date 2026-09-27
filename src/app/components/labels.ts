@@ -5,6 +5,7 @@
  * 모두 "Internal:" 로 시작한다. 한 카드에 둘이 함께 보여도 어느 쪽 것인지 글자만 보고 가릴 수 있어야 한다.
  */
 import type { AttentionItem, AttentionKind } from "../../application/attention";
+import type { NewWorkProblem } from "../../application/new-work";
 import type { StatusChangeView } from "../../application/queries";
 import type { ReviewBlock } from "../../application/review";
 import type { InboxReason } from "../../domain/auto-link";
@@ -12,6 +13,7 @@ import type { ChecksState, GitHubReviewState, MarkerPlace, PrState, ReviewVerdic
 import type { PreviewBlock, PreviewPhase } from "../../domain/preview";
 import { markerFor } from "../../domain/work-marker";
 import type { StatusRule } from "../../domain/work-status";
+import { MAX_WORK_TITLE_LENGTH } from "../../domain/work-title";
 
 export const WORK_STATUS: Record<WorkStatus, string> = {
   draft: "Draft",
@@ -229,3 +231,19 @@ export function attentionText(item: AttentionItem): { readonly target: string; r
       };
   }
 }
+
+/** New Work 가 빈 업무를 만들지 않은 이유 (feature-plan F5) */
+export const NEW_WORK_PROBLEM: Record<NewWorkProblem, string> = {
+  empty: "제목이 비어 있다. 업무의 목표를 한 줄로 적는다.",
+  too_long: `제목이 ${MAX_WORK_TITLE_LENGTH}자를 넘는다. 목록 한 줄에 보일 이름으로 줄인다.`,
+  control_char: "제목에 줄바꿈이나 보이지 않는 제어 문자가 들어 있다. 한 줄의 보이는 글자로 적는다.",
+  no_project: "고른 프로젝트를 찾지 못했다. 목록에서 다시 고른다.",
+};
+
+/** New Work 폼 아래의 안내 (시안 v2) */
+export const NEW_WORK_FORM_NOTE =
+  "빈 업무를 만들고 표식을 준다. Claude 에게 일을 맡길 때 그 표식을 지시에 붙여 넣으면, 그 PR 이 다음 Sync 에서 이 업무에 자동으로 붙는다.";
+
+/** 빈 업무를 만든 뒤 표식 아래의 안내 (시안 v2) */
+export const NEW_WORK_DONE_NOTE =
+  "이 표식을 Claude 에게 주는 지시에 붙여 넣는다. 표식 앞뒤는 띄어 쓴다. 표식이 든 PR 은 다음 Sync 에서 이 업무에 붙고, 표식이 없는 PR 은 Inbox 로 간다.";

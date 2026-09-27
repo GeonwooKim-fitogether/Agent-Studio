@@ -136,6 +136,9 @@ test.describe("판단할 일이 없을 때 (빈 저장소 서버 3103)", () => {
       "지금 판단할 일이 없다. 검토할 PR, 실패한 검사, 이전 버전 미리보기, 연결을 기다리는 PR 이 생기면 여기에 모인다.",
     );
     await expect(rows(page)).toHaveCount(0);
+    // 프로젝트가 없으면 New Work 는 누를 수 없고, 그 이유가 옆에 보인다(feature-plan F5, 결정 7)
+    await expect(page.getByRole("button", { name: "New Work" })).toBeDisabled();
+    await expect(page.getByTestId("new-work-disabled-reason")).toHaveText("연결된 프로젝트가 없어 업무를 만들 수 없다.");
     await page.screenshot({ fullPage: true });
   });
 });

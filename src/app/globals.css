@@ -196,3 +196,20 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
   .attn-row { grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; padding: 11px 14px; }
   .attn-row .kind { grid-column: 1 / -1; }
 }
+
+/* New Work (feature-plan F5, 시안 v2) */
+.page-head.split { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 20px; }
+.new-work-off { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.newwork { background: var(--surface); border: 1px solid #d5d9de; border-radius: 12px; padding: 16px 18px; margin-bottom: 26px; }
+.newwork-title { margin: 0 0 10px; font-weight: 750; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.newwork-note { margin-top: 8px; }
+.newwork .source-error { margin: 0 0 10px; }
+.form-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin: 0; }
+.field { display: flex; flex-direction: column; gap: 5px; font-size: 11px; font-weight: 750; color: var(--muted); }
+.field input, .field select { font: inherit; min-height: 36px; border: 1px solid #dfe3e7; border-radius: 9px; padding: 0 10px; background: #fff; font-size: 13px; font-weight: 500; color: var(--ink); }
+.field.grow { flex: 1; min-width: 200px; }
+.marker { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.marker code { font-size: 13px; font-weight: 700; background: var(--accent-soft); border-radius: 7px; padding: 4px 9px; user-select: all; }
+.btn.text { border-color: transparent; background: transparent; }
+.copy-status:empty { display: none; }
+.empty-note code { font-size: 11px; background: var(--accent-soft); border-radius: 5px; padding: 1px 5px; }

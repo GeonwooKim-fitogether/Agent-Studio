@@ -238,6 +238,21 @@ export function createPostgresStore(pool: Pool): StudioStore {
       });
     },
 
+    async createWork(work) {
+      // 확인 순서는 메모리 구현과 같다: 업무 ID 형식 → 없는 프로젝트 → 업무 ID 중복
+      if (!isValidWorkId(work.id)) throw new StudioError("invalid_input", "업무 ID 는 영문 소문자와 숫자로만 이뤄진다.");
+      await inTransaction(pool, async (db) => {
+        const project = await db.query("select 1 from project where id = $1 for share", [work.projectId]);
+        if ((project.rowCount ?? 0) === 0) throw new StudioError("not_found", "업무를 둘 프로젝트가 없다.");
+        const inserted = await db.query(
+          `insert into work (id, project_id, title, status, created_at) values ($1, $2, $3, $4, $5)
+           on conflict (id) do nothing`,
+          [work.id, work.projectId, work.title, work.status, work.createdAt],
+        );
+        if ((inserted.rowCount ?? 0) === 0) throw new StudioError("invalid_input", "같은 ID 의 업무가 이미 있다.");
+      });
+    },
+
     async listRepositories() {
       return (await rows("select id, full_name from repository order by id")).map((r) => ({
         id: num(r["id"]),

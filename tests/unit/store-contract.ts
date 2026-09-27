@@ -170,6 +170,31 @@ export function describeStoreContract(kind: string, make: StoreFactory): void {
       });
     });
 
+    describe("빈 업무 만들기 (New Work, feature-plan F5)", () => {
+      it("PR 없이 업무 하나가 생기고, 저장한 그대로 돌아온다. 연결은 생기지 않는다", async () => {
+        const store = await make({ projects: [project] });
+        await store.createWork(work);
+        expect(await store.getWork("w1")).toEqual(work);
+        expect(await store.listLinks()).toEqual([]);
+      });
+
+      it("업무 ID 형식 → invalid_input, 없는 프로젝트 → not_found, 같은 ID → invalid_input 이고 아무것도 쓰지 않는다", async () => {
+        const store = await make({ projects: [project], works: [other] });
+        await expect(store.createWork({ ...work, id: "W-1" })).rejects.toMatchObject({ code: "invalid_input" });
+        await expect(store.createWork({ ...work, id: "W-1", projectId: "noproject" })).rejects.toMatchObject({ code: "invalid_input" });
+        await expect(store.createWork({ ...work, projectId: "noproject" })).rejects.toMatchObject({ code: "not_found" });
+        await expect(store.createWork({ ...work, id: "w2", title: "덮어쓰기" })).rejects.toMatchObject({ code: "invalid_input" });
+        expect(await store.listWorks()).toEqual([other]);
+      });
+
+      it("같은 ID 로 동시에 두 번 만들면 하나만 생긴다", async () => {
+        const store = await make({ projects: [project] });
+        const results = await Promise.allSettled([store.createWork(work), store.createWork({ ...work, title: "둘째" })]);
+        expect(results.map((r) => r.status).sort()).toEqual(["fulfilled", "rejected"]);
+        expect(await store.listWorks()).toHaveLength(1);
+      });
+    });
+
     describe("오류 코드는 저장소 종류와 무관하게 같다", () => {
       it("같은 ID 의 업무가 있고 PR 도 이미 연결돼 있으면 already_linked (이미 연결됨을 먼저 본다)", async () => {
         const store = await make({ projects: [project], works: [work], links: [userLink("w1")] });
