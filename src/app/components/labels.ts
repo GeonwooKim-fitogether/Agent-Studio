@@ -4,6 +4,7 @@
  * GitHub 의 리뷰와 Studio 의 내부 검토 결정은 같은 낱말(changes requested)을 쓰므로, Studio 쪽 검토 표기는
  * 모두 "Internal:" 로 시작한다. 한 카드에 둘이 함께 보여도 어느 쪽 것인지 글자만 보고 가릴 수 있어야 한다.
  */
+import type { ReviewBlock } from "../../application/review";
 import type { InboxReason } from "../../domain/auto-link";
 import type { ChecksState, GitHubReviewState, MarkerPlace, PrState, ReviewVerdict, WorkStatus } from "../../domain/model";
 import type { PreviewBlock, PreviewPhase } from "../../domain/preview";
@@ -37,6 +38,21 @@ export const VERDICT: Record<ReviewVerdict, string> = {
 };
 
 export const NO_INTERNAL_REVIEW = "Internal: not reviewed";
+
+/** 내부 검토 결정의 한국어 설명. 카드에서 영어 표기 옆에 붙인다(feature-plan F2: "내부 검토 완료 · 커밋 a1b2c3d") */
+export const VERDICT_MEANING: Record<ReviewVerdict, string> = {
+  changes_requested: "수정 요청",
+  internal_review_done: "내부 검토 완료",
+};
+
+/** Approve 옆의 작은 설명 — GitHub 의 승인 · 병합과 헷갈리지 않게 한다 (feature-plan F2, 계약 §5) */
+export const APPROVE_NOTE = "내부 검토 완료 — GitHub 병합이 아니다";
+
+/** 내부 검토 결정을 남길 수 없는 PR 쪽 이유 */
+export const REVIEW_BLOCK: Record<ReviewBlock, string> = {
+  merged: "GitHub 에서 이미 병합된 PR 이라 내부 검토 결정을 새로 남기지 않는다.",
+  closed: "GitHub 에서 닫힌 PR 이라 내부 검토 결정을 새로 남기지 않는다.",
+};
 
 /** 카드가 있는 화면마다 한 줄로 보여 주는 범례 */
 export const STATE_LEGEND =

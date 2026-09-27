@@ -173,6 +173,10 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .preview-box { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 10px; display: grid; gap: 8px; }
 .preview-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .preview-actions form { margin: 0; }
+.review-box { margin: 10px 0 0; padding-top: 10px; border-top: 1px dashed var(--line); }
+.review-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.review-actions form { margin: 0; }
+.review-actions small { font-size: 11px; }
 .btn[disabled] { opacity: 0.55; cursor: not-allowed; background: #f5f6f7; }
 .preview-line { margin: 0; font-size: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .preview-outdated { margin: 0; font-size: 12px; font-weight: 700; color: var(--ink); border-left: 3px dashed #8b939d; padding-left: 8px; }

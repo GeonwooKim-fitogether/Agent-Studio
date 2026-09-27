@@ -12,6 +12,7 @@
 | 1단계 PR 모으기 | 두 단위 작업완료. PR 을 업무에 모으고 Inbox 에서 연결 · 해제(Unlink)하며, 복제본 PR 은 자동 연결하지 않습니다. 저장은 PostgreSQL(없으면 메모리)입니다. [`01`](docs/plan/01-pr-collection.md) · [`02`](docs/plan/02-persistence-and-unlink.md) |
 | 1단계 GitHub App 연결 | 세 번째 단위 작업완료. 읽기 전용 GitHub App(과 조직용 토큰)으로 실제 저장소를 읽습니다. 2026-09-28 사용자 Windows PC 에서 실데이터로 확인했습니다(저장소 17 · PR 102). [`03`](docs/plan/03-github-app.md) |
 | 2단계 원격 미리보기 | 첫 단위 작업 중. 업무 화면의 PR 카드에서 Open Preview 를 누르면 이 컴퓨터가 PR 의 최신 커밋을 받아 `npm ci` 로 설치하고 켠 뒤 주소를 보여 줍니다. 미리보기 기기(`PREVIEW_WORKDIR`)를 설정하지 않으면 버튼은 비활성이고 이유가 보입니다. 실제 GitHub 에서 코드를 받는 경로와 휴대전화 확인은 아직 해 보지 않아 **실기기 미확인**입니다. [`04`](docs/plan/04-remote-preview.md) |
+| 2단계 Review 버튼 | 구현됨(단위 2-B, 로컬 확인). 업무 화면의 PR 카드에서 `Approve` · `Request Changes` 를 누르면 PR 의 지금 최신 커밋에 대한 내부 검토 결정이 Studio 에만 남고 카드에 "커밋 앞 7자리" 와 함께 보입니다. GitHub 에는 아무것도 쓰지 않으며, 새 커밋이 오면 앞선 결정은 "이전 커밋에 대한 결정" 으로 보입니다. 병합 · 닫힌 PR 은 버튼이 비활성이고 이유가 보입니다. [`feature-plan`](docs/product/feature-plan.md) F2 |
 
 ## 실행하기
 

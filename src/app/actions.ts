@@ -11,6 +11,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createWorkFromPr, linkPrToWork, unlinkPr } from "../application/inbox-actions";
 import { startPreview, stopPreview } from "../application/preview";
+import { isReviewVerdict, recordReviewDecision } from "../application/review";
 import { isValidPrRef, type PrRef, StudioError } from "../domain/model";
 import { getContainer } from "../server/container";
 
@@ -82,9 +83,9 @@ export async function syncAction(): Promise<void> {
 }
 
 /** 업무 화면으로 돌아갈 주소. 업무 ID 는 영문 소문자 · 숫자뿐이지만, 그래도 주소에 넣기 전에 인코딩한다. */
-function workPath(form: FormData, notice?: string): string {
+function workPath(form: FormData, notice?: { readonly preview: "refused" } | { readonly review: "refused" }): string {
   const path = `/works/${encodeURIComponent(String(form.get("workId") ?? ""))}`;
-  return notice === undefined ? path : `${path}?${new URLSearchParams({ preview: notice }).toString()}`;
+  return notice === undefined ? path : `${path}?${new URLSearchParams(notice).toString()}`;
 }
 
 /**
@@ -101,7 +102,7 @@ export async function startPreviewAction(form: FormData): Promise<void> {
     target = workPath(form);
   } catch (error) {
     if (!(error instanceof StudioError)) throw error;
-    target = workPath(form, "refused");
+    target = workPath(form, { preview: "refused" });
   }
   revalidatePath("/", "layout");
   redirect(target);
@@ -111,4 +112,27 @@ export async function stopPreviewAction(form: FormData): Promise<void> {
   await stopPreview(getContainer().preview);
   revalidatePath("/", "layout");
   redirect(workPath(form));
+}
+
+/**
+ * Approve · Request Changes (feature-plan F2). 내부 검토 결정을 PR 의 **지금** 최신 커밋에 대해 Studio 저장소에만 남긴다.
+ * 화면에서 온 커밋 SHA 는 받지 않는다. GitHub 로는 아무것도 보내지 않는다(계약 §8-5).
+ * 오래된 화면에서 눌러 거절되면(PR 이 병합 · 닫힘 · 연결 해제됨) 업무 화면으로 돌아가 알린다.
+ */
+export async function reviewAction(form: FormData): Promise<void> {
+  let target: string;
+  try {
+    const ref = readPrRef(form);
+    const verdict = form.get("verdict");
+    if (!isReviewVerdict(verdict)) throw new StudioError("invalid_input", "검토 결정 값이 올바르지 않다.");
+    const container = getContainer();
+    await container.ensureSynced();
+    await recordReviewDecision(container.deps, { ...ref, workId: String(form.get("workId") ?? ""), verdict });
+    target = workPath(form);
+  } catch (error) {
+    if (!(error instanceof StudioError)) throw error;
+    target = workPath(form, { review: "refused" });
+  }
+  revalidatePath("/", "layout");
+  redirect(target);
 }

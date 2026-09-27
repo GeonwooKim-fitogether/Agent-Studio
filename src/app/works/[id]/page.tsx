@@ -7,6 +7,7 @@ import { WORK_STATUS } from "../../components/labels";
 import { unlinkAction } from "../../actions";
 import { PrCard, StateLegend } from "../../components/pr-card";
 import { PreviewControls } from "../../components/preview-controls";
+import { ReviewControls } from "../../components/review-controls";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,9 @@ export default async function WorkPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { id } = await params;
-  const refused = (await searchParams)["preview"] === "refused";
+  const query = await searchParams;
+  const refused = query["preview"] === "refused";
+  const reviewRefused = query["review"] === "refused";
   const container = getContainer();
   await container.ensureSynced();
   const detail = await getWorkDetail(container.deps, id);
@@ -40,6 +43,12 @@ export default async function WorkPage({
       {refused && (
         <p className="source-error" data-testid="preview-refused">
           미리보기를 열지 않았다 — 화면이 오래됐을 수 있다. 아래 PR 카드의 이유를 확인한다.
+        </p>
+      )}
+
+      {reviewRefused && (
+        <p className="source-error" data-testid="review-refused">
+          내부 검토 결정을 남기지 않았다 — 화면이 오래됐을 수 있다(그사이 PR 이 병합 · 닫히거나 연결이 풀렸을 수 있다). 아래 PR 카드를 확인한다.
         </p>
       )}
 
@@ -69,6 +78,7 @@ export default async function WorkPage({
                 actions={
                   <>
                     {previews.get(pr.key) !== undefined && <PreviewControls view={previews.get(pr.key)!} pr={pr} workId={work.id} />}
+                    <ReviewControls pr={pr} workId={work.id} />
                     {/* 오조작을 막는 확인 한 단계: 체크박스를 체크해야 제출된다. 자바스크립트 없이도 브라우저가 막는다(required). */}
                   <form action={unlinkAction} className="unlink-form" data-testid="unlink-form">
                     <input type="hidden" name="repoId" value={pr.repoId} />
