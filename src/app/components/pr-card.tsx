@@ -25,7 +25,7 @@ export function PrCard({ pr, source, actions }: { pr: PrCardView; source: DataSo
           {pr.repoName}#{pr.number}
         </strong>
         <span className="pr-title">{pr.title}</span>
-        {source === "github" && (
+        {source !== "fixture" && (
           <a className="pr-link" href={pr.url} target="_blank" rel="noreferrer">
             Open on GitHub
           </a>

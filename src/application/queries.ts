@@ -102,7 +102,10 @@ export interface InboxView {
     readonly candidates: readonly Work[];
     readonly items: readonly InboxItemView[];
   }[];
+  /** Inbox 에 있는(= 연결 안 된 열린) PR 수 */
   readonly total: number;
+  /** 연결 안 된 채 닫히거나 병합된 PR 수. 목록에는 두지 않고 개수만 알린다 (계약 §4, 결정 11) */
+  readonly closedUnlinkedCount: number;
 }
 
 export interface WorkDetailView extends WorkSummaryView {
@@ -117,7 +120,7 @@ export async function getWorkspace(deps: Pick<AppDeps, "store">): Promise<Worksp
       repositories: project.repoIds.flatMap((id) => s.repositories.get(id) ?? []),
       works: s.works.filter((w) => w.projectId === project.id).map((work) => summarizeWork(s, work)),
     })),
-    inboxCount: unlinkedInProjects(s).length,
+    inboxCount: unlinkedInProjects(s).filter((u) => u.snapshot.state === "open").length,
   };
 }
 
@@ -128,7 +131,7 @@ export async function getInbox(deps: Pick<AppDeps, "store">): Promise<InboxView>
       project,
       candidates: s.works.filter((w) => w.projectId === project.id),
       items: unlinkedInProjects(s)
-        .filter((u) => u.project.id === project.id)
+        .filter((u) => u.project.id === project.id && u.snapshot.state === "open")
         .map(({ snapshot }): InboxItemView => {
           const unlink = s.unlinks.get(prKey(snapshot));
           const decision = decideLink(snapshot, project.id, s.works, { unlinkedByUser: unlink !== undefined });
@@ -145,7 +148,11 @@ export async function getInbox(deps: Pick<AppDeps, "store">): Promise<InboxView>
         }),
     }))
     .filter((g) => g.items.length > 0);
-  return { groups, total: groups.reduce((n, g) => n + g.items.length, 0) };
+  return {
+    groups,
+    total: groups.reduce((n, g) => n + g.items.length, 0),
+    closedUnlinkedCount: unlinkedInProjects(s).filter((u) => u.snapshot.state !== "open").length,
+  };
 }
 
 /** 서버 액션이 거절된 뒤 Inbox 에 사유를 보여 줄 때 쓰는, PR 하나의 현재 사정 */

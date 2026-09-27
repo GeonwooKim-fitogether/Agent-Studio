@@ -13,7 +13,7 @@ describe("동시 요청", () => {
 
     expect(results.reduce((n, r) => n + r.autoLinked, 0)).toBe(3);
     expect(await deps.store.listLinks()).toHaveLength(3);
-    expect(await deps.store.listSnapshots()).toHaveLength(8); // 두 동기화 모두 끝까지 받아 적었다 (fixture PR 8건)
+    expect(await deps.store.listSnapshots()).toHaveLength(9); // 두 동기화 모두 끝까지 받아 적었다 (fixture PR 9건)
   });
 
   it("같은 PR 로 New Work 를 동시에 두 번 눌러도 업무는 하나만 생기고, 연결 없는 빈 업무가 남지 않는다", async () => {

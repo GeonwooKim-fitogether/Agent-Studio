@@ -9,7 +9,8 @@
 | 기획 | 확정. 문제 정의 · 사용자 흐름 · 화면 시안 · 개발 순서가 [`docs/product/`](docs/product/) 에 있습니다 |
 | 0단계 계약 정의 | 문서로 정리됨. [`docs/plan/00-domain-contract.md`](docs/plan/00-domain-contract.md) |
 | 기술 스택 | TypeScript 한 벌 — Next.js + Node + PostgreSQL ([`decisions.md`](decisions.md) 결정 8) |
-| 1단계 PR 모으기 | 두 단위 작업완료. PR 을 업무에 모으고 Inbox 에서 연결 · 해제(Unlink)하며, 복제본 PR 은 자동 연결하지 않습니다. 저장은 PostgreSQL(없으면 메모리)입니다. 진짜 GitHub 로는 아직 돌려 보지 않았습니다. [`01`](docs/plan/01-pr-collection.md) · [`02`](docs/plan/02-persistence-and-unlink.md) |
+| 1단계 PR 모으기 | 두 단위 작업완료. PR 을 업무에 모으고 Inbox 에서 연결 · 해제(Unlink)하며, 복제본 PR 은 자동 연결하지 않습니다. 저장은 PostgreSQL(없으면 메모리)입니다. [`01`](docs/plan/01-pr-collection.md) · [`02`](docs/plan/02-persistence-and-unlink.md) |
+| 1단계 GitHub App 연결 | 세 번째 단위 작업완료. 읽기 전용 GitHub App(과 조직용 토큰)으로 실제 저장소를 읽습니다. 2026-09-28 사용자 Windows PC 에서 실데이터로 확인했습니다(저장소 17 · PR 102). [`03`](docs/plan/03-github-app.md) |
 
 ## 실행하기
 
@@ -23,7 +24,9 @@ npm run test:unit    # 단위 테스트 (계약 확인 시나리오 5개 포함)
 npm run test:e2e     # 첫 화면에서 출발하는 브라우저 테스트
 ```
 
-`GITHUB_TOKEN` 과 `GITHUB_REPOS` 를 설정하지 않으면 고정 시연 데이터로 돌고, 화면 상단에 "Fixture data" 로 표시됩니다. 두 값의 뜻은 [`.env.example`](.env.example) 에 있습니다.
+진짜 저장소를 읽으려면 GitHub App 을 만들어 설치하고 세 값을 `.env.local` 에 적습니다 — [`docs/setup/github-app.md`](docs/setup/github-app.md). Owner 가 아닌 조직의 저장소는 내 읽기 전용 토큰으로 함께 읽습니다 — [`docs/setup/org-token.md`](docs/setup/org-token.md).
+
+GitHub App 변수와 `GITHUB_TOKEN` 을 모두 설정하지 않으면 고정 시연 데이터로 돌고, 화면 상단에 "Fixture data" 로 표시됩니다. 변수의 뜻은 [`.env.example`](.env.example) 에 있습니다.
 
 `DATABASE_URL` 이 없으면 저장은 서버 메모리라서 서버를 다시 켜면 처음 상태로 돌아갑니다(상단에 "Stored in memory"). 서버를 다시 켜도 업무와 연결이 남게 하려면 로컬 PostgreSQL 을 씁니다(Docker 필요, 상단에 "Stored in PostgreSQL"):
 

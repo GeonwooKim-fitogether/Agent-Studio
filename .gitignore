@@ -46,3 +46,6 @@ next-env.d.ts
 /blob-report/
 /playwright/.cache/
 /coverage/
+
+# GitHub App 비밀 키. 저장소에 올리지 않는다 (docs/setup/github-app.md)
+*.pem
