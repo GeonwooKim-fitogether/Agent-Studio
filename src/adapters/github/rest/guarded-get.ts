@@ -52,14 +52,46 @@ export interface TokenProvider {
   invalidate?(token: string): void;
 }
 
-/** 요청 계수기 (app-auth 의 RequestMeter 와 같은 모양). 실제 fetch 한 번마다 count() — 상한을 넘으면 던진다. */
+/**
+ * 한 번의 Sync 에서 동시에 나가 있는 요청의 상한. 저장소 · PR 마다의 요청을 이 수까지 겹쳐 보낸다.
+ * GitHub 의 권고(동시 요청을 많이 보내지 말 것 — secondary rate limit)를 넘지 않도록 작게 둔다.
+ */
+export const MAX_CONCURRENT_REQUESTS = 8;
+
+/**
+ * 요청 계수기 (app-auth 의 RequestMeter 와 같은 모양). 실제 fetch 한 번마다 count() — 상한을 넘으면 던진다.
+ * limit 가 있으면 관문은 요청 하나(리디렉션 · 401 재시도 포함)를 그 안에서 보낸다 — 계수기를 나눠 쓰는 모든 출처가
+ * 같은 동시 상한을 나눠 쓴다. createRequestMeter 가 만든 계수기에는 늘 있다.
+ */
 export interface RequestMeter {
   count(): void;
+  limit?<T>(task: () => Promise<T>): Promise<T>;
 }
 
-/** 동기화 1회분의 요청 계수기를 만든다. 상한을 넘는 요청은 보내기 전에 멈춘다. */
-export function createRequestMeter(max: number): RequestMeter & { readonly used: () => number } {
+/** 동시에 도는 일을 max 개로 묶는다. 넘는 일은 앞의 일이 끝나기를 줄 서서 기다린다(들어온 순서대로). */
+export function createLimiter(max: number): <T>(task: () => Promise<T>) => Promise<T> {
+  let running = 0;
+  const waiting: (() => void)[] = [];
+  return async <T>(task: () => Promise<T>): Promise<T> => {
+    if (running >= max) await new Promise<void>((go) => waiting.push(go));
+    else running += 1;
+    try {
+      return await task();
+    } finally {
+      const next = waiting.shift();
+      if (next !== undefined) next(); // 자리를 그대로 넘긴다
+      else running -= 1;
+    }
+  };
+}
+
+/** 동기화 1회분의 요청 계수기를 만든다. 상한을 넘는 요청은 보내기 전에 멈춘다. 동시에 나가는 요청도 concurrency 개로 묶는다. */
+export function createRequestMeter(
+  max: number,
+  concurrency: number = MAX_CONCURRENT_REQUESTS,
+): RequestMeter & { readonly used: () => number; limit<T>(task: () => Promise<T>): Promise<T> } {
   let used = 0;
+  const limit = createLimiter(concurrency);
   return {
     count() {
       if (used >= max) {
@@ -68,7 +100,13 @@ export function createRequestMeter(max: number): RequestMeter & { readonly used:
       used += 1;
     },
     used: () => used,
+    limit,
   };
+}
+
+/** 한 출처의 요청 하나가 실패하면 그 출처의 나머지 요청을 보내지 않게 하는 표시. 출처(리더 실행)마다 하나다 */
+export interface HaltSwitch {
+  halted: boolean;
 }
 
 export interface GuardedGetOptions {
@@ -78,6 +116,11 @@ export interface GuardedGetOptions {
   readonly fetch: FetchLike;
   /** 있으면 실제로 나가는 요청(리디렉션 · 401 재시도 포함) 하나마다 센다 */
   readonly meter?: RequestMeter;
+  /**
+   * 있으면, 이 관문의 요청 하나가 실패한 순간 halted 를 켜고 그 뒤로는 요청을 보내지 않는다(줄 서 있던 요청 포함).
+   * 요청을 겹쳐 보내도 "실패한 출처는 이번 Sync 에서 더 부르지 않는다" 가 지켜지게 한다.
+   */
+  readonly halt?: HaltSwitch;
 }
 
 /** 한 요청의 추가 제한. 리디렉션 대상 주소가 이 확인을 통과하지 못하면 따라가지 않는다. */
@@ -108,9 +151,25 @@ export function createGuardedGet(options: GuardedGetOptions) {
   const tokens: TokenProvider = options.tokens ?? { getToken: async () => staticToken ?? "" };
 
   const meter = options.meter;
+  const halt = options.halt;
+  // 계수기가 동시 상한을 주지 않으면(주입한 예산) 이 관문만의 상한을 쓴다 — 겹쳐 보내는 요청이 끝없이 늘지 않게
+  const limit = meter?.limit?.bind(meter) ?? createLimiter(MAX_CONCURRENT_REQUESTS);
 
-  async function send(url: string, method: string, pageOptions: PageOptions = {}): Promise<GuardedPage> {
-    let target = assertAllowed(method, url);
+  function send(url: string, method: string, pageOptions: PageOptions = {}): Promise<GuardedPage> {
+    const target = assertAllowed(method, url); // 막을 요청은 줄을 서기 전에 막는다
+    return limit(async () => {
+      if (halt?.halted === true) throw new GitHubReadError(`앞선 요청이 실패해 이 출처의 나머지 요청은 보내지 않았다 (GET ${target.pathname})`);
+      try {
+        return await sendNow(target, pageOptions);
+      } catch (error) {
+        if (halt !== undefined) halt.halted = true;
+        throw error;
+      }
+    });
+  }
+
+  async function sendNow(first: URL, pageOptions: PageOptions): Promise<GuardedPage> {
+    let target = first;
     let token = await tokens.getToken(meter);
     let retriedAfter401 = false;
 

@@ -66,8 +66,11 @@ export async function syncAll(deps: AppDeps): Promise<SyncResult> {
   let pullRequests = 0;
   let autoLinked = 0;
 
-  for (const repository of repositories) {
-    for (const snapshot of await reader.listPullRequests(repository)) {
+  // 저장소들의 PR 은 겹쳐 받는다(동시에 나가는 요청의 상한은 리더가 지킨다). 받아 적는 것은 저장소 순서대로 하나씩 한다 —
+  // 연결 판정과 저장 순서가 읽기 순서에 따라 달라지지 않게.
+  const pullsByRepository = await Promise.all(repositories.map((repository) => reader.listPullRequests(repository)));
+  for (const [index, repository] of repositories.entries()) {
+    for (const snapshot of pullsByRepository[index] ?? []) {
       if (snapshot.repoId !== repository.id) {
         discarded.push({ requestedRepoId: repository.id, repoId: snapshot.repoId, number: snapshot.number });
         continue;

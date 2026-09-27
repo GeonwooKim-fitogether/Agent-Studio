@@ -9,6 +9,7 @@
  *      그 저장소의 PR 도 그 출처로만 읽는다. 식별은 숫자 ID 뿐이다(이름으로 같다고 보지 않는다).
  *   2. 출처별 실패 분리: 한 출처가 실패해도(토큰 만료 401, 조직 승인 대기 403 등) 다른 출처의 결과는 받아 적는다.
  *      실패한 출처는 이번 Sync 에서 더 부르지 않고, 화면 띠에 출처별 상태로 보인다(sources()).
+ *      저장소들을 겹쳐 읽으므로, 실패보다 먼저 다 받은 같은 출처의 다른 저장소 PR 은 받아 적는다.
  *      모든 출처가 저장소 목록부터 실패하면 Sync 전체를 실패로 알린다(성공처럼 보이지 않게).
  *   3. 요청 상한: 요청 예산 하나를 만들어 모든 출처에 넘긴다. 상한은 Sync 1회 전체 기준이고 실제 fetch 수로 센다.
  *
@@ -62,14 +63,18 @@ export function createMultiReader(sources: readonly ReaderSource[], options: Mul
     return {
       async listRepositories() {
         const out: Repository[] = [];
-        for (const state of states) {
-          let repositories: Repository[];
-          try {
-            repositories = await state.run.listRepositories();
-          } catch (error) {
-            state.error = describeFailure(error);
-            continue;
-          }
+        // 출처들의 저장소 목록은 겹쳐 받고, 합치는 것은 출처 순서대로 한다(중복이면 앞 출처가 맡는다)
+        const lists = await Promise.all(
+          states.map((state) =>
+            state.run.listRepositories().catch((error: unknown) => {
+              state.error ??= describeFailure(error);
+              return null;
+            }),
+          ),
+        );
+        for (const [index, state] of states.entries()) {
+          const repositories = lists[index];
+          if (repositories === null || repositories === undefined) continue;
           for (const repository of repositories) {
             if (owner.has(repository.id)) {
               duplicates += 1;
@@ -94,8 +99,9 @@ export function createMultiReader(sources: readonly ReaderSource[], options: Mul
           state.pullRequests += pulls.length;
           return pulls;
         } catch (error) {
-          // 이 출처는 이번 Sync 에서 더 부르지 않는다. 다른 출처의 저장소는 계속 읽는다.
-          state.error = describeFailure(error);
+          // 이 출처는 이번 Sync 에서 더 부르지 않는다(리더가 줄 서 있던 요청도 보내지 않는다). 다른 출처의 저장소는 계속 읽는다.
+          // 저장소들을 겹쳐 읽으므로 같은 출처의 다른 저장소도 뒤이어 실패로 끝난다 — 이유는 처음 실패의 것을 남긴다.
+          state.error ??= describeFailure(error);
           return [];
         }
       },
