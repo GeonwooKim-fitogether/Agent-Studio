@@ -62,8 +62,10 @@ jobs:
           DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
         run: |
           set -euo pipefail
+          # 빈 데이터베이스에는 모든 마이그레이션 파일이 새로 적용돼야 한다. 파일 수를 세어 대조한다
+          expected=$(ls db/migrations/*.sql | wc -l | tr -d ' ')
           npm run -s db:migrate | tee /tmp/migrate-1.log
-          grep -q "새로 적용 1개" /tmp/migrate-1.log
+          grep -q "새로 적용 ${expected}개" /tmp/migrate-1.log
           npm run -s db:migrate | tee /tmp/migrate-2.log
           grep -q "새로 적용 0개" /tmp/migrate-2.log
 
