@@ -17,7 +17,8 @@ export interface CodeArchive {
 export interface CodeSource {
   /** 화면 위쪽 띠에 보일 짧은 이름 (예: "GitHub", "local repositories") */
   readonly label: string;
-  archive(target: PreviewTarget): Promise<CodeArchive>;
+  /** signal 이 취소되면(미리보기를 끄거나 다른 것을 열었을 때) 받기를 멈추고 거절한다 */
+  archive(target: PreviewTarget, options?: { readonly signal?: AbortSignal }): Promise<CodeArchive>;
 }
 
 /** 코드를 받지 못했을 때의 오류. 메시지는 사람이 읽는 문장이고 토큰 · 경로를 싣지 않는다. */

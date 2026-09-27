@@ -164,9 +164,21 @@ export function createGuardedGet(options: GuardedGetOptions) {
   /**
    * 코드 묶음을 내려받는다 (2단계 미리보기, docs/plan/04-remote-preview.md §5).
    * api.github.com 에 토큰을 실어 GET 하고, GitHub 가 codeload.github.com 으로 돌려보내면 토큰을 **떼고** 그 한 곳으로만 따라간다.
-   * 받은 크기가 maxBytes 를 넘으면 읽기를 멈추고 오류를 낸다.
+   * 받은 크기가 maxBytes 를 넘으면 읽기를 멈추고 오류를 낸다. 리디렉션 · 본문 읽기까지 합친 전체가 timeoutMs 를 넘거나
+   * signal 이 취소되면(미리보기를 끔) 받기를 멈춘다.
    */
-  async function download(url: string, limits: { readonly maxBytes: number }): Promise<Uint8Array> {
+  async function download(
+    url: string,
+    limits: { readonly maxBytes: number; readonly timeoutMs: number; readonly signal?: AbortSignal },
+  ): Promise<Uint8Array> {
+    const deadline = AbortSignal.timeout(limits.timeoutMs);
+    const signal = limits.signal === undefined ? deadline : AbortSignal.any([deadline, limits.signal]);
+    const stopped = (pathname: string) =>
+      new GitHubReadError(
+        deadline.aborted
+          ? `코드 묶음 받기가 시간 상한(${Math.round(limits.timeoutMs / 1000)}초)을 넘어 멈췄다 (GET ${pathname})`
+          : `코드 묶음 받기를 취소했다 (GET ${pathname})`,
+      );
     let target = assertAllowed("GET", url);
     let token = await tokens.getToken(meter);
     let retriedAfter401 = false;
@@ -175,14 +187,18 @@ export function createGuardedGet(options: GuardedGetOptions) {
       let response: Response;
       meter?.count();
       try {
+        if (signal.aborted) throw stopped(target.pathname);
         response = await fetchImpl(target.href, {
           method: "GET",
           redirect: "manual",
+          signal,
           headers: toCodeload
             ? { Accept: "application/octet-stream" } // 서명된 주소 — 토큰을 싣지 않는다
             : { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28" },
         });
-      } catch {
+      } catch (error) {
+        if (error instanceof GitHubReadError) throw error;
+        if (signal.aborted) throw stopped(target.pathname);
         throw new GitHubReadError(`GitHub 에 닿지 못했다 (GET ${target.pathname})`);
       }
       if (response.status === 401 && !toCodeload && tokens.invalidate !== undefined && !retriedAfter401) {
@@ -205,7 +221,13 @@ export function createGuardedGet(options: GuardedGetOptions) {
       if (!response.ok) {
         throw new GitHubReadError(`GitHub 가 요청을 거절했다: ${response.status} (GET ${target.pathname})`, response.status);
       }
-      return readLimited(response, limits.maxBytes);
+      try {
+        return await readLimited(response, limits.maxBytes, signal);
+      } catch (error) {
+        if (error instanceof GitHubReadError) throw error;
+        if (signal.aborted) throw stopped(target.pathname);
+        throw new GitHubReadError(`코드 묶음을 끝까지 받지 못했다 (GET ${target.pathname})`);
+      }
     }
     throw new GitHubReadError(`리디렉션이 ${MAX_REDIRECTS}번을 넘었다`);
   }
@@ -220,15 +242,27 @@ export function createGuardedGet(options: GuardedGetOptions) {
 }
 
 /** 응답 본문을 상한까지만 읽는다. 넘으면 읽기를 멈추고 오류를 낸다. */
-async function readLimited(response: Response, maxBytes: number): Promise<Uint8Array> {
+async function readLimited(response: Response, maxBytes: number, signal: AbortSignal): Promise<Uint8Array> {
   const declared = Number(response.headers.get("content-length") ?? "0");
   if (declared > maxBytes) throw new GitHubReadError(`받을 코드 묶음이 상한(${Math.round(maxBytes / 1024 / 1024)}MB)보다 크다`);
   const reader = response.body?.getReader();
   if (reader === undefined) return new Uint8Array(0);
+  const onAbort = () => void reader.cancel().catch(() => undefined);
+  signal.addEventListener("abort", onAbort, { once: true });
+  try {
+    return await readAll(reader, maxBytes, signal);
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+
+async function readAll(reader: ReadableStreamDefaultReader<Uint8Array>, maxBytes: number, signal: AbortSignal): Promise<Uint8Array> {
   const chunks: Uint8Array[] = [];
   let total = 0;
   for (;;) {
+    if (signal.aborted) throw new Error("aborted");
     const { done, value } = await reader.read();
+    if (signal.aborted) throw new Error("aborted");
     if (done) break;
     total += value.byteLength;
     if (total > maxBytes) {

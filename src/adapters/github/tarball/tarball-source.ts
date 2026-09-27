@@ -15,13 +15,18 @@ export interface TarballSourceOptions {
   readonly tokens: readonly TokenProvider[];
   readonly fetch: FetchLike;
   readonly maxBytes?: number;
+  /** 코드 묶음 하나를 받는 전체 시간 상한 (기본 5분) */
+  readonly timeoutMs?: number;
 }
+
+export const DEFAULT_DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000;
 
 export function createGitHubTarballSource(options: TarballSourceOptions): CodeSource {
   const maxBytes = options.maxBytes ?? MAX_ARCHIVE_BYTES;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_DOWNLOAD_TIMEOUT_MS;
   return {
     label: "GitHub",
-    async archive(target) {
+    async archive(target, archiveOptions = {}) {
       if (!isFullSha(target.commitSha) || !isSafeRepoFullName(target.repoFullName)) {
         throw new CodeSourceError("받을 커밋이나 저장소 이름이 올바른 모양이 아니다.");
       }
@@ -30,7 +35,7 @@ export function createGitHubTarballSource(options: TarballSourceOptions): CodeSo
       let lastStatus: number | undefined;
       for (const tokens of options.tokens) {
         try {
-          const bytes = await createGuardedGet({ tokens, fetch: options.fetch }).download(url, { maxBytes });
+          const bytes = await createGuardedGet({ tokens, fetch: options.fetch }).download(url, { maxBytes, timeoutMs, signal: archiveOptions.signal });
           return { bytes, gzip: true, stripComponents: 1 };
         } catch (error) {
           if (error instanceof GitHubReadError && (error.status === 403 || error.status === 404)) {

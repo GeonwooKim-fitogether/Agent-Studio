@@ -4,7 +4,7 @@
  * (시험용 앱은 의존성이 없어 npm ci 가 아무것도 받지 않는다). GitHub 에서 받는 경로는 가짜 fetch 로 흉내 낸다.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { get } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -39,6 +39,7 @@ const PARENT_ENV = {
   DATABASE_URL: "postgresql://app:pw@localhost:5432/app",
   npm_config__authToken: "npm-secret",
   NODE_OPTIONS: "--require /tmp/evil.js",
+  STUDIO_SESSION_SECRET: "correct-horse-battery-staple", // Studio 의 비밀 값 — 로그 꼬리에 나타나면 가려야 한다
 };
 
 const gitEnv = {
@@ -112,6 +113,20 @@ function httpGet(url: string): Promise<{ status: number; body: string } | "refus
   });
 }
 
+/** 그 pid 의 프로세스가 아직 있는가 (좀비는 없는 것으로 본다) */
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return false;
+  }
+  try {
+    return !/^\S+ \(.*\) Z/.test(readFileSync(`/proc/${pid}/stat`, "utf8"));
+  } catch {
+    return true;
+  }
+}
+
 const target = (fullName: string, commitSha: string, number = 1): PreviewTarget => ({ repoId: 100, number, repoFullName: fullName, commitSha });
 
 describe("로컬 실행기 — 실제 프로세스", { timeout: 120_000 }, () => {
@@ -164,6 +179,123 @@ describe("로컬 실행기 — 실제 프로세스", { timeout: 120_000 }, () =>
     expect(await httpGet(second.url!)).toBe("refused");
   });
 
+  it("끄는 신호를 무시하는 앱도 Stop 뒤에는 끝나 있다 — 앞선 npm 이 먼저 끝나도 프로세스 묶음 전체를 강제로 끈다", async () => {
+    const pidFile = join(ROOT, "trap-pid");
+    const sha = commit("acme/trap", {
+      "package.json": pkg("trap", { dev: "node server.js" }),
+      "package-lock.json": lock("trap"),
+      // SIGTERM 을 받아도 끝나지 않는 앱. 자기 pid 를 파일로 남긴다
+      "server.js": [
+        `require("node:fs").writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));`,
+        'process.on("SIGTERM", () => console.log("SIGTERM 무시"));',
+        'require("node:http").createServer((q, s) => s.end("trap")).listen(Number(process.env.PORT), process.env.HOST);',
+      ].join("\n"),
+    });
+    const r = runner();
+    r.start(target("acme/trap", sha));
+    const done = await settle(r);
+    expect(done.phase).toBe("running");
+    const appPid = Number(readFileSync(pidFile, "utf8"));
+    const stopped = await Promise.race([r.stop().then(() => "stopped"), new Promise((ok) => setTimeout(() => ok("stop 이 15초 안에 돌아오지 않았다"), 15_000))]);
+    expect(stopped).toBe("stopped");
+    expect(isAlive(appPid), `앱 프로세스 ${appPid} 가 살아 있다`).toBe(false);
+    expect(await httpGet(done.url!)).toBe("refused");
+  });
+
+  it("Stop 이 끄기를 기다리는 사이 새 미리보기를 열어도 둘이 겹치지 않는다 — 새 앱은 이전 앱의 포트가 닫힌 뒤에 뜬다", async () => {
+    const pidFile = join(ROOT, "overlap-a-pid");
+    const portFile = join(ROOT, "overlap-a-port");
+    const seenFile = join(ROOT, "overlap-b-saw");
+    const a = commit("acme/overlap-a", {
+      "package.json": pkg("overlap-a", { dev: "node server.js" }),
+      "package-lock.json": lock("overlap-a"),
+      "server.js": [
+        `require("node:fs").writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));`,
+        `require("node:fs").writeFileSync(${JSON.stringify(portFile)}, process.env.PORT);`,
+        'process.on("SIGTERM", () => {});',
+        'require("node:http").createServer((q, s) => s.end("a")).listen(Number(process.env.PORT), process.env.HOST);',
+      ].join("\n"),
+    });
+    // B 는 켜지는 순간 A 의 포트에 접속해 보고, 그 결과를 파일로 남긴 뒤 뜬다
+    const b = commit("acme/overlap-b", {
+      "package.json": pkg("overlap-b", { dev: "node server.js" }),
+      "package-lock.json": lock("overlap-b"),
+      "server.js": [
+        'const fs = require("node:fs"); const http = require("node:http");',
+        `const port = Number(fs.readFileSync(${JSON.stringify(portFile)}, "utf8"));`,
+        `const save = (v) => fs.writeFileSync(${JSON.stringify(seenFile)}, v);`,
+        'http.get({ host: "127.0.0.1", port, path: "/" }, (r) => { r.resume(); save("A 가 아직 응답했다"); }).on("error", () => save("A 는 닫혀 있었다"));',
+        'http.createServer((q, s) => s.end("b")).listen(Number(process.env.PORT), process.env.HOST);',
+      ].join("\n"),
+    });
+    const r = runner({ killGraceMs: 1500 });
+    r.start(target("acme/overlap-a", a, 1));
+    expect((await settle(r)).phase).toBe("running");
+    const stopping = r.stop(); // 기다리지 않는다 — A 는 SIGTERM 을 무시하므로 유예 동안 살아 있다
+    r.start(target("acme/overlap-b", b, 2));
+    await stopping;
+    const second = await settle(r);
+    expect(second.phase).toBe("running");
+    expect(await httpGet(second.url!)).toMatchObject({ body: "b" });
+    for (let i = 0; i < 50 && !existsSync(seenFile); i += 1) await new Promise((ok) => setTimeout(ok, 100));
+    expect(readFileSync(seenFile, "utf8")).toBe("A 는 닫혀 있었다");
+    expect(isAlive(Number(readFileSync(pidFile, "utf8")))).toBe(false);
+  });
+
+  it("코드를 받는 중에 끄면 받기가 취소되고, 격리 폴더가 남지 않는다 (받기가 취소를 무시하고 늦게 끝나도)", async () => {
+    const before = new Set(readdirSync(WORK));
+    const signals: AbortSignal[] = [];
+    const hanging = {
+      label: "hanging",
+      archive: (_t: PreviewTarget, o?: { signal?: AbortSignal }) =>
+        new Promise<never>((_ok, fail) => {
+          if (o?.signal !== undefined) signals.push(o.signal);
+          o?.signal?.addEventListener("abort", () => fail(new Error("aborted")));
+        }),
+    };
+    const r1 = runner({ source: hanging });
+    r1.start(target("acme/any", "a".repeat(40)));
+    await new Promise((ok) => setTimeout(ok, 200));
+    await r1.stop();
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.aborted).toBe(true);
+
+    // 취소 신호를 무시하고 300ms 뒤에 묶음을 돌려주는 받기 — 그래도 폴더를 만들지 않는다
+    const sha = commit("acme/late", appFiles("late", "late"));
+    const real = createLocalRepoSource(REPOS, PARENT_ENV);
+    const late = { label: "late", archive: async (t: PreviewTarget) => new Promise<Awaited<ReturnType<typeof real.archive>>>((ok) => setTimeout(() => void real.archive(t).then(ok), 300)) };
+    const r2 = runner({ source: late });
+    r2.start(target("acme/late", sha));
+    await new Promise((ok) => setTimeout(ok, 50));
+    await r2.stop();
+    await new Promise((ok) => setTimeout(ok, 1000));
+    expect(readdirSync(WORK).filter((n) => !before.has(n))).toEqual([]);
+    expect(r2.current()).toMatchObject({ phase: "stopped" });
+  });
+
+  it("tar 가 입력을 다 읽기 전에 끝나도(EPIPE) Studio 가 죽지 않고 실패 이유를 보인다", async () => {
+    const garbage = { label: "garbage", archive: async () => ({ bytes: new Uint8Array(32 * 1024 * 1024).fill(7), gzip: true, stripComponents: 0 }) };
+    const r = runner({ source: garbage });
+    r.start(target("acme/garbage", "b".repeat(40)));
+    expect(await settle(r)).toMatchObject({ phase: "failed", failure: expect.stringContaining("코드 풀기(tar)") });
+  });
+
+  it("격리 폴더 밖을 가리키는 심볼릭 링크(node_modules → 밖)가 있으면 npm ci 를 돌리지 않는다", async () => {
+    const outside = join(ROOT, "precious");
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(join(outside, "keep.txt"), "keep");
+    const dir = join(REPOS, "acme", "linky");
+    commit("acme/linky", appFiles("linky", "x"));
+    symlinkSync(outside, join(dir, "node_modules"));
+    const sha = commit("acme/linky", {});
+    const r = runner();
+    r.start(target("acme/linky", sha));
+    const done = await settle(r);
+    expect(done).toMatchObject({ phase: "failed", failure: expect.stringContaining("심볼릭 링크") });
+    expect(done.failure).toContain("node_modules");
+    expect(readFileSync(join(outside, "keep.txt"), "utf8")).toBe("keep");
+  });
+
   it("lockfile 이 없으면 설치하지 않고 이유를 보인다", async () => {
     const sha = commit("acme/nolock", { "package.json": pkg("nolock", { start: "node -e 1" }) });
     const r = runner();
@@ -199,6 +331,8 @@ describe("로컬 실행기 — 실제 프로세스", { timeout: 120_000 }, () =>
         'console.log("Authorization: Bearer abc.def.ghi");',
         'console.log("connect https://user:hunter2@db.example.com/x");',
         'console.error("boom: API_TOKEN=supersecret");',
+        'console.log("db " + "postgresql://app:" + "pw@localhost:5432/app");',
+        'console.log("session correct-horse-battery-staple end");',
         "process.exit(3);",
       ].join("\n"),
     });
@@ -209,7 +343,7 @@ describe("로컬 실행기 — 실제 프로세스", { timeout: 120_000 }, () =>
     expect(done.failure).toContain("준비되기 전에 끝났다");
     const log = done.logTail.join("\n");
     expect(log).toContain("boom");
-    for (const secret of ["ghs_abcdefghijklmnopqrstuvwxyz0123", "abc.def.ghi", "hunter2", "supersecret"]) expect(log).not.toContain(secret);
+    for (const secret of ["ghs_abcdefghijklmnopqrstuvwxyz0123", "abc.def.ghi", "hunter2", "supersecret", "pw@localhost", "correct-horse-battery-staple"]) expect(log).not.toContain(secret);
     expect(log).toContain("[가림]");
   });
 
@@ -302,6 +436,28 @@ describe("GitHub 에서 받는 경로 — 가짜 GitHub 응답", { timeout: 120_
     });
     expect((await twoTokens.archive(target("acme/web", sha))).bytes).toEqual(new Uint8Array([1, 2, 3]));
     expect(tried).toEqual(["Bearer tokA", "Bearer tokB"]);
+  });
+
+  it("응답이 오지 않으면 시간 상한에서 멈추고, 미리보기를 끄면(취소 신호) 바로 멈춘다", async () => {
+    const neverAnswers = (_url: string, init: RequestInit): Promise<Response> =>
+      new Promise((_ok, fail) => init.signal?.addEventListener("abort", () => fail(new Error("aborted"))));
+    const slow = createGitHubTarballSource({ tokens: [{ getToken: async () => "t" }], fetch: neverAnswers, timeoutMs: 200 });
+    const started = Date.now();
+    await expect(slow.archive(target("acme/web", "e".repeat(40)))).rejects.toThrow("시간 상한");
+    expect(Date.now() - started).toBeLessThan(5000);
+
+    const cancel = new AbortController();
+    const pending = createGitHubTarballSource({ tokens: [{ getToken: async () => "t" }], fetch: neverAnswers }).archive(target("acme/web", "e".repeat(40)), {
+      signal: cancel.signal,
+    });
+    setTimeout(() => cancel.abort(), 50);
+    await expect(pending).rejects.toThrow("취소");
+
+    // 본문이 흘러오다 멈추는 경우도 상한이 끊는다
+    const stalls = async (): Promise<Response> =>
+      new Response(new ReadableStream({ start: (c) => c.enqueue(new Uint8Array(10)) }), { status: 200 });
+    const stalled = createGitHubTarballSource({ tokens: [{ getToken: async () => "t" }], fetch: stalls, timeoutMs: 200 });
+    await expect(stalled.archive(target("acme/web", "e".repeat(40)))).rejects.toThrow("시간 상한");
   });
 
   it("받을 크기 상한을 넘으면 멈추고, 오류 문장에 토큰이 없다", async () => {

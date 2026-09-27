@@ -202,7 +202,21 @@ describe("GitHub 에 쓰는 요청의 경계 (docs/plan/03-github-app.md §2)", 
 describe("자식 프로세스와 저수준 네트워크의 경계 (docs/plan/04-remote-preview.md §9 기준 9)", () => {
   const PREVIEW_LOCAL = "src/adapters/preview/local/";
   /** 프로그램을 실행하거나 fetch 관문을 거치지 않고 네트워크에 닿는 모듈 */
-  const LOW_LEVEL = new Set(["child_process", "http", "https", "net", "tls", "dgram", "http2", "worker_threads", "cluster"]);
+  /** undici(fetch 의 속살) · inspector(디버거 연결) · vm(격리 없는 코드 실행) 도 같은 취급이다 */
+  const LOW_LEVEL = new Set([
+    "child_process",
+    "http",
+    "https",
+    "net",
+    "tls",
+    "dgram",
+    "http2",
+    "worker_threads",
+    "cluster",
+    "undici",
+    "inspector",
+    "vm",
+  ]);
   const moduleName = (spec: string) => spec.replace(/^node:/, "").split("/")[0] ?? "";
 
   it("child_process · http · https · net 같은 모듈은 src 전체에서 미리보기 로컬 실행기 폴더만 import 한다", () => {
@@ -218,9 +232,20 @@ describe("자식 프로세스와 저수준 네트워크의 경계 (docs/plan/04-
     expect(uses.some((u) => moduleName(u.spec) === "http")).toBe(true);
   });
 
+  it("src 어디에도 문자열이 아닌 동적 import · require 가 없다 (이름을 숨겨 위 검사를 비껴가지 못하게)", () => {
+    const offenders = sourceFiles(join(ROOT, "src")).flatMap((full) => {
+      const file = relative(ROOT, full).split(sep).join("/");
+      return scanSource(file, readFileSync(full, "utf8")).specifiers.filter((spec) => spec === NON_LITERAL_IMPORT).map(() => file);
+    });
+    expect(offenders).toEqual([]);
+    expect(scanSource("x.ts", 'const m = "child_" + "process"; await import(m); require(m);').specifiers).toEqual([NON_LITERAL_IMPORT, NON_LITERAL_IMPORT]);
+  });
+
   it("스캐너 자체 시험: node: 접두어가 있든 없든, 하위 경로든 잡는다", () => {
     const specs = scanSource("x.ts", 'import { spawn } from "child_process"; import http from "node:http"; import p from "node:fs/promises";').specifiers;
     expect(specs.filter((spec) => LOW_LEVEL.has(moduleName(spec)))).toEqual(["child_process", "node:http"]);
+    const more = scanSource("x.ts", 'import { request } from "undici"; import i from "node:inspector/promises"; import vm from "node:vm";').specifiers;
+    expect(more.filter((spec) => LOW_LEVEL.has(moduleName(spec)))).toEqual(["undici", "node:inspector/promises", "node:vm"]);
   });
 });
 

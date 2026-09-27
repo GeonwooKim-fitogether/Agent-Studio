@@ -183,11 +183,65 @@ describe("미리보기 설정 (조립부)", () => {
 });
 
 describe("자식 환경의 허용 목록과 로그 가림 (adapters/preview/local/child-env)", () => {
+  it("Studio 환경에서 비밀 이름의 값(과 비밀 키의 각 줄)을 알려진 비밀로 모은다", async () => {
+    const { knownSecretsOf } = await import("../../src/adapters/preview/local/child-env");
+    const dashes = "-".repeat(5); // 저장소 비밀 검사가 이 시험 파일을 비밀 키로 보지 않게 머리말을 나눠 쓴다
+    const key = `${dashes}BEGIN FAKE KEY${dashes}\nMIIEpAIBAAKCAQEAabcdefghijklmnop\n${dashes}END FAKE KEY${dashes}`;
+    const secrets = knownSecretsOf({ GITHUB_APP_PRIVATE_KEY: key, DATABASE_URL: "postgresql://a:b@h/db", PATH: "/usr/bin:/bin/long/enough", SHORT_TOKEN: "abc" });
+    expect(secrets).toContain(key);
+    expect(secrets).toContain("MIIEpAIBAAKCAQEAabcdefghijklmnop");
+    expect(secrets).toContain("postgresql://a:b@h/db");
+    expect(secrets).not.toContain("/usr/bin:/bin/long/enough");
+    expect(secrets).not.toContain("abc");
+  });
+
   it("허용 목록의 이름만 옮기고, 프록시는 코드 받기 · 설치 단계에만 준다", async () => {
     const { previewChildEnv } = await import("../../src/adapters/preview/local/child-env");
     const parent = { PATH: "/bin", HOME: "/h", HTTPS_PROXY: "http://proxy:3128", GITHUB_TOKEN: "x", DATABASE_URL: "y", NODE_OPTIONS: "z" };
     expect(previewChildEnv(parent, "install")).toEqual({ PATH: "/bin", HOME: "/h", HTTPS_PROXY: "http://proxy:3128" });
     expect(previewChildEnv(parent, "run", { PORT: "4000" })).toEqual({ PATH: "/bin", HOME: "/h", PORT: "4000" });
+    // 코드 풀기(tar) · 로컬 저장소 묶기(git) 는 네트워크가 필요 없어 프록시를 받지 않는다
+    expect(previewChildEnv(parent, "fetch")).toEqual({ PATH: "/bin", HOME: "/h" });
+  });
+
+  it("Windows 에서는 대소문자만 다른 이름(PATH · Path, SYSTEMROOT · SystemRoot)을 하나만 남긴다", async () => {
+    const { previewChildEnv } = await import("../../src/adapters/preview/local/child-env");
+    const parent = { PATH: "C:\\bin", Path: "C:\\bin", SYSTEMROOT: "C:\\Windows", SystemRoot: "C:\\Windows", USERPROFILE: "C:\\Users\\John Doe" };
+    const env = previewChildEnv(parent, "run", { PORT: "1" }, "win32");
+    expect(env).toEqual({ PATH: "C:\\bin", SYSTEMROOT: "C:\\Windows", USERPROFILE: "C:\\Users\\John Doe", PORT: "1" });
+    expect(Object.keys(previewChildEnv(parent, "run", {}, "linux"))).toEqual(["PATH", "Path", "USERPROFILE", "SYSTEMROOT", "SystemRoot"]);
+  });
+
+  it("Windows 의 npm 명령줄은 고정 낱말만 받고, 셸이 해석할 글자는 거부한다", async () => {
+    const { windowsNpmCommand } = await import("../../src/adapters/preview/local/local-runner");
+    expect(windowsNpmCommand(["ci", "--no-audit", "--no-fund"], "C:\\Windows\\system32\\cmd.exe")).toEqual({
+      command: "C:\\Windows\\system32\\cmd.exe",
+      args: ["/d", "/s", "/c", '"npm ci --no-audit --no-fund"'],
+    });
+    for (const bad of ["dev & calc", "a^b", 'x"y', "%PATH%", "a b", "a|b"]) expect(() => windowsNpmCommand(["run", bad])).toThrow("넘길 수 없는");
+  });
+
+  it("격리 폴더 안을 가리키는 링크는 두고, 밖 · 없는 곳을 가리키는 링크를 찾는다", async () => {
+    const { escapingSymlinks } = await import("../../src/adapters/preview/local/local-runner");
+    const { mkdtempSync, mkdirSync, symlinkSync, writeFileSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const root = mkdtempSync(join(tmpdir(), "links-"));
+    try {
+      const src = join(root, "src");
+      mkdirSync(join(src, "sub"), { recursive: true });
+      writeFileSync(join(src, "README.md"), "x");
+      symlinkSync("README.md", join(src, "readme-link"));
+      symlinkSync("..", join(src, "sub", "up")); // src 자신 — 안이다
+      expect(await escapingSymlinks(src)).toEqual([]);
+      symlinkSync("../..", join(src, "sub", "escape")); // src 의 부모 — 밖이다
+      symlinkSync("sub/up/../../x", join(src, "tricky")); // 이름만 보면 안이지만 실제로는 밖(그리고 없는 곳)이다
+      const bad = await escapingSymlinks(src);
+      expect(bad.some((b) => b.startsWith(join("sub", "escape")))).toBe(true);
+      expect(bad.some((b) => b.startsWith("tricky"))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("토큰 모양 · Authorization · 주소 속 계정 · *_TOKEN= 값 · 알려 준 값을 가린다", async () => {
@@ -198,5 +252,12 @@ describe("자식 환경의 허용 목록과 로그 가림 (adapters/preview/loca
     expect(redactSecrets("NPM_TOKEN=abc123 DB_PASSWORD=p")).toBe("NPM_TOKEN=[가림] DB_PASSWORD=[가림]");
     expect(redactSecrets("value 0123456789abcdef here", ["0123456789abcdef"])).toBe("value [가림] here");
     expect(redactSecrets("평범한 로그 줄")).toBe("평범한 로그 줄");
+    // 대소문자 무시 · npm 토큰 · .npmrc 의 _authToken · JSON 모양
+    expect(redactSecrets("export api_token=abc db_password=p")).toBe("export api_token=[가림] db_password=[가림]");
+    expect(redactSecrets("using npm_abcdefghijklmnopqrstuvwxyz0123456789")).toBe("using [가림]");
+    expect(redactSecrets("//registry.npmjs.org/:_authToken=s3cr3tvalue")).toBe("//registry.npmjs.org/:_authToken=[가림]");
+    expect(redactSecrets('{"token":"abc","user":"kim","apiKey": "k-123","client_secret":"q"}')).toBe(
+      '{"token":"[가림]","user":"kim","apiKey": "[가림]","client_secret":"[가림]"}',
+    );
   });
 });
