@@ -1,14 +1,14 @@
 /**
  * 서버를 다시 켜도 남는다 (docs/plan/02-persistence-and-unlink.md §3 의 3) — PostgreSQL 모드에서만 돈다.
  *
- * 이 시험은 자기 서버(3101)를 직접 켜고 끈다. 주 시험 서버와 섞이지 않도록 따로 된 데이터베이스
+ * 이 시험은 자기 서버(3102)를 직접 켜고 끈다. 주 시험 서버와 섞이지 않도록 따로 된 데이터베이스
  * (<TEST_DATABASE_URL 의 이름>_restart, tests/e2e/prepare-db.mjs 가 비워 둔다)를 쓴다.
  */
 import { type ChildProcess, spawn } from "node:child_process";
 import { expect, type Page, test } from "@playwright/test";
 
 const POSTGRES = process.env.E2E_STORAGE === "postgres";
-const PORT = 3101;
+const PORT = 3102; // 3101 은 미리보기 기기를 연결한 서버(playwright.config.ts 의 PREVIEW_PORT)가 쓴다
 const BASE = `http://127.0.0.1:${PORT}`;
 
 function restartUrl(): string {
