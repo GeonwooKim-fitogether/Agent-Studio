@@ -17,7 +17,7 @@
  */
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdir, readdir, readFile, readlink, realpath, rm } from "node:fs/promises";
 import { request } from "node:http";
 import { createServer } from "node:net";
@@ -87,19 +87,43 @@ function signalGroup(pgid: number, signal: NodeJS.Signals): void {
   }
 }
 
-/** 그 프로세스 묶음에 아직 프로세스가 있는가 (Windows 는 맨 앞 프로세스만 본다) */
+/**
+ * 그 프로세스 묶음에 아직 **살아 있는** 프로세스가 있는가 (Windows 는 맨 앞 프로세스만 본다).
+ * 끝났지만 아직 거둬지지 않은 프로세스(좀비)도 신호 0 에는 "있음" 으로 답한다. 컨테이너처럼 1번 프로세스가 좀비를 거두지 않는
+ * 곳에서는 그래서 묶음이 영영 비지 않는 것처럼 보이므로, Linux 에서는 /proc 에서 그 묶음의 좀비가 아닌 프로세스를 찾아 확인한다.
+ */
 function groupAlive(pgid: number): boolean {
   try {
     process.kill(IS_WINDOWS ? pgid : -pgid, 0);
-    return true;
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === "EPERM";
   }
+  return process.platform === "linux" ? hasLiveMemberOnLinux(pgid) : true;
+}
+
+function hasLiveMemberOnLinux(pgid: number): boolean {
+  let names: string[];
+  try {
+    names = readdirSync("/proc");
+  } catch {
+    return true; // 확인할 수 없으면 살아 있다고 본다(기다린 뒤 강제로 끈다)
+  }
+  for (const name of names) {
+    if (!/^\d+$/.test(name)) continue;
+    try {
+      const stat = readFileSync(`/proc/${name}/stat`, "utf8");
+      const [state, , pgrp] = stat.slice(stat.lastIndexOf(")") + 2).split(" "); // "(이름)" 뒤: 상태 · 부모 · 묶음 번호
+      if (Number(pgrp) === pgid && state !== "Z") return true;
+    } catch {
+      // 그 사이 끝난 프로세스
+    }
+  }
+  return false;
 }
 
 async function waitGroupsGone(groups: Iterable<number>, ms: number): Promise<void> {
   const deadline = Date.now() + ms;
-  while ([...groups].some(groupAlive) && Date.now() < deadline) await sleep(50);
+  while ([...groups].some(groupAlive) && Date.now() < deadline) await sleep(100);
 }
 
 /**
