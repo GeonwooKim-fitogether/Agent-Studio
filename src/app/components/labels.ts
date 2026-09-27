@@ -4,6 +4,7 @@
  * GitHub 의 리뷰와 Studio 의 내부 검토 결정은 같은 낱말(changes requested)을 쓰므로, Studio 쪽 검토 표기는
  * 모두 "Internal:" 로 시작한다. 한 카드에 둘이 함께 보여도 어느 쪽 것인지 글자만 보고 가릴 수 있어야 한다.
  */
+import type { AttentionItem, AttentionKind } from "../../application/attention";
 import type { StatusChangeView } from "../../application/queries";
 import type { ReviewBlock } from "../../application/review";
 import type { InboxReason } from "../../domain/auto-link";
@@ -187,3 +188,44 @@ export const PREVIEW_PHASE: Record<PreviewPhase, string> = {
   failed: "Failed",
   stopped: "Stopped",
 };
+
+/** Needs your attention 의 종류 표기 (시안 v2) */
+export const ATTENTION_KIND: Record<AttentionKind, string> = {
+  needs_review: "Needs review",
+  checks_failing: "Checks failing",
+  outdated_preview: "Outdated preview",
+  inbox: "Inbox",
+};
+
+/** 모을 것이 없을 때의 문장 (시안 v2) */
+export const ATTENTION_EMPTY =
+  "지금 판단할 일이 없다. 검토할 PR, 실패한 검사, 이전 버전 미리보기, 연결을 기다리는 PR 이 생기면 여기에 모인다.";
+
+/** Needs your attention 한 줄의 대상(굵은 글자)과 한 줄 설명 */
+export function attentionText(item: AttentionItem): { readonly target: string; readonly detail: string } {
+  switch (item.kind) {
+    case "needs_review":
+      return {
+        target: `'${item.workTitle}'`,
+        detail:
+          item.pr === null
+            ? "업무 상태가 Needs review 다. 아직 판단하지 않은 PR 이 없다면 업무를 열어 상태를 확인한다."
+            : `${item.pr.repoName}#${item.pr.number} 최신 커밋 ${shortSha(item.pr.headSha)} 의 검사가 끝났다. 아직 판단하지 않았다.`,
+      };
+    case "checks_failing":
+      return {
+        target: `'${item.workTitle}' · ${item.pr.repoName}#${item.pr.number}`,
+        detail: `최신 커밋 ${shortSha(item.pr.headSha)} 의 검사가 실패했다. 작성자가 고칠 차례라 업무 상태는 그대로 둔다.`,
+      };
+    case "outdated_preview":
+      return {
+        target: `'${item.workTitle}' · ${item.pr.repoName}#${item.pr.number}`,
+        detail: `미리보기가 커밋 ${shortSha(item.previewCommitSha)} 에서 돌고 있다. 최신은 ${shortSha(item.pr.headSha)}. 검토 근거로 쓰지 않는다.`,
+      };
+    case "inbox":
+      return {
+        target: `PR ${item.count}개가 업무 연결을 기다린다`,
+        detail: "어느 업무의 것인지 확실하지 않아 자동으로 붙이지 않은 PR 이다.",
+      };
+  }
+}

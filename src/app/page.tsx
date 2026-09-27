@@ -1,16 +1,22 @@
 import Link from "next/link";
+import { collectAttention } from "../application/attention";
 import { getWorkspace } from "../application/queries";
 import { getContainer } from "../server/container";
+import { NeedsYourAttention } from "./components/attention";
 import { PrCard, StateLegend } from "./components/pr-card";
 import { StatusBadge, StatusHistoryLine } from "./components/work-status";
 
 export const dynamic = "force-dynamic";
 
-/** Workspace — 프로젝트별 업무와, 각 업무에 연결된 PR 카드. 연결되지 않은 PR 은 Inbox 에 있다. */
+/**
+ * Workspace — 맨 위에 판단할 일(Needs your attention), 그 아래 프로젝트별 업무와 각 업무에 연결된 PR 카드.
+ * 연결되지 않은 PR 은 Inbox 에 있고, 그 개수가 Needs your attention 의 한 줄로 보인다.
+ */
 export default async function WorkspacePage() {
   const container = getContainer();
   await container.ensureSynced();
   const view = await getWorkspace(container.deps);
+  const attention = collectAttention(view, container.preview.current());
   const source = container.deps.reader.source;
   const hasCards = view.projects.some((p) => p.works.some((w) => w.prs.length > 0));
 
@@ -18,27 +24,10 @@ export default async function WorkspacePage() {
     <div className="page-inner">
       <div className="page-head">
         <h1>Workspace</h1>
-        <p className="muted">프로젝트마다 업무와 연결된 PR 을 본다.</p>
+        <p className="muted">업무마다 연결된 PR 과 먼저 볼 일을 본다.</p>
       </div>
 
-      {view.inboxCount > 0 ? (
-        <section className="attention" data-testid="inbox-summary">
-          <div>
-            <p className="eyebrow">Inbox</p>
-            <h2>
-              <span data-testid="inbox-count">{view.inboxCount}</span>개 PR 이 업무 연결을 기다린다
-            </h2>
-            <p className="muted">어느 업무의 것인지 확실하지 않은 PR 은 자동으로 붙이지 않고 Inbox 에 둔다.</p>
-          </div>
-          <Link href="/inbox" className="btn primary">
-            Open Inbox
-          </Link>
-        </section>
-      ) : (
-        <p className="inbox-clear" data-testid="inbox-empty-summary">
-          Inbox 가 비어 있다. 연결을 기다리는 PR 이 없다.
-        </p>
-      )}
+      <NeedsYourAttention items={attention} />
 
       {hasCards && <StateLegend />}
 
