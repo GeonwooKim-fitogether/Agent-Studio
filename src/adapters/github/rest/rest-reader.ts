@@ -17,6 +17,8 @@
  *   - PR 목록은 한 페이지만 읽고, 리디렉션은 같은 저장소의 /pulls 경로로만 따라간다.
  *
  * 한 번 동기화할 때 저장소마다 요청 수는 1(저장소, repos 로 적은 것만) + 1(PR 목록) + 2 × PR 수(검사 · 리뷰) 다.
+ * 저장소마다의 PR 목록은 부른 순서대로 하나씩(createTurns), PR 마다의 검사 · 리뷰 요청은 겹쳐 보낸다. 동시에 나가는 요청은 요청 예산의 동시 상한(MAX_CONCURRENT_REQUESTS) 안이고,
+ * 요청 하나가 실패하면 이 출처의 나머지 요청은 보내지 않는다(halt).
  */
 import type { ChecksState, GitHubReviewState, PrSnapshot, PrState, Repository } from "../../../domain/model";
 import type { GitHubReader, ReaderRun, RequestBudget } from "../../../ports/github-reader";
@@ -26,6 +28,7 @@ import {
   type FetchLike,
   GITHUB_API_ORIGIN,
   GitHubReadError,
+  type HaltSwitch,
   MAX_REQUESTS_PER_SYNC,
 } from "./guarded-get";
 
@@ -56,7 +59,9 @@ export function createGitHubRestReader(options: RestReaderOptions): GitHubReader
 
   function startRun(budget?: RequestBudget): ReaderRun {
     const meter = budget ?? createRequestMeter(maxRequests);
-    const get = createGuardedGet({ token: options.token, fetch: options.fetch, meter });
+    const halt: HaltSwitch = { halted: false };
+    const get = createGuardedGet({ token: options.token, fetch: options.fetch, meter, halt });
+    const listTurn = createTurns();
 
     /** 조직 저장소 목록을 페이지 끝까지 읽는다. 다음 페이지와 리디렉션은 첫 주소와 같은 경로로만 따라간다. */
     async function orgRepositories(org: string): Promise<Repository[]> {
@@ -80,7 +85,7 @@ export function createGitHubRestReader(options: RestReaderOptions): GitHubReader
     return {
       notes: () => notes,
 
-      async listRepositories() {
+      listRepositories: () => halting(halt, async () => {
         const out: Repository[] = [];
         const seen = new Set<number>();
         const add = (repository: Repository) => {
@@ -91,52 +96,20 @@ export function createGitHubRestReader(options: RestReaderOptions): GitHubReader
         for (const org of orgs) for (const repository of await orgRepositories(org)) add(repository);
         for (const fullName of options.repos) add(parseRepository(await get(api(`/repos/${repoPath(fullName)}`)), fullName));
         return out;
-      },
+      }),
 
-      async listPullRequests(repository) {
+      listPullRequests: (repository) => halting(halt, async () => {
         const base = `/repos/${repoPath(repository.fullName)}`;
         // PR 목록은 한 페이지(최근 PULLS_PER_REPO 개)만 읽는다. 다음 페이지(Link)는 따라가지 않고,
         // 리디렉션은 같은 저장소의 /pulls 경로로만 따라간다(App 리더와 같은 규칙).
-        const pulls = asArray(
-          (
-            await get.page(api(`${base}/pulls?state=all&sort=updated&direction=desc&per_page=${PULLS_PER_REPO}`), {
-              allowRedirect: (target) => target.pathname === `${base}/pulls`,
-            })
-          ).json,
-          "PR 목록",
+        const page = await listTurn(() =>
+          get.page(api(`${base}/pulls?state=all&sort=updated&direction=desc&per_page=${PULLS_PER_REPO}`), {
+            allowRedirect: (target) => target.pathname === `${base}/pulls`,
+          }),
         );
-        const out: PrSnapshot[] = [];
-        const foreign: number[] = [];
-        for (const raw of pulls) {
-          // 이 PR 이 정말 요청한 저장소의 것인가 — 아니면(또는 알 수 없으면) 받아 적지 않는다
-          if (baseRepoId(raw) !== repository.id) {
-            foreign.push(isObject(raw) && isNumber(raw["number"]) ? raw["number"] : 0);
-            continue;
-          }
-          const pull = parsePull(raw);
-          const checks = await get(api(`${base}/commits/${pull.headSha}/check-runs?per_page=${CHECK_RUNS_PER_COMMIT}`));
-          const reviews = await get(api(`${base}/pulls/${pull.number}/reviews?per_page=${REVIEWS_PER_PR}`));
-          out.push({
-            repoId: repository.id,
-            number: pull.number,
-            title: pull.title,
-            body: pull.body,
-            branch: pull.branch,
-            headRepoId: pull.headRepoId,
-            headSha: pull.headSha,
-            url: pull.url,
-            author: pull.author,
-            state: pull.state,
-            updatedAt: pull.updatedAt,
-            checks: summarizeChecks(checks),
-            review: summarizeReviews(reviews),
-          });
-        }
-        if (foreign.length > 0) {
-          notes.push(`${repository.fullName} 에 요청했는데 다른 저장소의 것으로 보이는 PR ${foreign.length}개를 버렸다: #${foreign.join(", #")}`);
-        }
-        return out;
-      },
+        const pulls = asArray(page.json, "PR 목록");
+        return snapshotsOf(get, base, repository, pulls, notes);
+      }),
     };
   }
 
@@ -148,6 +121,80 @@ export function createGitHubRestReader(options: RestReaderOptions): GitHubReader
     listRepositories: () => startRun().listRepositories(),
     listPullRequests: (repository) => startRun().listPullRequests(repository),
   };
+}
+
+/** 리더 실행의 일 하나. 실패하면(응답 모양 오류 포함) 이 출처의 나머지 요청을 보내지 않게 표시하고 그대로 던진다 */
+export async function halting<T>(halt: HaltSwitch, task: () => Promise<T>): Promise<T> {
+  try {
+    return await task();
+  } catch (error) {
+    halt.halted = true;
+    throw error;
+  }
+}
+
+/**
+ * 부른 순서대로 하나씩 도는 차례. 저장소마다의 PR **목록** 요청을 이 차례로 보낸다 — 앞 저장소의 목록이 온 뒤에 다음 저장소의
+ * 목록을 부르므로, 목록이 실패하면(예: 조직이 토큰을 막았다) 같은 출처의 다음 저장소는 부르지 않는다. PR 마다의 검사 · 리뷰는
+ * 차례 밖에서 겹쳐 보내, 다음 저장소의 목록 요청과도 겹친다.
+ */
+export function createTurns(): <T>(task: () => Promise<T>) => Promise<T> {
+  let last: Promise<unknown> = Promise.resolve();
+  return <T>(task: () => Promise<T>): Promise<T> => {
+    const mine = last.then(task, task);
+    last = mine.catch(() => undefined);
+    return mine;
+  };
+}
+
+type GuardedGet = ReturnType<typeof createGuardedGet>;
+
+/**
+ * PR 목록의 원본들을 스냅샷으로. 요청한 저장소의 것이 아닌 PR 은 버리고 알린다.
+ * PR 마다 검사 결과와 리뷰를 겹쳐 받는다(동시 상한은 관문이 지킨다). 결과의 순서는 GitHub 가 준 PR 순서 그대로다.
+ */
+export async function snapshotsOf(
+  get: GuardedGet,
+  base: string,
+  repository: Repository,
+  pulls: readonly unknown[],
+  notes: string[],
+): Promise<PrSnapshot[]> {
+  const api = (path: string) => `${GITHUB_API_ORIGIN}${path}`;
+  const mine: unknown[] = [];
+  const foreign: number[] = [];
+  for (const raw of pulls) {
+    // 이 PR 이 정말 요청한 저장소의 것인가 — 아니면(또는 알 수 없으면) 받아 적지 않는다
+    if (baseRepoId(raw) !== repository.id) foreign.push(isObject(raw) && isNumber(raw["number"]) ? raw["number"] : 0);
+    else mine.push(raw);
+  }
+  if (foreign.length > 0) {
+    notes.push(`${repository.fullName} 에 요청했는데 다른 저장소의 것으로 보이는 PR ${foreign.length}개를 버렸다: #${foreign.join(", #")}`);
+  }
+  const parsed = mine.map(parsePull); // 모양이 틀린 PR 이 있으면 검사 · 리뷰 요청을 보내기 전에 멈춘다
+  return Promise.all(
+    parsed.map(async (pull): Promise<PrSnapshot> => {
+      const [checks, reviews] = await Promise.all([
+        get(api(`${base}/commits/${pull.headSha}/check-runs?per_page=${CHECK_RUNS_PER_COMMIT}`)),
+        get(api(`${base}/pulls/${pull.number}/reviews?per_page=${REVIEWS_PER_PR}`)),
+      ]);
+      return {
+        repoId: repository.id,
+        number: pull.number,
+        title: pull.title,
+        body: pull.body,
+        branch: pull.branch,
+        headRepoId: pull.headRepoId,
+        headSha: pull.headSha,
+        url: pull.url,
+        author: pull.author,
+        state: pull.state,
+        updatedAt: pull.updatedAt,
+        checks: summarizeChecks(checks),
+        review: summarizeReviews(reviews),
+      };
+    }),
+  );
 }
 
 /** "owner/name" 을 주소 경로 조각으로. 두 부분이 아니면 요청하지 않는다. */

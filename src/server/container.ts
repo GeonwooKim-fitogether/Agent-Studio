@@ -10,18 +10,23 @@
  */
 import { randomBytes } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, isAbsolute } from "node:path";
 import { Pool } from "pg";
 import { demoFixtureData, demoStudioSeed } from "../adapters/github/fixture/demo-scenario";
 import { createFixtureReader } from "../adapters/github/fixture/fixture-reader";
 import { createGitHubAppReader } from "../adapters/github/app/app-reader";
-import { createInstallationTokenSource, loadPrivateKey, MIN_RSA_BITS } from "../adapters/github/app-auth/app-auth";
-import { type FetchLike, GitHubReadError } from "../adapters/github/rest/guarded-get";
+import { createInstallationTokenSource, loadPrivateKey, MIN_RSA_BITS, type TokenSource } from "../adapters/github/app-auth/app-auth";
+import { type FetchLike, GitHubReadError, type TokenProvider } from "../adapters/github/rest/guarded-get";
+import { createGitHubTarballSource } from "../adapters/github/tarball/tarball-source";
+import { createLocalRepoSource } from "../adapters/preview/local/local-repo-source";
+import { createLocalPreviewRunner } from "../adapters/preview/local/local-runner";
 import { createGitHubRestReader } from "../adapters/github/rest/rest-reader";
 import { createMultiReader } from "../adapters/github/multi/multi-reader";
 import type { GitHubReader, SourceReport } from "../ports/github-reader";
 import { createMemoryStore } from "../adapters/store/memory/memory-store";
 import { createPostgresStore, seedIfEmpty } from "../adapters/store/postgres/postgres-store";
+import { createOfflinePreviewRunner } from "../adapters/preview/offline/offline-runner";
+import type { PreviewRunner } from "../ports/preview-runner";
 import type { AppDeps } from "../application/deps";
 import { syncAll } from "../application/sync";
 
@@ -41,6 +46,8 @@ export type StorageKind = "memory" | "postgres";
 
 export interface Container {
   readonly deps: AppDeps;
+  /** 미리보기 실행기 (2단계). 설정이 없으면 "연결 안 됨" 실행기이고, 화면은 그 이유를 버튼 옆에 보인다 */
+  readonly preview: PreviewRunner;
   readonly storage: StorageKind;
   /** GitHub 연결 설정이 틀렸으면 그 이유(화면에 보인다). 없으면 null */
   readonly configError: string | null;
@@ -302,35 +309,108 @@ function isConfigError(source: GitHubSource): source is Extract<GitHubSource, { 
   return source.kind === "app_config_error" || source.kind === "token_config_error";
 }
 
-function createReaderFor(sources: readonly GitHubSource[]): GitHubReader {
+function createReaderFor(sources: readonly GitHubSource[], tokensFor: (source: GitHubSource) => TokenProvider | null): GitHubReader {
   if (sources.length === 0) return createFixtureReader(demoFixtureData());
   const [only] = sources;
-  if (sources.length === 1 && only !== undefined) return createReader(only);
-  return createMultiReader(sources.map((source) => ({ label: sourceLabel(source), reader: createReader(source) })));
+  if (sources.length === 1 && only !== undefined) return createReader(only, tokensFor);
+  return createMultiReader(sources.map((source) => ({ label: sourceLabel(source), reader: createReader(source, tokensFor) })));
 }
 
-function createReader(source: GitHubSource): GitHubReader {
-  // fetch 를 여기서 직접 부르지 않는다 — 부르는 곳은 GET 관문(guarded-get)과 인증 모듈(app-auth) 두 파일뿐이다
-  const fetchImpl: FetchLike = globalThis.fetch.bind(globalThis);
-  switch (source.kind) {
-    case "app":
-      return createGitHubAppReader({
-        tokens: createInstallationTokenSource({
+// fetch 를 여기서 직접 부르지 않는다 — 부르는 곳은 GET 관문(guarded-get)과 인증 모듈(app-auth) 두 파일뿐이다
+// 조립할 때마다 그 순간의 전역 fetch 를 묶는다(시험이 전역 fetch 를 바꿔 끼운 뒤 조립하므로 모듈을 읽을 때 묶어 두지 않는다)
+const currentFetch = (): FetchLike => globalThis.fetch.bind(globalThis);
+
+/**
+ * 출처마다 토큰 공급자 하나. GitHub App 의 설치 토큰 공급자는 PR 읽기와 미리보기 코드 받기가 **같은 것**을 쓴다
+ * (토큰을 한 번 받아 함께 쓰고, 만료 전 갱신도 한 곳에서 한다). 설정 오류인 출처는 null.
+ */
+function tokenProviders(sources: readonly GitHubSource[]): (source: GitHubSource) => TokenProvider | null {
+  const cache = new Map<GitHubSource, TokenProvider>();
+  for (const source of sources) {
+    if (source.kind === "app") {
+      cache.set(
+        source,
+        createInstallationTokenSource({
           appId: source.appId,
           installationId: source.installationId,
           privateKey: loadPrivateKey(source.privateKeyPem),
-          fetch: fetchImpl,
+          fetch: currentFetch(),
         }),
-        fetch: fetchImpl,
+      );
+    } else if (source.kind === "token") {
+      const token = source.token;
+      cache.set(source, { getToken: async () => token });
+    }
+  }
+  return (source) => cache.get(source) ?? null;
+}
+
+function createReader(source: GitHubSource, tokensFor: (source: GitHubSource) => TokenProvider | null): GitHubReader {
+  switch (source.kind) {
+    case "app":
+      return createGitHubAppReader({
+        tokens: tokensFor(source) as TokenSource,
+        fetch: currentFetch(),
         onlyRepos: source.repos,
       });
     case "app_config_error":
       return unavailableReader(source.message, "github_app");
     case "token":
-      return createGitHubRestReader({ token: source.token, repos: source.repos, orgs: source.orgs, fetch: fetchImpl });
+      return createGitHubRestReader({ token: source.token, repos: source.repos, orgs: source.orgs, fetch: currentFetch() });
     case "token_config_error":
       return unavailableReader(source.message, "github");
   }
+}
+
+/**
+ * 미리보기 설정 (docs/plan/04-remote-preview.md §3). 실행기는 명시적 설정이 있을 때만 켜진다.
+ *   PREVIEW_WORKDIR         격리 폴더들의 부모(절대 경로). 없으면 실행기는 "연결 안 됨"
+ *   PREVIEW_BIND_HOST       미리보기 앱에 넘길 주소(기본 127.0.0.1). 휴대전화는 사설망(Tailscale 류)의 주소로 연다
+ *   PREVIEW_PUBLIC_HOST     화면에 보일 주소의 호스트(없으면 PREVIEW_BIND_HOST, 그것이 0.0.0.0 · :: 이면 127.0.0.1)
+ *   PREVIEW_LOCAL_REPOS_DIR 코드를 GitHub 대신 이 폴더의 로컬 git 저장소(<owner>/<name>)에서 받는다. 시연 · 시험용
+ * 이유 문장에는 변수 이름만 싣고 값(경로)은 싣지 않는다.
+ */
+export type PreviewConfig =
+  | { readonly kind: "off"; readonly reason: string }
+  | {
+      readonly kind: "on";
+      readonly workdir: string;
+      readonly bindHost: string;
+      readonly publicHost: string;
+      readonly code: { readonly kind: "local_repos"; readonly dir: string } | { readonly kind: "github" };
+    };
+
+export const PREVIEW_NOT_CONNECTED = "미리보기 기기가 연결되지 않았다 — PREVIEW_WORKDIR 를 설정한 컴퓨터에서 Studio 를 띄운다.";
+
+/** IP 주소(IPv4 · IPv6) 또는 호스트 이름. 공백 · 슬래시 · 포트는 받지 않는다 */
+const HOST_NAME = /^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*|[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*)$/;
+
+export function selectPreviewConfig(env: Record<string, string | undefined>, githubSources: readonly GitHubSource[]): PreviewConfig {
+  const value = (name: string) => env[name]?.trim() ?? "";
+  const workdir = value("PREVIEW_WORKDIR");
+  if (workdir === "") return { kind: "off", reason: PREVIEW_NOT_CONNECTED };
+  if (!isAbsolute(workdir)) return { kind: "off", reason: "PREVIEW_WORKDIR 는 절대 경로로 적는다." };
+  const bindHost = value("PREVIEW_BIND_HOST") || "127.0.0.1";
+  const publicHost = value("PREVIEW_PUBLIC_HOST") || (bindHost === "0.0.0.0" || bindHost === "::" ? "127.0.0.1" : bindHost);
+  if (!HOST_NAME.test(bindHost) || !HOST_NAME.test(publicHost)) {
+    return { kind: "off", reason: "PREVIEW_BIND_HOST · PREVIEW_PUBLIC_HOST 에는 IP 주소나 호스트 이름만 적는다(포트 · 경로 없이)." };
+  }
+  const localRepos = value("PREVIEW_LOCAL_REPOS_DIR");
+  if (localRepos !== "") {
+    if (!isAbsolute(localRepos)) return { kind: "off", reason: "PREVIEW_LOCAL_REPOS_DIR 는 절대 경로로 적는다." };
+    return { kind: "on", workdir, bindHost, publicHost, code: { kind: "local_repos", dir: localRepos } };
+  }
+  if (githubSources.length === 0) {
+    return {
+      kind: "off",
+      reason:
+        "고정 데이터의 저장소는 GitHub 에 없어 코드를 받을 곳이 없다 — 시연하려면 PREVIEW_LOCAL_REPOS_DIR 에 시연 저장소를 만든다(npm run preview:demo-repo).",
+    };
+  }
+  if (githubSources.some(isConfigError)) {
+    return { kind: "off", reason: "GitHub 설정 오류가 있어 코드를 받을 수 없다 — 위쪽 띠의 설정 오류를 먼저 고친다." };
+  }
+  return { kind: "on", workdir, bindHost, publicHost, code: { kind: "github" } };
 }
 
 export function createContainer(
@@ -346,12 +426,29 @@ export function createContainer(
   // 쉬고 있는 연결이 끊겨도 서버 프로세스가 죽지 않게 한다. 오류 내용에는 연결 문자열을 싣지 않는다.
   pool?.on("error", () => console.error("PostgreSQL 연결 하나가 끊겼다. 다음 요청에서 새로 연결한다."));
   const seed = github ? {} : demoStudioSeed();
+  const tokensFor = tokenProviders(githubSources);
   const deps: AppDeps = {
-    reader: createReaderFor(githubSources),
+    reader: createReaderFor(githubSources, tokensFor),
     store: pool === null ? createMemoryStore(seed) : createPostgresStore(pool),
     now: () => new Date(),
     newId: () => randomBytes(3).toString("hex"),
   };
+
+  const previewConfig = selectPreviewConfig(env, githubSources);
+  const preview: PreviewRunner =
+    previewConfig.kind === "off"
+      ? createOfflinePreviewRunner(previewConfig.reason)
+      : createLocalPreviewRunner({
+          workdir: previewConfig.workdir,
+          bindHost: previewConfig.bindHost,
+          publicHost: previewConfig.publicHost,
+          parentEnv: env,
+          source:
+            previewConfig.code.kind === "local_repos"
+              ? createLocalRepoSource(previewConfig.code.dir, env)
+              : // App 이 앞에 있으므로 설치 토큰으로 먼저 받고, 거절되면 조직 토큰으로 한 번 더 받는다(결정 12)
+                createGitHubTarballSource({ tokens: githubSources.flatMap((source) => tokensFor(source) ?? []), fetch: currentFetch() }),
+        });
 
   let status: SyncStatus = {
     lastSyncedAt: null,
@@ -408,6 +505,7 @@ export function createContainer(
 
   return {
     deps,
+    preview,
     storage: pool === null ? "memory" : "postgres",
     configError,
     close: async () => {

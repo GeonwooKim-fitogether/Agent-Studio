@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // PostgreSQL 모드 e2e 를 시작하기 전에 시험용 데이터베이스 두 개를 빈 상태로 만든다.
 //   - TEST_DATABASE_URL            : 주 시험 서버(3100)가 쓴다
-//   - 같은 서버의 <이름>_restart   : 재시작 시험이 자기 서버(3101)를 껐다 켜며 쓴다
+//   - 같은 서버의 <이름>_restart   : 재시작 시험이 자기 서버(3102)를 껐다 켜며 쓴다
 // 스키마를 지우므로 데이터베이스 이름에 test 가 없으면 거부한다. 스키마는 적용 명령(db/migrate.mjs)으로 만든다.
 import { execFileSync } from "node:child_process";
 import pg from "pg";

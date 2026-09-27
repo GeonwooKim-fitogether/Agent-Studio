@@ -168,3 +168,13 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 /* 업무 화면의 Unlink — 체크한 뒤에만 제출된다 */
 .unlink-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 10px 0 0; padding-top: 10px; border-top: 1px dashed var(--line); font-size: 12px; color: #59636f; }
 .unlink-form label { display: flex; align-items: center; gap: 6px; }
+
+/* 미리보기 칸 (docs/plan/04-remote-preview.md) */
+.preview-box { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 10px; display: grid; gap: 8px; }
+.preview-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.preview-actions form { margin: 0; }
+.btn[disabled] { opacity: 0.55; cursor: not-allowed; background: #f5f6f7; }
+.preview-line { margin: 0; font-size: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.preview-outdated { margin: 0; font-size: 12px; font-weight: 700; color: var(--ink); border-left: 3px dashed #8b939d; padding-left: 8px; }
+.preview-log { max-height: 220px; overflow: auto; background: #f3f4f6; border-radius: 8px; padding: 8px; font-size: 11px; white-space: pre-wrap; word-break: break-all; }
+.preview-device.offline { color: #8b939d; }

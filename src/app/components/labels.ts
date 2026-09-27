@@ -6,6 +6,7 @@
  */
 import type { InboxReason } from "../../domain/auto-link";
 import type { ChecksState, GitHubReviewState, MarkerPlace, PrState, ReviewVerdict, WorkStatus } from "../../domain/model";
+import type { PreviewBlock, PreviewPhase } from "../../domain/preview";
 import { markerFor } from "../../domain/work-marker";
 
 export const WORK_STATUS: Record<WorkStatus, string> = {
@@ -94,3 +95,20 @@ const KST = new Intl.DateTimeFormat("sv-SE", {
 export function formatKst(iso: string): string {
   return `${KST.format(new Date(iso))} KST`;
 }
+
+/** 미리보기를 열 수 없는 PR 쪽 이유 (docs/plan/04-remote-preview.md §4) */
+export const PREVIEW_BLOCK: Record<PreviewBlock, string> = {
+  fork: "복제본(fork)에서 온 PR 이라 미리보기로 실행하지 않는다. 팀 밖에서 온 코드를 이 컴퓨터에서 돌리지 않는다.",
+  sha_not_full: "PR 의 최신 커밋이 전체 SHA 로 오지 않아, 무엇을 실행하는지 하나로 고정할 수 없다.",
+  bad_repo: "저장소 이름이 코드를 받을 수 있는 모양이 아니다.",
+};
+
+/** 미리보기 진행 단계 */
+export const PREVIEW_PHASE: Record<PreviewPhase, string> = {
+  fetching: "Fetching code",
+  installing: "Installing (npm ci)",
+  starting: "Starting",
+  running: "Running",
+  failed: "Failed",
+  stopped: "Stopped",
+};

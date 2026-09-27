@@ -15,8 +15,10 @@
  *     넘으면 그 자리에서 멈추고 오류로 알린다(조용히 일부만 읽고 성공처럼 보이지 않게).
  *   - 다음 페이지(Link)는 같은 경로로만, 리디렉션은 같은 저장소의 같은 종류 경로로만 따라간다.
  *   - 응답 PR 의 base.repo.id 가 요청한 저장소가 아니면 그 PR 은 버리고 알린다.
+ *   - 요청은 겹쳐 보낸다(한 저장소의 열린 · 닫힌 PR 목록, PR 마다의 검사 · 리뷰). 저장소마다의 목록만은 차례대로 부른다. 동시에 나가는 요청은 MAX_CONCURRENT_REQUESTS(8) 안이고,
+ *     요청 하나가 실패하면 이 출처의 나머지 요청은 보내지 않는다.
  */
-import type { PrSnapshot, Repository } from "../../../domain/model";
+import type { Repository } from "../../../domain/model";
 import type { GitHubReader, ReaderRun, RequestBudget } from "../../../ports/github-reader";
 import {
   createGuardedGet,
@@ -24,10 +26,11 @@ import {
   type FetchLike,
   GITHUB_API_ORIGIN,
   GitHubReadError,
+  type HaltSwitch,
   MAX_REQUESTS_PER_SYNC,
   type TokenProvider,
 } from "../rest/guarded-get";
-import { asArray, baseRepoId, isNumber, isObject, parsePull, repoPath, summarizeChecks, summarizeReviews } from "../rest/rest-reader";
+import { asArray, createTurns, halting, isNumber, isObject, repoPath, snapshotsOf } from "../rest/rest-reader";
 
 export const CLOSED_PER_REPO = 30;
 export const PAGE_SIZE = 100;
@@ -49,7 +52,9 @@ export function createGitHubAppReader(options: AppReaderOptions): GitHubReader {
   /** budget 을 넘기면(여러 출처를 함께 읽을 때) 그 예산을 나눠 쓰고, 없으면 이번 실행만의 예산을 만든다 */
   function startRun(budget?: RequestBudget): ReaderRun {
     const meter = budget ?? createRequestMeter(maxRequests);
-    const get = createGuardedGet({ tokens: options.tokens, fetch: options.fetch, meter });
+    const halt: HaltSwitch = { halted: false };
+    const get = createGuardedGet({ tokens: options.tokens, fetch: options.fetch, meter, halt });
+    const listTurn = createTurns();
     const notes: string[] = [];
 
     /** 페이지를 끝까지 따라가며 모은다. 다음 페이지와 리디렉션은 첫 주소와 같은 경로로만 따라간다. */
@@ -72,7 +77,7 @@ export function createGitHubAppReader(options: AppReaderOptions): GitHubReader {
     return {
       notes: () => notes,
 
-      async listRepositories() {
+      listRepositories: () => halting(halt, async () => {
         const raw = await all(api(`/installation/repositories?per_page=${PAGE_SIZE}`), (json) =>
           asArray(isObject(json) ? json["repositories"] : undefined, "설치된 저장소 목록"),
         );
@@ -84,51 +89,23 @@ export function createGitHubAppReader(options: AppReaderOptions): GitHubReader {
         const missing = [...only].filter((name) => !installed.some((r) => r.fullName.toLowerCase() === name));
         if (missing.length > 0) notes.push(`GITHUB_REPOS 에 적었지만 App 이 설치되지 않은 저장소: ${missing.join(", ")}`);
         return picked;
-      },
+      }),
 
-      async listPullRequests(repository) {
+      listPullRequests: (repository) => halting(halt, async () => {
         const base = `/repos/${repoPath(repository.fullName)}`;
-        const open = await all(api(`${base}/pulls?state=open&sort=created&direction=desc&per_page=${PAGE_SIZE}`), (json) =>
-          asArray(json, "PR 목록"),
+        // 목록은 저장소 차례대로(앞 저장소의 목록이 실패하면 다음 저장소는 부르지 않는다). 한 저장소의 열린 PR(페이지 넘김)과
+        // 닫힌 PR(한 페이지)은 서로 기다릴 이유가 없어 겹쳐 받는다
+        const [open, closedPage] = await listTurn(() =>
+          Promise.all([
+            all(api(`${base}/pulls?state=open&sort=created&direction=desc&per_page=${PAGE_SIZE}`), (json) => asArray(json, "PR 목록")),
+            get.page(api(`${base}/pulls?state=closed&sort=updated&direction=desc&per_page=${CLOSED_PER_REPO}`), {
+              allowRedirect: (t) => t.pathname === `${base}/pulls`,
+            }),
+          ]),
         );
-        const closed = asArray(
-          (await get.page(api(`${base}/pulls?state=closed&sort=updated&direction=desc&per_page=${CLOSED_PER_REPO}`), {
-            allowRedirect: (t) => t.pathname === `${base}/pulls`,
-          })).json,
-          "PR 목록",
-        );
-        const out: PrSnapshot[] = [];
-        const foreign: number[] = [];
-        for (const raw of [...open, ...closed]) {
-          // 이 PR 이 정말 요청한 저장소의 것인가 — 아니면(또는 알 수 없으면) 받아 적지 않는다
-          if (baseRepoId(raw) !== repository.id) {
-            foreign.push(isObject(raw) && isNumber(raw["number"]) ? raw["number"] : 0);
-            continue;
-          }
-          const pull = parsePull(raw);
-          const checks = await get(api(`${base}/commits/${pull.headSha}/check-runs?per_page=100`));
-          const reviews = await get(api(`${base}/pulls/${pull.number}/reviews?per_page=100`));
-          out.push({
-            repoId: repository.id,
-            number: pull.number,
-            title: pull.title,
-            body: pull.body,
-            branch: pull.branch,
-            headRepoId: pull.headRepoId,
-            headSha: pull.headSha,
-            url: pull.url,
-            author: pull.author,
-            state: pull.state,
-            updatedAt: pull.updatedAt,
-            checks: summarizeChecks(checks),
-            review: summarizeReviews(reviews),
-          });
-        }
-        if (foreign.length > 0) {
-          notes.push(`${repository.fullName} 에 요청했는데 다른 저장소의 것으로 보이는 PR ${foreign.length}개를 버렸다: #${foreign.join(", #")}`);
-        }
-        return out;
-      },
+        const closed = asArray(closedPage.json, "PR 목록");
+        return snapshotsOf(get, base, repository, [...open, ...closed], notes);
+      }),
     };
   }
 

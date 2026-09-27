@@ -12,12 +12,14 @@ Agent Studio 는 여러 프로젝트를 Claude 클라우드 · 로컬 · 동료�
 |---|---|
 | 왜 만드는가, 사용자는 어떻게 일하는가 (비전공자용) | [`docs/product/ceo-brief.md`](docs/product/ceo-brief.md) |
 | 누가 · 어디에서 · 무엇을 · 왜, 화면 버튼이 실제로 할 일, 개발 순서 | [`docs/product/user-workflow-plan.html`](docs/product/user-workflow-plan.html) |
+| 시안의 기능을 언제 만드나, 기능별 사용자 이야기 · 통과 기준 (2 · 2.5 · 3단계 기획) | [`docs/product/feature-plan.md`](docs/product/feature-plan.md) |
 | 화면의 모습 (클릭 시안, Demo mode) | [`docs/product/agent-studio-prototype.html`](docs/product/agent-studio-prototype.html) |
 | 무엇을 하기로 정했나, 무엇이 아직 열려 있나 | [`decisions.md`](decisions.md) |
 | 업무와 PR 이 이어지는 규칙 (0단계 계약) | [`docs/plan/00-domain-contract.md`](docs/plan/00-domain-contract.md) |
 | 지금 만드는 단위의 범위 · 구조 · 통과 기준 (1단계 PR 모으기) | [`docs/plan/01-pr-collection.md`](docs/plan/01-pr-collection.md) |
 | 다음 단위의 범위 (PostgreSQL 저장 · Unlink · 복제본 PR 차단) | [`docs/plan/02-persistence-and-unlink.md`](docs/plan/02-persistence-and-unlink.md) |
 | 세 번째 단위의 범위 (GitHub App 으로 진짜 저장소 읽기) | [`docs/plan/03-github-app.md`](docs/plan/03-github-app.md) |
+| 2단계 첫 단위의 범위 (PR 하나의 커밋을 이 컴퓨터에서 실행해 미리보기로 열기) | [`docs/plan/04-remote-preview.md`](docs/plan/04-remote-preview.md) |
 | GitHub App 을 만드는 사람용 안내 | [`docs/setup/github-app.md`](docs/setup/github-app.md) |
 | 조직 저장소용 토큰을 만드는 사람용 안내 | [`docs/setup/org-token.md`](docs/setup/org-token.md) |
 | 실행 · 테스트 명령 | [`README.md`](README.md) 의 "실행하기" |
