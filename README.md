@@ -66,7 +66,7 @@ PostgreSQL 시험은 스키마를 지웠다 다시 만들므로 개발용 데이
 |---|---|
 | 왜 만드는가, 사용자는 어떻게 일하는가 (비전공자용 요약) | [`docs/product/ceo-brief.md`](docs/product/ceo-brief.md) |
 | 누가 · 어디에서 · 무엇을 · 왜, 버튼이 실제로 할 일, 개발 순서 | [`docs/product/user-workflow-plan.html`](docs/product/user-workflow-plan.html) |
-| 화면 시안 (브라우저에서 클릭 가능, Demo mode) | [`docs/product/agent-studio-prototype.html`](docs/product/agent-studio-prototype.html) |
+| 화면 시안 v2 (브라우저에서 클릭 가능, 2 · 2.5단계) | [`docs/product/agent-studio-prototype.html`](docs/product/agent-studio-prototype.html) |
 | 무엇을 정했고 무엇이 열려 있나 | [`decisions.md`](decisions.md) |
 | 지금 만드는 단위의 범위와 통과 기준 | [`docs/plan/01-pr-collection.md`](docs/plan/01-pr-collection.md) · [`docs/plan/02-persistence-and-unlink.md`](docs/plan/02-persistence-and-unlink.md) · [`docs/plan/03-github-app.md`](docs/plan/03-github-app.md) · [`docs/plan/04-remote-preview.md`](docs/plan/04-remote-preview.md) |
 | 세션이 이 저장소에서 일할 때 지킬 것 | [`CLAUDE.md`](CLAUDE.md) |
