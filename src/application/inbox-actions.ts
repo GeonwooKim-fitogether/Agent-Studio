@@ -102,7 +102,8 @@ async function requireProjectOfRepo(deps: AppDeps, repoId: number): Promise<Proj
   return project;
 }
 
-async function newUniqueWorkId(deps: AppDeps): Promise<string> {
+/** 새 업무 ID. deps.newId 로 만들고, 형식이 맞고 아직 쓰이지 않은 것을 고른다 (Inbox 의 New Work 와 빈 업무 만들기가 함께 쓴다). */
+export async function newUniqueWorkId(deps: AppDeps): Promise<string> {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const id = deps.newId();
     if (isValidWorkId(id) && (await deps.store.getWork(id)) === undefined) return id;

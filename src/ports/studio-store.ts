@@ -61,6 +61,11 @@ export interface StudioStore {
    * (따로 저장하면 동시 요청에서 연결 없는 빈 업무가 남는다. PostgreSQL 구현은 트랜잭션 하나로 한다.)
    */
   createWorkWithLink(work: Work, link: PrLink): Promise<void>;
+  /**
+   * PR 없이 빈 업무 하나를 만든다 (New Work, feature-plan F5). 표식이 든 PR 이 나중에 Sync 로 붙는다.
+   * 확인 순서: 업무 ID 형식 → invalid_input, 없는 프로젝트 → not_found, 같은 ID 의 업무 → invalid_input. 걸리면 아무것도 쓰지 않는다.
+   */
+  createWork(work: Work): Promise<void>;
 
   listRepositories(): Promise<Repository[]>;
   saveRepository(repository: Repository): Promise<void>;

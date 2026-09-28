@@ -90,6 +90,13 @@ export function createMemoryStore(seed: StudioSeed = {}): StudioStore {
       writeLink(link);
     },
 
+    async createWork(work) {
+      if (!isValidWorkId(work.id)) throw new StudioError("invalid_input", "업무 ID 는 영문 소문자와 숫자로만 이뤄진다.");
+      if (!projects.has(work.projectId)) throw new StudioError("not_found", "업무를 둘 프로젝트가 없다.");
+      if (works.has(work.id)) throw new StudioError("invalid_input", "같은 ID 의 업무가 이미 있다.");
+      works.set(work.id, copy(work));
+    },
+
     async listRepositories() {
       return copies(repositories.values());
     },

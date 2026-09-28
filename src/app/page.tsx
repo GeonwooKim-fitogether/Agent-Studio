@@ -1,44 +1,59 @@
 import Link from "next/link";
+import { collectAttention } from "../application/attention";
 import { getWorkspace } from "../application/queries";
 import { getContainer } from "../server/container";
+import type { NewWorkProblem } from "../application/new-work";
+import { NeedsYourAttention } from "./components/attention";
+import { NEW_WORK_PROBLEM } from "./components/labels";
+import { NewWorkButton, NewWorkCreated, NewWorkForm } from "./components/new-work";
 import { PrCard, StateLegend } from "./components/pr-card";
 import { StatusBadge, StatusHistoryLine } from "./components/work-status";
 
 export const dynamic = "force-dynamic";
 
-/** Workspace — 프로젝트별 업무와, 각 업무에 연결된 PR 카드. 연결되지 않은 PR 은 Inbox 에 있다. */
-export default async function WorkspacePage() {
+/**
+ * Workspace — 맨 위에 판단할 일(Needs your attention), 그 아래 프로젝트별 업무와 각 업무에 연결된 PR 카드.
+ * 연결되지 않은 PR 은 Inbox 에 있고, 그 개수가 Needs your attention 의 한 줄로 보인다.
+ */
+type SearchParams = Promise<Record<string, string | string[] | undefined>>;
+
+const one = (value: string | string[] | undefined) => (typeof value === "string" ? value : null);
+const isNewWorkProblem = (value: string | null): value is NewWorkProblem => value !== null && Object.hasOwn(NEW_WORK_PROBLEM, value);
+
+export default async function WorkspacePage({ searchParams }: { searchParams: SearchParams }) {
+  const query = await searchParams;
   const container = getContainer();
   await container.ensureSynced();
   const view = await getWorkspace(container.deps);
+  const attention = collectAttention(view, container.preview.current());
   const source = container.deps.reader.source;
   const hasCards = view.projects.some((p) => p.works.some((w) => w.prs.length > 0));
+  // New Work 의 두 모습 — 폼(?newWork=1), 만든 결과(?created=<업무 ID>). 결과 주소의 업무가 없으면(오래된 주소) 아무것도 보이지 않는다
+  const createdId = one(query["created"]);
+  const created = view.projects.flatMap((p) => p.works.map((w) => ({ work: w.work, projectName: p.project.name }))).find((w) => w.work.id === createdId);
+  const formOpen = one(query["newWork"]) === "1" && view.projects.length > 0;
+  const problem = one(query["problem"]);
 
   return (
     <div className="page-inner">
-      <div className="page-head">
-        <h1>Workspace</h1>
-        <p className="muted">프로젝트마다 업무와 연결된 PR 을 본다.</p>
+      <div className="page-head split">
+        <div>
+          <h1>Workspace</h1>
+          <p className="muted">업무마다 연결된 PR 과 먼저 볼 일을 본다.</p>
+        </div>
+        {!formOpen && created === undefined && <NewWorkButton hasProjects={view.projects.length > 0} />}
       </div>
 
-      {view.inboxCount > 0 ? (
-        <section className="attention" data-testid="inbox-summary">
-          <div>
-            <p className="eyebrow">Inbox</p>
-            <h2>
-              <span data-testid="inbox-count">{view.inboxCount}</span>개 PR 이 업무 연결을 기다린다
-            </h2>
-            <p className="muted">어느 업무의 것인지 확실하지 않은 PR 은 자동으로 붙이지 않고 Inbox 에 둔다.</p>
-          </div>
-          <Link href="/inbox" className="btn primary">
-            Open Inbox
-          </Link>
-        </section>
-      ) : (
-        <p className="inbox-clear" data-testid="inbox-empty-summary">
-          Inbox 가 비어 있다. 연결을 기다리는 PR 이 없다.
-        </p>
+      {formOpen && (
+        <NewWorkForm
+          projects={view.projects.map((p) => p.project)}
+          problem={isNewWorkProblem(problem) ? problem : null}
+          projectId={one(query["project"])}
+        />
       )}
+      {created !== undefined && <NewWorkCreated work={created.work} projectName={created.projectName} />}
+
+      <NeedsYourAttention items={attention} />
 
       {hasCards && <StateLegend />}
 
@@ -48,7 +63,7 @@ export default async function WorkspacePage() {
             <h2>{project.name}</h2>
             <small>{repositories.map((r) => r.fullName).join(", ")}</small>
           </header>
-          {works.length === 0 && <p className="empty-note">업무가 아직 없다. Inbox 에서 PR 로 새 업무를 만들 수 있다.</p>}
+          {works.length === 0 && <p className="empty-note">업무가 아직 없다. 위의 New Work 로 빈 업무를 만들거나, Inbox 에서 PR 로 새 업무를 만들 수 있다.</p>}
           {works.map((summary) => {
             const { work, prs } = summary;
             return (
@@ -61,7 +76,9 @@ export default async function WorkspacePage() {
               </div>
               <StatusHistoryLine summary={summary} />
               {prs.length === 0 ? (
-                <p className="empty-note">연결된 PR 없음</p>
+                <p className="empty-note">
+                  연결된 PR 없음 · 표식 <code>{summary.marker}</code> 을 PR 에 넣으면 붙는다
+                </p>
               ) : (
                 <div className="pr-list">
                   {prs.map((pr) => (

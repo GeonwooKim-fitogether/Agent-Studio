@@ -10,6 +10,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createWorkFromPr, linkPrToWork, unlinkPr } from "../application/inbox-actions";
+import { createEmptyWork } from "../application/new-work";
 import { startPreview, stopPreview } from "../application/preview";
 import { isReviewVerdict, recordReviewDecision } from "../application/review";
 import { setWorkStatusByPerson } from "../application/work-status";
@@ -77,6 +78,20 @@ export async function unlinkAction(form: FormData): Promise<void> {
     const params = new URLSearchParams({ notice: "unlinked", repoId: String(ref.repoId), number: String(ref.number) });
     return `/inbox?${params.toString()}`;
   });
+}
+
+/**
+ * Workspace 의 New Work (feature-plan F5). 빈 업무를 만들고 Workspace 에 결과(표식 · Copy · Open Work)를 보인다.
+ * 제목이나 프로젝트가 받아들여지지 않으면 폼을 다시 열고 이유를 보인다. 제목은 주소에 싣지 않는다.
+ */
+export async function newEmptyWorkAction(form: FormData): Promise<void> {
+  const projectId = String(form.get("projectId") ?? "");
+  const container = getContainer();
+  await container.ensureSynced();
+  const result = await createEmptyWork(container.deps, { projectId, title: String(form.get("title") ?? "") });
+  const params = result.ok ? new URLSearchParams({ created: result.work.id }) : new URLSearchParams({ newWork: "1", problem: result.problem, project: projectId });
+  revalidatePath("/", "layout");
+  redirect(`/?${params.toString()}`);
 }
 
 export async function syncAction(): Promise<void> {
