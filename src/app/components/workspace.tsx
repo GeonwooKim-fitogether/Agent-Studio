@@ -179,6 +179,12 @@ export function OtherWork({
           ))}
         </div>
       )}
+      <p className="list-foot" data-testid="other-foot">
+        <span>
+          {view.other.length} works · {new Set(view.other.map((i) => i.projectId)).size} projects
+        </span>
+        <span>{query.projectId === null ? `${projects.length} projects in Studio` : "Filtered by project"}</span>
+      </p>
     </section>
   );
 }
@@ -248,8 +254,14 @@ export function UpNext({
         <p className="focus-context">{focus.projectName}</p>
         <h2 data-testid="up-next-title">{focus.workTitle}</h2>
         {summary.work.goal !== "" && <p className="focus-goal">{summary.work.goal}</p>}
+        {/* 서명: 결정의 대상인 커밋을 크게 (결정 18 — 본 커밋으로 결정한다). 그 아래 한 줄이 이유다 */}
+        {pr !== undefined && (
+          <code className="sha-big" data-testid="up-next-sha" title={pr.headSha}>
+            {shortSha(pr.headSha)}
+          </code>
+        )}
         {lead !== undefined && (
-          <p className="focus-reason" data-testid="up-next-reason">
+          <p className={pr !== undefined ? "sha-line" : "focus-reason"} data-testid="up-next-reason">
             {attentionText(lead).detail}
           </p>
         )}
@@ -258,7 +270,7 @@ export function UpNext({
             <div>
               <dt>Pull request</dt>
               <dd>
-                {pr.repoName}#{pr.number} · <code>{shortSha(pr.headSha)}</code>
+                {pr.repoName}#{pr.number}
               </dd>
             </div>
             <div>

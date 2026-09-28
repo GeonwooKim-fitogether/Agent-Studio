@@ -259,7 +259,7 @@ export const ATTENTION_KIND: Record<AttentionKind, string> = {
 /** 모을 것이 없을 때의 문장 (시안 v2) */
 export const ATTENTION_EMPTY = "지금 판단할 일이 없다.";
 
-/** Needs your attention 항목의 대상(굵은 글자)과 한 구절 설명. 설명은 Up next 와 Next action 에서만 보인다 — 줄에는 종류만 붙는다 */
+/** Needs your attention 항목의 대상(굵은 글자)과 한 구절 설명. 설명은 Up next 에서 큰 커밋 번호 아래 한 줄로 보인다(커밋은 거기 있으니 되풀이하지 않는다) — 줄에는 종류만 붙는다 */
 export function attentionText(item: AttentionItem): { readonly target: string; readonly detail: string } {
   switch (item.kind) {
     case "needs_review":
@@ -268,12 +268,12 @@ export function attentionText(item: AttentionItem): { readonly target: string; r
         detail:
           item.pr === null
             ? "업무 상태가 Needs review 다 · 판단할 PR 은 없다"
-            : `${item.pr.repoName}#${item.pr.number} 커밋 ${shortSha(item.pr.headSha)} · 검사 끝남, 판단 전`,
+            : `${item.pr.repoName}#${item.pr.number} · 검사 끝남, 판단 전`,
       };
     case "checks_failing":
       return {
         target: `'${item.workTitle}' · ${item.pr.repoName}#${item.pr.number}`,
-        detail: `${item.pr.repoName}#${item.pr.number} 커밋 ${shortSha(item.pr.headSha)} · 검사 실패, 작성자가 고칠 차례`,
+        detail: `${item.pr.repoName}#${item.pr.number} · 검사 실패, 작성자가 고칠 차례`,
       };
     case "outdated_preview":
       return {
@@ -323,7 +323,7 @@ export function recordStartText(since: string): string {
   return `기록 시작 · ${formatKst(since)}`;
 }
 
-/** PR 이벤트 한 줄 (PR 이름은 앞에 굵게 따로 붙인다) */
+/** PR 이벤트 한 줄 (PR 이름은 앞에 굵게 따로 붙인다). 커밋 번호는 연결 사건에만 적는다 — 줄마다 되풀이하지 않는다 (Focus 시안) */
 export function prEventText(event: PrEvent): string {
   switch (event.kind) {
     case "linked":
@@ -331,11 +331,11 @@ export function prEventText(event: PrEvent): string {
     case "unlinked":
       return `연결 해제 (Unlink) · Inbox 로 돌아갔다`;
     case "new_commit":
-      return `새 커밋 ${shortSha(event.commitSha)} (앞 커밋 ${shortSha(event.previousSha)})`;
+      return "새 커밋 도착";
     case "checks":
-      return `커밋 ${shortSha(event.commitSha)} · ${CHECKS[event.checks]}`;
+      return CHECKS[event.checks];
     case "merged":
-      return `병합됨 (Merged) · 커밋 ${shortSha(event.commitSha)}`;
+      return "병합됨 (Merged)";
     case "closed":
       return `닫힘 (Closed) · 병합 없이 닫혔다`;
     case "reopened":

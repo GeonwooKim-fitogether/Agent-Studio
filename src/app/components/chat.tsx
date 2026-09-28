@@ -13,7 +13,8 @@ import { PreviewStatus, previewSummary } from "./preview-status";
  * 업무 화면의 타임라인 (feature-plan F7, 결정 18 의 Q7). 무엇을 어떤 순서로 보일지는 application/timeline.ts 가 정하고,
  * 여기서는 받은 목록을 그리기만 한다.
  *
- *   - GitHub · Studio 의 시스템 사건(연결 · 새 커밋 · 검사 · 병합 · 상태 변화)은 **작은 한 줄**이다. 주인(GitHub · Studio)이 앞에 붙는다.
+ *   - GitHub · Studio 의 시스템 사건(연결 · 새 커밋 · 검사 · 병합 · 상태 변화)은 **작은 한 줄**이다. 주인(GitHub = 검정 점, Studio = 강조색 점)이 왼쪽 6px 점이다 —
+ *     칩과 커밋 번호를 줄마다 되풀이하지 않고, 커밋 번호는 연결 사건에만 적는다. 같은 날 셋 이상 이어지는 시스템 사건은 "N건 · 펼치기" 한 줄로 접힌다(details, 자바스크립트 없음).
  *   - 내부 검토 결정은 한 줄에 더해 Reason · Done when · 본 커밋("Reviewed abc1234")을 함께 보인다 — 다음 사람이 무엇을 고치면 되는지 읽는다.
  *   - PR 결과는 **최신 커밋 카드 하나**만 크게 보인다(제목 · PR · 커밋 · GitHub 칩 셋 · 결정이 있을 때만 Studio 줄 · 미리보기가 돌 때만 그 줄 · Open review).
  *     설명 문장은 두지 않는다(결정 18). 이전 커밋 카드는 한 줄로 접힌다(펼치면 그 커밋의 기록이 보이고, 버튼은 없다 — 결정 16-5). 답글 개수는 그대로 붙는다.
@@ -23,11 +24,37 @@ import { PreviewStatus, previewSummary } from "./preview-status";
 /** 타임라인 속 커밋 카드의 자리 (스레드를 닫거나 열 때 돌아오는 곳) */
 export const cardAnchor = (repoId: number, number: number, commitSha: string) => `card-${repoId}-${number}-${shortSha(commitSha)}`;
 
+/** 주인 점 — 6px. 이름은 화면 읽기 프로그램에만 읽힌다 */
 const Tag = ({ owner }: { owner: "github" | "studio" }) => (
-  <span className={`src ${owner === "github" ? "gh" : "studio"}`} data-testid="event-owner">
-    {OWNER_TAG[owner]}
+  <span className={`src ${owner === "github" ? "gh" : "studio"}`} data-testid="event-owner" title={OWNER_TAG[owner]}>
+    <span className="sr-only">{OWNER_TAG[owner]}</span>
   </span>
 );
+
+/** 접을 수 있는 조용한 시스템 사건 — 결정(이유가 붙는다) · 메모 · 카드는 아니다 */
+const isQuiet = (e: TimelineEntry) => e.type === "work_created" || e.type === "pr_event" || e.type === "status";
+/** 같은 날 이어지는 조용한 사건이 이만큼 이상이면 한 줄로 접는다 */
+const GROUP_MIN = 3;
+
+/** 항목들을 순서대로 놓되, 이어지는 조용한 사건 셋 이상은 한 묶음으로 */
+function groupQuiet(entries: readonly TimelineEntry[]): (TimelineEntry | { readonly type: "group"; readonly key: string; readonly items: readonly TimelineEntry[] })[] {
+  const out: (TimelineEntry | { readonly type: "group"; readonly key: string; readonly items: readonly TimelineEntry[] })[] = [];
+  let run: TimelineEntry[] = [];
+  const flush = () => {
+    if (run.length >= GROUP_MIN) out.push({ type: "group", key: `group-${run[0]!.key}`, items: run });
+    else out.push(...run);
+    run = [];
+  };
+  for (const e of entries) {
+    if (isQuiet(e)) run.push(e);
+    else {
+      flush();
+      out.push(e);
+    }
+  }
+  flush();
+  return out;
+}
 
 const Time = ({ at }: { at: string }) => (
   <time dateTime={at} title={formatKst(at)}>
@@ -51,9 +78,7 @@ export function Timeline({
   previewFor: (pr: PrCardView) => PreviewCardView | undefined;
   reviewHrefFor: (pr: PrCardView) => string;
 }) {
-  return (
-    <div className="tl" data-testid="timeline">
-      {entries.map((e) => {
+  const renderOne = (e: TimelineEntry): ReactNode => {
         switch (e.type) {
           case "note":
             return (
@@ -70,7 +95,6 @@ export function Timeline({
           case "work_created":
             return (
               <div key={e.key} className="ev sys" data-testid="event" data-kind="work_created">
-                <Icon name="clock" />
                 <Tag owner={e.owner} />
                 <span className="sys-text">
                   업무를 만들었다 · 표식 <code>{marker}</code>
@@ -81,7 +105,6 @@ export function Timeline({
           case "pr_event":
             return (
               <div key={e.key} className="ev sys" data-testid="event" data-kind={e.event.kind}>
-                <Icon name={e.owner === "github" ? "github" : "branch"} />
                 <Tag owner={e.owner} />
                 <span className="sys-text">
                   <b>
@@ -96,7 +119,6 @@ export function Timeline({
             return (
               <div key={e.key} className="ev decision" id={`decision-${e.key.replace(/^rev-/, "")}`} data-testid="event" data-kind="review" data-verdict={e.verdict}>
                 <div className="ev sys">
-                  <Icon name="review" />
                   <Tag owner={e.owner} />
                   <span className="sys-text">
                     <b>
@@ -133,7 +155,6 @@ export function Timeline({
           case "status":
             return (
               <div key={e.key} className="ev sys" data-testid="event" data-kind="status">
-                <Icon name="check" />
                 <Tag owner={e.owner} />
                 <span className="sys-text">
                   업무 상태 {WORK_STATUS[e.change.from]} → <b>{WORK_STATUS[e.change.to]}</b>{" "}
@@ -178,7 +199,25 @@ export function Timeline({
             );
           }
         }
-      })}
+  };
+  return (
+    <div className="tl" data-testid="timeline">
+      {groupQuiet(entries).map((e) =>
+        e.type === "group" ? (
+          <details key={e.key} className="sys-group" data-testid="event-group">
+            <summary>
+              <Icon name="chevron" />
+              <span className="sys-text">
+                <b>시스템 사건 {e.items.length}건</b> · 펼치기
+              </span>
+              {"at" in e.items[e.items.length - 1]! && <Time at={(e.items[e.items.length - 1] as { at: string }).at} />}
+            </summary>
+            <div className="sys-body">{e.items.map(renderOne)}</div>
+          </details>
+        ) : (
+          renderOne(e)
+        ),
+      )}
     </div>
   );
 }

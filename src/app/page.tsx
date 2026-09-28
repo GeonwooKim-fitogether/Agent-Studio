@@ -6,6 +6,7 @@ import { getWorkspace } from "../application/queries";
 import { getContainer } from "../server/container";
 import { NEW_WORK_PROBLEM } from "./components/labels";
 import { NewWorkButton, NewWorkCreated, NewWorkForm } from "./components/new-work";
+import { Topbar } from "./components/topbar";
 import { NeedsYourAttention, OtherWork, UpNext, type WorkspaceQuery } from "./components/workspace";
 
 export const dynamic = "force-dynamic";
@@ -50,34 +51,37 @@ export default async function WorkspacePage({ searchParams }: { searchParams: Se
   const projectName = view.projects.find((p) => p.project.id === query.projectId)?.project.name;
 
   return (
-    <div className="content">
-      <div className="pageheading">
-        <div>
-          <h1>Workspace</h1>
-          <p data-testid="workspace-lead">
-            {projectName !== undefined && <b>{projectName} · </b>}
-            {workCount === 0 ? "지금 판단할 업무가 없다." : `${workCount}개의 업무에 다음 결정이 필요하다.`}
-          </p>
+    <>
+      <Topbar crumbs={projectName === undefined ? ["Workspace"] : [<a key="w" href="/">Workspace</a>, projectName]} />
+      <div className="content">
+        <div className="pageheading">
+          <div>
+            <h1>Workspace</h1>
+            <p data-testid="workspace-lead">
+              {projectName !== undefined && <b>{projectName} · </b>}
+              {workCount === 0 ? "지금 판단할 업무가 없다." : `${workCount}개의 업무에 다음 결정이 필요하다.`}
+            </p>
+          </div>
+          {!formOpen && created === undefined && <NewWorkButton hasProjects={view.projects.length > 0} />}
         </div>
-        {!formOpen && created === undefined && <NewWorkButton hasProjects={view.projects.length > 0} />}
-      </div>
 
-      {formOpen && (
-        <NewWorkForm
-          projects={view.projects.map((p) => p.project)}
-          problem={isNewWorkProblem(problem) ? problem : null}
-          projectId={one(params["project"])}
-        />
-      )}
-      {created !== undefined && <NewWorkCreated work={created.work} projectName={created.projectName} />}
+        {formOpen && (
+          <NewWorkForm
+            projects={view.projects.map((p) => p.project)}
+            problem={isNewWorkProblem(problem) ? problem : null}
+            projectId={one(params["project"])}
+          />
+        )}
+        {created !== undefined && <NewWorkCreated work={created.work} projectName={created.projectName} />}
 
-      <div className="workspace-grid">
-        <div className="workspace-main">
-          <NeedsYourAttention view={focus} query={query} />
-          <OtherWork view={focus} query={query} projects={view.projects.map((p) => ({ id: p.project.id, name: p.project.name }))} />
+        <div className="workspace-grid">
+          <div className="workspace-main">
+            <NeedsYourAttention view={focus} query={query} />
+            <OtherWork view={focus} query={query} projects={view.projects.map((p) => ({ id: p.project.id, name: p.project.name }))} />
+          </div>
+          <UpNext focus={focus.focus} summary={focusSummary} preview={focusPr === undefined ? undefined : previews.get(focusPr.key)} />
         </div>
-        <UpNext focus={focus.focus} summary={focusSummary} preview={focusPr === undefined ? undefined : previews.get(focusPr.key)} />
       </div>
-    </div>
+    </>
   );
 }

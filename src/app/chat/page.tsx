@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { pickChatWork } from "../../application/queries";
 import { getContainer } from "../../server/container";
+import { Topbar } from "../components/topbar";
 import { LAST_WORK_COOKIE } from "../last-work-cookie";
 
 export const dynamic = "force-dynamic";
@@ -18,13 +19,16 @@ export default async function ChatPage() {
   const workId = await pickChatWork(container.deps, remembered);
   if (workId !== null) redirect(`/works/${encodeURIComponent(workId)}`);
   return (
-    <div className="content">
-      <div className="pageheading">
-        <h1>Chat</h1>
+    <>
+      <Topbar crumbs={["Chat"]} />
+      <div className="content">
+        <div className="pageheading">
+          <h1>Chat</h1>
+        </div>
+        <p className="empty-note" data-testid="chat-empty">
+          채널 하나가 업무 하나다. 아직 업무가 없어 열 채널이 없다 — <Link href="/">Workspace</Link> 의 New Work 로 업무를 만든다.
+        </p>
       </div>
-      <p className="empty-note" data-testid="chat-empty">
-        채널 하나가 업무 하나다. 아직 업무가 없어 열 채널이 없다 — <Link href="/">Workspace</Link> 의 New Work 로 업무를 만든다.
-      </p>
-    </div>
+    </>
   );
 }

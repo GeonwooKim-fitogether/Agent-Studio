@@ -6,6 +6,7 @@ import { getContainer } from "../../server/container";
 import { linkToWorkAction, newWorkFromPrAction } from "../actions";
 import { inboxReasonText } from "../components/labels";
 import { InboxCard } from "../components/pr-card";
+import { Topbar } from "../components/topbar";
 
 export const dynamic = "force-dynamic";
 
@@ -32,100 +33,103 @@ export default async function InboxPage({ searchParams }: { searchParams: Search
   const source = container.deps.reader.source;
 
   return (
-    <div className="content">
-      <div className="pageheading">
-        <div>
-          <h1>Inbox</h1>
-          <p>
-            어느 업무의 것인지 확인이 필요한 PR 이다.
-            {view.closedUnlinkedCount > 0 && (
-              <span className="closed-count" data-testid="closed-unlinked-count">
-                {" "}
-                닫히거나 병합된 PR {view.closedUnlinkedCount}개는 목록에 없다.
-              </span>
-            )}
-          </p>
-        </div>
-        <span className="pill" data-testid="inbox-total">
-          {view.total} unresolved
-        </span>
-      </div>
-
-      <Notice searchParams={await searchParams} />
-
-      {view.total === 0 ? (
-        <p className="empty-note" data-testid="inbox-empty">
-          연결을 기다리는 PR 이 없다.
-        </p>
-      ) : (
-        <details className="help" data-testid="marker-hint">
-          <summary aria-label="How PRs link automatically">?</summary>
-          <p>
-            PR 본문이나 브랜치 이름에 업무 표식(<code>studio-work-…</code>)을 앞뒤를 띄어 넣으면 다음 Sync 에서 그 업무에 자동으로 연결된다. 표식은 Work
-            선택지와 업무 화면에 있다.
-          </p>
-        </details>
-      )}
-
-      {view.groups.map(({ project, candidates, items }) => (
-        <section key={project.id} className="project" data-testid={`inbox-project-${project.id}`}>
-          <div className="section-head">
-            <h2>
-              {project.name} <small className="counter">{items.length}</small>
-            </h2>
+    <>
+      <Topbar crumbs={["Inbox"]} />
+      <div className="content">
+        <div className="pageheading">
+          <div>
+            <h1>Inbox</h1>
+            <p>
+              어느 업무의 것인지 확인이 필요한 PR 이다.
+              {view.closedUnlinkedCount > 0 && (
+                <span className="closed-count" data-testid="closed-unlinked-count">
+                  {" "}
+                  닫히거나 병합된 PR {view.closedUnlinkedCount}개는 목록에 없다.
+                </span>
+              )}
+            </p>
           </div>
-          {items.map(({ pr, reason, markedWorkIds, markedProjectName, unlinkedFromWorkTitle }) => (
-            <div key={pr.key} className="inbox-item" data-testid={`inbox-${pr.repoId}-${pr.number}`}>
-              <InboxCard
-                pr={pr}
-                source={source}
-                reason={inboxReasonText(reason, markedWorkIds, markedProjectName, unlinkedFromWorkTitle)}
-                actions={
-                  <div className="inbox-actions">
-                    {candidates.length > 0 ? (
-                      <>
-                        <form action={linkToWorkAction} className="inline-form">
-                          <input type="hidden" name="repoId" value={pr.repoId} />
-                          <input type="hidden" name="number" value={pr.number} />
-                          <select name="workId" required defaultValue="" aria-label="Work">
-                            <option value="" disabled>
-                              업무 선택
-                            </option>
-                            {candidates.map((w) => (
-                              <option key={w.id} value={w.id}>
-                                {w.title} · {markerFor(w.id)}
+          <span className="pill" data-testid="inbox-total">
+            {view.total} unresolved
+          </span>
+        </div>
+
+        <Notice searchParams={await searchParams} />
+
+        {view.total === 0 ? (
+          <p className="empty-note" data-testid="inbox-empty">
+            연결을 기다리는 PR 이 없다.
+          </p>
+        ) : (
+          <details className="help" data-testid="marker-hint">
+            <summary aria-label="How PRs link automatically">?</summary>
+            <p>
+              PR 본문이나 브랜치 이름에 업무 표식(<code>studio-work-…</code>)을 앞뒤를 띄어 넣으면 다음 Sync 에서 그 업무에 자동으로 연결된다. 표식은 Work
+              선택지와 업무 화면에 있다.
+            </p>
+          </details>
+        )}
+
+        {view.groups.map(({ project, candidates, items }) => (
+          <section key={project.id} className="project" data-testid={`inbox-project-${project.id}`}>
+            <div className="section-head">
+              <h2>
+                {project.name} <small className="counter">{items.length}</small>
+              </h2>
+            </div>
+            {items.map(({ pr, reason, markedWorkIds, markedProjectName, unlinkedFromWorkTitle }) => (
+              <div key={pr.key} className="inbox-item" data-testid={`inbox-${pr.repoId}-${pr.number}`}>
+                <InboxCard
+                  pr={pr}
+                  source={source}
+                  reason={inboxReasonText(reason, markedWorkIds, markedProjectName, unlinkedFromWorkTitle)}
+                  actions={
+                    <div className="inbox-actions">
+                      {candidates.length > 0 ? (
+                        <>
+                          <form action={linkToWorkAction} className="inline-form">
+                            <input type="hidden" name="repoId" value={pr.repoId} />
+                            <input type="hidden" name="number" value={pr.number} />
+                            <select name="workId" required defaultValue="" aria-label="Work">
+                              <option value="" disabled>
+                                업무 선택
                               </option>
-                            ))}
-                          </select>
-                          <button type="submit" className="btn primary">
-                            Link to Work
-                          </button>
-                        </form>
+                              {candidates.map((w) => (
+                                <option key={w.id} value={w.id}>
+                                  {w.title} · {markerFor(w.id)}
+                                </option>
+                              ))}
+                            </select>
+                            <button type="submit" className="btn primary">
+                              Link to Work
+                            </button>
+                          </form>
+                          <form action={newWorkFromPrAction} className="inline-form">
+                            <input type="hidden" name="repoId" value={pr.repoId} />
+                            <input type="hidden" name="number" value={pr.number} />
+                            <button type="submit" className="btn text">
+                              New Work
+                            </button>
+                          </form>
+                        </>
+                      ) : (
                         <form action={newWorkFromPrAction} className="inline-form">
                           <input type="hidden" name="repoId" value={pr.repoId} />
                           <input type="hidden" name="number" value={pr.number} />
-                          <button type="submit" className="btn text">
+                          <button type="submit" className="btn primary">
                             New Work
                           </button>
                         </form>
-                      </>
-                    ) : (
-                      <form action={newWorkFromPrAction} className="inline-form">
-                        <input type="hidden" name="repoId" value={pr.repoId} />
-                        <input type="hidden" name="number" value={pr.number} />
-                        <button type="submit" className="btn primary">
-                          New Work
-                        </button>
-                      </form>
-                    )}
-                  </div>
-                }
-              />
-            </div>
-          ))}
-        </section>
-      ))}
-    </div>
+                      )}
+                    </div>
+                  }
+                />
+              </div>
+            ))}
+          </section>
+        ))}
+      </div>
+    </>
   );
 }
 

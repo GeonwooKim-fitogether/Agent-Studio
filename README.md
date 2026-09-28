@@ -35,6 +35,8 @@ npm run test:e2e     # 첫 화면에서 출발하는 브라우저 테스트
 
 GitHub App 변수와 `GITHUB_TOKEN` 을 모두 설정하지 않으면 고정 시연 데이터로 돌고, 사이드바 아래(휴대전화는 위쪽 줄)에 "Fixture data" 로 표시됩니다. 변수의 뜻은 [`.env.example`](.env.example) 에 있습니다.
 
+화면의 라틴 글꼴은 Focus 시안과 같은 DM Sans 이고, 저장소 안의 파일(`public/fonts/DMSans[opsz,wght].woff2`, SIL Open Font License — `public/fonts/OFL-DMSans.txt`)로 실리므로 외부 네트워크에서 글꼴을 받지 않습니다. 한글은 기기의 글꼴(Pretendard · Apple SD Gothic Neo · Malgun Gothic · Noto Sans KR 순)입니다.
+
 `DATABASE_URL` 이 없으면 저장은 서버 메모리라서 서버를 다시 켜면 처음 상태로 돌아갑니다(`Connections` 화면에 "Stored in memory"). 서버를 다시 켜도 업무와 연결이 남게 하려면 로컬 PostgreSQL 을 씁니다(Docker 필요, `Connections` 화면에 "Stored in PostgreSQL"):
 
 ```bash

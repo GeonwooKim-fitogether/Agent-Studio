@@ -12,7 +12,7 @@ import { rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
-import { nav, openReview, openWork, watchServerErrors } from "./helpers";
+import { hydrated, nav, openReview, openWork, watchServerErrors } from "./helpers";
 
 const PORT = 3104;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -160,12 +160,14 @@ test.describe("Focus 흐름 (서버 3104)", () => {
     await goal.getByRole("textbox", { name: "Goal" }).fill("   ");
     await goal.getByRole("button", { name: "Save goal" }).click();
     await expect(page.getByTestId("goal-problem")).toContainText("목표가 비어 있다");
+    await hydrated(page);
     await page.getByTestId("goal").getByRole("textbox", { name: "Goal" }).fill("코치가 로그인 한 번으로 오늘 경기 명단까지 간다");
     await page.getByTestId("goal").getByRole("button", { name: "Save goal" }).click();
     await expect(page.getByTestId("goal-text")).toHaveText("코치가 로그인 한 번으로 오늘 경기 명단까지 간다");
     await expect(page.getByTestId("goal-edit")).toHaveText("Edit goal");
     await expect(page.getByTestId("next-action")).toHaveAttribute("data-kind", "link_pr");
     await page.getByTestId("goal-edit").click();
+    await hydrated(page);
     await page.getByTestId("goal").getByRole("textbox", { name: "Goal" }).fill("코치가 로그인 한 번으로 경기 명단까지 간다");
     await page.getByTestId("goal").getByRole("button", { name: "Save goal" }).click();
     await expect(page.getByTestId("goal-text")).toHaveText("코치가 로그인 한 번으로 경기 명단까지 간다");

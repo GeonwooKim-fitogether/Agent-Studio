@@ -6,7 +6,7 @@
  * 메모는 서버 메모리(기본) 또는 PostgreSQL(E2E_STORAGE=postgres)에 남는다. 서버를 껐다 켠 뒤에도 남는지는 restart.spec 이 본다.
  */
 import { expect, type Page, test } from "@playwright/test";
-import { openWork, watchServerErrors } from "./helpers";
+import { hydrated, openWork, watchServerErrors } from "./helpers";
 
 async function openCoachWork(page: Page): Promise<void> {
   await page.goto("/");
@@ -60,6 +60,7 @@ test("메모를 쓰면 타임라인에 '나' 와 시각과 함께 쌓이고, 새
   await memos.first().getByRole("link", { name: "Edit" }).click();
   const editBox = memos.first().getByRole("textbox", { name: "Edit memo" });
   await expect(editBox).toHaveValue('로그인 화면 문구 다시 확인 필요.\n"인증 코드" 와 "OTP" 가 섞여 있다.');
+  await hydrated(page);
   await editBox.fill("문구는 \"인증 코드\" 로 통일하기로.");
   await memos.first().getByRole("button", { name: "Save" }).click();
   await expect(memos.first().getByTestId("memo-body")).toHaveText('문구는 "인증 코드" 로 통일하기로.');
@@ -68,6 +69,7 @@ test("메모를 쓰면 타임라인에 '나' 와 시각과 함께 쌓이고, 새
 
   // Cancel 은 아무것도 바꾸지 않는다
   await memos.nth(1).getByRole("link", { name: "Edit" }).click();
+  await hydrated(page);
   await memos.nth(1).getByRole("textbox", { name: "Edit memo" }).fill("저장하지 않을 글");
   await memos.nth(1).getByRole("link", { name: "Cancel" }).click();
   await expect(memos.nth(1).getByTestId("memo-body")).toHaveText("두 번째 메모");

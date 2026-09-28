@@ -6,7 +6,7 @@
  */
 import { type ChildProcess, spawn } from "node:child_process";
 import { expect, test } from "@playwright/test";
-import { filterProject, nav, openConnections, openWork, sync, unlinkFromPanel, visibleWorks } from "./helpers";
+import { filterProject, hydrated, nav, openConnections, openWork, sync, unlinkFromPanel, visibleWorks } from "./helpers";
 
 const POSTGRES = process.env.E2E_STORAGE === "postgres";
 const PORT = 3102; // 3101 은 미리보기 기기를 연결한 서버(playwright.config.ts 의 PREVIEW_PORT)가 쓴다
@@ -69,6 +69,7 @@ test.describe("서버 재시작", () => {
       await composer.getByRole("button", { name: "Send" }).click();
       await expect(memos).toHaveCount(2);
       await memos.first().getByRole("link", { name: "Edit" }).click();
+      await hydrated(page);
       await memos.first().getByRole("textbox", { name: "Edit memo" }).fill("다시 켜도 남아야 할 메모 (고침)");
       await memos.first().getByRole("button", { name: "Save" }).click();
       await expect(memos.first().getByTestId("memo-edited")).toBeVisible();
