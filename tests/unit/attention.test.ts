@@ -53,7 +53,7 @@ describe("Needs your attention — 이미 있는 상태를 모으기만 한다",
     const work = await createWorkFromPr(deps, docs12); // 검사 없음 · 결정 없음 → R2 로 검토 필요
     const items = await attention(deps);
     expect(summary(items)).toEqual([`needs_review:${work.id}:demo-org/docs-site#12`, "checks_failing:a1b2c3:demo-org/payments#12", "inbox:4"]);
-    expect(attentionText(items[0]!).detail).toBe("demo-org/docs-site#12 커밋 6f7a8b9 · 검사 끝남, 판단 전");
+    expect(attentionText(items[0]!).detail).toBe("demo-org/docs-site#12 · 검사 끝남, 판단 전");
   });
 
   it("사람이 손으로 검토 필요를 골라 판단할 PR 이 없으면, PR 없이 업무만 오른다", async () => {

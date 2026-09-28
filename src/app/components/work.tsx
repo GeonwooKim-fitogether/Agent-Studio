@@ -7,7 +7,7 @@ import type { Work } from "../../domain/model";
 import { markDoneAction, setGoalAction } from "../actions";
 import { CopyButton } from "./copy-button";
 import { Icon } from "./glyph";
-import { DONE_CANDIDATE_NOTE, githubLine, linkLabel, MARKER_HINT, NO_INTERNAL_REVIEW, PREVIEW_HOST_OFFLINE, shortSha, VERDICT } from "./labels";
+import { CHECKS, DONE_CANDIDATE_NOTE, githubLine, linkLabel, MARKER_HINT, NO_INTERNAL_REVIEW, PREVIEW_HOST_OFFLINE, shortSha, VERDICT } from "./labels";
 import { PreviewStatus, previewSummary } from "./preview-status";
 import { WorkStatusPanel } from "./work-status";
 
@@ -74,7 +74,10 @@ export function GoalCard({ work, editing, problem }: { work: Work; editing: bool
   );
 }
 
-/** Next action 카드 (Q6). 상황마다 제목 · 한 구절(없을 수도 있다) · 주 버튼 하나. 규칙 설명은 두지 않는다(결정 18) */
+/**
+ * Next action 카드 (Q6). 상황마다 제목 · 주 버튼 하나. 규칙 설명은 두지 않는다(결정 18).
+ * PR 을 두고 결정하는 상황에서는 **결정의 대상인 커밋**을 크게 보인다(서명 — 결정 18 "본 커밋으로 결정한다") 그 아래 `저장소#번호 · 검사 상태` 한 줄.
+ */
 export function NextActionCard({
   action,
   work,
@@ -95,7 +98,16 @@ export function NextActionCard({
       <Icon name="arrow" />
     </a>
   );
-  const prLine = (pr: PrCardView) => `${pr.repoName}#${pr.number} · 커밋 ${shortSha(pr.headSha)}`;
+  /** 큰 커밋 번호 아래의 한 줄: `저장소#번호 · 검사 상태` (검사 실패는 경고색, 판단 전은 강조색) */
+  const prLine = (pr: PrCardView, note?: string) => (
+    <>
+      {pr.repoName}#{pr.number} ·{" "}
+      <span className={pr.github.checks === "failing" ? "checks-failing" : pr.github.checks === "passing" ? "checks-ready" : undefined}>
+        {CHECKS[pr.github.checks]}
+      </span>
+      {note !== undefined && ` · ${note}`}
+    </>
+  );
   let title: string;
   let text: ReactNode = null;
   let primary: ReactNode = null;
@@ -118,12 +130,12 @@ export function NextActionCard({
       break;
     case "review":
       title = "결과를 확인한다";
-      text = `${prLine(action.pr)} · 검사 끝남, 판단 전`;
+      text = prLine(action.pr, "판단 전");
       primary = button(reviewHref(work.id, action.pr), "Open review");
       break;
     case "outdated_preview":
       title = "미리보기를 최신 커밋으로 다시 연다";
-      text = `미리보기는 커밋 ${shortSha(action.previewCommitSha)}, 최신은 ${shortSha(action.pr.headSha)}`;
+      text = prLine(action.pr, `미리보기는 커밋 ${shortSha(action.previewCommitSha)}`);
       primary = button(reviewHref(work.id, action.pr), "Open review");
       break;
     case "checks_failing":
@@ -146,12 +158,12 @@ export function NextActionCard({
       break;
     case "changes_requested":
       title = "수정을 기다린다";
-      text = `${prLine(action.pr)} · Request changes 남김`;
+      text = prLine(action.pr, "Request changes 남김");
       primary = button(reviewHref(work.id, action.pr), "View decision");
       break;
     case "await_merge":
       title = "GitHub 병합을 기다린다";
-      text = `${prLine(action.pr)} · Studio 승인`;
+      text = prLine(action.pr, "Studio 승인");
       primary = button(reviewHref(work.id, action.pr), "View decision");
       break;
     case "checks_pending":
@@ -171,7 +183,12 @@ export function NextActionCard({
     <section className="next-action" aria-label="Next action" data-testid="next-action" data-kind={action.kind}>
       <p className="eyebrow">Next action</p>
       <h3>{title}</h3>
-      {text !== null && <p className="next-text">{text}</p>}
+      {reviewing && (
+        <code className="sha-big" data-testid="next-action-sha" title={action.pr.headSha}>
+          {shortSha(action.pr.headSha)}
+        </code>
+      )}
+      {text !== null && <p className={reviewing ? "sha-line" : "next-text"}>{text}</p>}
       {reviewing && !hostOnline && (
         <p className="host-offline" data-testid="host-offline-note">
           <Icon name="off" />
@@ -188,7 +205,38 @@ export function NextActionCard({
   );
 }
 
-/** Work details (Q6) — 속성, 상태, "Link a PR"(표식 · Copy). 휴대전화 폭에서는 Details 로 접힌다 */
+/**
+ * Work path — Brief · Build · Review · Done 네 점 (Focus 시안). 실제 상태로만 채운다:
+ * draft = Brief, in_progress(PR 연결) = Build, needs_review = Review, done_candidate = Review 끝 · Done 대기, done = Done.
+ */
+const PATH_STEPS = ["Brief", "Build", "Review", "Done"] as const;
+const PATH_INDEX: Record<Work["status"], number> = { draft: 0, in_progress: 1, needs_review: 2, done_candidate: 3, done: 4 };
+
+export function WorkPath({ status }: { status: Work["status"] }) {
+  const at = PATH_INDEX[status];
+  const state = (i: number) => (i < at ? "complete" : i === at ? "current" : "");
+  const dots: ReactNode[] = [];
+  PATH_STEPS.forEach((step, i) => {
+    if (i > 0) dots.push(<i key={`line-${i}`} className={i <= at ? "complete" : ""} />);
+    dots.push(<span key={step} className={state(i)} />);
+  });
+  return (
+    <div className="work-path" data-testid="work-path" data-step={at >= PATH_STEPS.length ? "done" : PATH_STEPS[at]!.toLowerCase()} aria-label="Work path">
+      <div className="path-steps" aria-hidden="true">
+        {dots}
+      </div>
+      <div className="path-caption">
+        {PATH_STEPS.map((step, i) => (
+          <span key={step} className={state(i)}>
+            {step}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Work details (Q6) — 속성, Work path, 상태, "Link a PR"(표식 · Copy). 휴대전화 폭에서는 Details 로 접힌다 */
 export function WorkDetails({
   summary,
   projectName,
@@ -253,6 +301,7 @@ export function WorkDetails({
           </>
         )}
       </dl>
+      <WorkPath status={work.status} />
       <WorkStatusPanel summary={summary} />
       <details className="link-pr" id="link-pr" open={prs.length === 0}>
         <summary>Link a PR</summary>
