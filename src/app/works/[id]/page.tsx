@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
-import { nextActionFor, primaryPrOf } from "../../../application/focus";
+import { nextActionFor } from "../../../application/focus";
 import { getPreviewCards } from "../../../application/preview";
 import { getWorkChat } from "../../../application/queries";
 import { decisionBlockOf } from "../../../application/review";
@@ -8,14 +8,14 @@ import { parseThreadKey } from "../../../domain/memo";
 import { getContainer } from "../../../server/container";
 import { Timeline } from "../../components/chat";
 import { Icon } from "../../components/glyph";
-import { GOAL_PROBLEM, kstDay, MEMO_PROBLEM, REVIEW_PROBLEMS, type ReviewProblem } from "../../components/labels";
+import { allSameRepo, GOAL_PROBLEM, kstDay, MEMO_PROBLEM, REVIEW_PROBLEMS, type ReviewProblem } from "../../components/labels";
 import { MemoComposer } from "../../components/memo";
 import { RememberWork } from "../../components/remember-work";
 import { ReviewPanel } from "../../components/review-panel";
 import { ThreadPanel } from "../../components/thread";
 import { Topbar } from "../../components/topbar";
 import { GoalCard, NextActionCard, reviewHref, WorkDetails } from "../../components/work";
-import { StatusBadge } from "../../components/work-status";
+import { WorkHeader } from "../../components/work-header";
 import { parseReviewKey, readReviewDraft, REVIEW_DRAFT_COOKIE } from "../../review-draft";
 
 export const dynamic = "force-dynamic";
@@ -23,13 +23,13 @@ export const dynamic = "force-dynamic";
 /**
  * 업무 화면 (결정 18, Q6 · Q7 · Q8) — 목표 · 대화 · 연결된 PR 결과 · 다음 행동이 한 맥락에서 이어진다. 같은 주소가 그 업무의 Chat 이다(결정 13).
  *
- *   위쪽 줄: Studio / 프로젝트 / 표식 (빵부스러기). 머리: `표식 · 상태` 눈썹 → 제목. 탭은 두지 않는다(Conversation 하나뿐이라)
+ *   위쪽 줄: Studio / 프로젝트 / 표식 (빵부스러기). 머리: `표식 · 상태` 눈썹 → 제목 → Conversation · Flow(Demo) 탭 (결정 20)
  *   왼쪽: Goal(고정) → 타임라인(시스템 사건은 작은 한 줄, PR 결과는 최신 커밋 카드 하나, 이전 커밋 카드는 접힘) → 메모 입력칸
  *   오른쪽: Work details — 맨 위 Next action, 그 아래 속성 · 상태 · Link a PR
  *   휴대전화 폭: 한 열. 목표 바로 아래에 Next action 이 오고, 속성은 Details 로 접는다(?details=1)
  *
  * 오른쪽 칸을 바꾸는 것 둘 — 주소 파라미터로 같은 화면을 다시 그린다(자바스크립트 없이 동작한다). 휴대전화 폭에서는 화면 전체를 덮는다.
- *   ?review=<저장소 ID>:<PR 번호>  Review 패널 (본 커밋 · GitHub 상태 · 미리보기 · 결정 폼 · Link)
+ *   ?review=<저장소 ID>:<PR 번호>  Review 패널 (본 커밋 · 아이콘 줄 · 결정 폼 · 미리보기 · Link)
  *   ?thread=<스레드 이름>          스레드 칸 (F9)
  * 메모의 Edit 은 ?edit=<메모 ID>, 목표 고치기는 ?goal=edit 로 연다.
  */
@@ -64,9 +64,7 @@ export default async function WorkPage({
   const { work, project, marker, prs } = chat;
   const previews = await getPreviewCards(container.deps, container.preview, prs);
   const running = container.preview.current();
-  const hostOnline = container.preview.status().online;
   const action = nextActionFor(chat, running);
-  const primary = primaryPrOf(chat, action);
 
   // Review 패널: 이 업무에 연결된 PR 일 때만 연다(연결이 풀린 PR 의 오래된 주소면 열지 않는다)
   const reviewPr = wantedReview === null ? undefined : prs.find((p) => p.repoId === wantedReview.repoId && p.number === wantedReview.number);
@@ -91,21 +89,7 @@ export default async function WorkPage({
           </span>,
         ]}
       />
-      <header className="work-header">
-        <div className="work-head">
-          <p className="work-eyebrow">
-            {/* 휴대전화 폭에는 빵부스러기가 없어 프로젝트 이름을 여기에 */}
-            <a className="mobile-only" href={`/?project=${encodeURIComponent(project.id)}`}>
-              {project.name}
-            </a>
-            <span className="mono" data-testid="work-eyebrow-marker">
-              {marker}
-            </span>
-            <StatusBadge status={work.status} />
-          </p>
-          <h1>{work.title}</h1>
-        </div>
-      </header>
+      <WorkHeader work={work} project={project} marker={marker} view="conversation" />
 
       {(statusRefused || previewRefused) && (
         <div className="notice-bar">
@@ -128,7 +112,6 @@ export default async function WorkPage({
           <section className="tl-col" aria-label="Timeline">
             <Timeline
               entries={chat.timeline}
-              marker={marker}
               workId={work.id}
               editingMemoId={editingMemoId}
               previewFor={(pr) => previews.get(pr.key)}
@@ -145,15 +128,15 @@ export default async function WorkPage({
           <MemoComposer workId={work.id} problem={memoProblem} />
         </div>
         <div className="work-side">
-          <NextActionCard action={action} work={work} marker={marker} previews={previews} hostOnline={hostOnline} />
-          <WorkDetails summary={chat} projectName={project.name} primary={primary} previews={previews} open={showDetails} />
+          <NextActionCard action={action} work={work} marker={marker} previews={previews} sameRepo={allSameRepo(prs.map((p) => p.repoName))} />
+          <WorkDetails summary={chat} projectName={project.name} open={showDetails} />
         </div>
         {reviewPr !== undefined && (
           <ReviewPanel
             work={work}
             pr={reviewPr}
             preview={previews.get(reviewPr.key)}
-            hostOnline={hostOnline}
+            sameRepo={allSameRepo(prs.map((p) => p.repoName))}
             block={decisionBlockOf({ ...reviewPr, state: reviewPr.github.state }, running)}
             problem={reviewProblem}
             draft={draft}

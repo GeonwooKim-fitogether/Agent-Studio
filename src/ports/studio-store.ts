@@ -19,6 +19,7 @@ import type {
   Work,
   WorkStatus,
 } from "../domain/model";
+import type { AgentDraft } from "../domain/agent-draft";
 import type { Memo } from "../domain/memo";
 import type { PrEvent } from "../domain/pr-event";
 import type { PrFingerprint, StatusChange } from "../domain/work-status";
@@ -49,6 +50,11 @@ export interface StudioSeed {
   readonly events?: readonly PrEvent[];
   /** 메모 (feature-plan F8). 시연 데이터는 넣지 않는다 */
   readonly memos?: readonly Memo[];
+  /**
+   * Agent 초안 (결정 20). fixture 모드의 시연 데이터는 Planner · Builder · Reviewer 셋을 심는다.
+   * PostgreSQL 은 초안 표가 비어 있을 때만 심는다(프로젝트가 이미 있는 데이터베이스라도) — 사람이 고친 초안을 덮어쓰지 않는다.
+   */
+  readonly agents?: readonly AgentDraft[];
 }
 
 /**
@@ -170,6 +176,20 @@ export interface StudioStore {
    * 이미 지운 메모면 아무것도 바꾸지 않는다(두 번 눌러도 처음 지운 시각이 남는다).
    */
   deleteMemo(target: { readonly workId: string; readonly id: string; readonly deletedAt: string }): Promise<void>;
+
+  /** Agent 초안 전부 (결정 20). 만든 순서(오래된 것부터, 같은 시각이면 ID 순)다 */
+  listAgentDrafts(): Promise<AgentDraft[]>;
+  getAgentDraft(id: string): Promise<AgentDraft | undefined>;
+  /**
+   * Agent 초안 하나를 만든다 (Add Agent). 확인 순서: 칸이 규칙 밖(isAcceptedAgentDraft)이거나 시각이 비었다 → invalid_input,
+   * 같은 ID 의 초안 → invalid_input. 걸리면 아무것도 쓰지 않는다.
+   */
+  createAgentDraft(draft: AgentDraft): Promise<void>;
+  /**
+   * 초안의 칸을 고친다 (Save draft). 만든 시각은 그대로, 고친 시각은 updatedAt 으로 바뀐다.
+   * 확인 순서: 칸이 규칙 밖 → invalid_input, 없는 초안 → not_found. 모델 칸은 없다 — 연결된 모델이 없으므로 저장하지 않는다.
+   */
+  saveAgentDraft(update: Pick<AgentDraft, "id" | "name" | "summary" | "instructions" | "skills" | "updatedAt">): Promise<void>;
 
   /** 미리보기 실행은 2단계에서 붙으므로 이번 단위에는 읽기만 있다. */
   listPreviewRecords(): Promise<PreviewRecord[]>;

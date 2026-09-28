@@ -72,13 +72,21 @@ export async function openReview(page: Page, repoId: number, number: number): Pr
   await page.getByTestId(`pr-card-${repoId}-${number}`).getByTestId("open-review").click();
   const panel = page.getByTestId("review-panel");
   await expect(panel).toBeVisible();
-  await expect(panel.getByRole("heading", { name: "Review work" })).toBeVisible();
+  await expect(panel.getByTestId("review-commit")).toBeVisible(); // 머리: PR 제목 · #번호 · 본 커밋 · 아이콘 줄 (결정 19)
   return panel;
+}
+
+/** Review 패널의 Link 절(연결 방식 · Unlink)을 편다 — 접혀 있다 (결정 19) */
+export async function openLinkSection(panel: Locator): Promise<void> {
+  const section = panel.locator("details.link-section");
+  if ((await section.getAttribute("open")) === null) await section.locator("summary").click();
+  await expect(panel.getByRole("button", { name: "Unlink" })).toBeVisible();
 }
 
 /** Review 패널의 Link 절에서 확인을 체크하고 Unlink 한다 */
 export async function unlinkFromPanel(page: Page, repoId: number, number: number): Promise<void> {
   const panel = await openReview(page, repoId, number);
+  await openLinkSection(panel);
   await panel.getByRole("checkbox").check();
   await panel.getByRole("button", { name: "Unlink" }).click();
 }

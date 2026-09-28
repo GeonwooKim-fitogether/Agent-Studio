@@ -46,7 +46,7 @@ async function stopServer(child: ChildProcess): Promise<void> {
 test.describe("서버 재시작", () => {
   test.skip(!POSTGRES, "PostgreSQL 모드(E2E_STORAGE=postgres)에서만 돈다");
 
-  test("사람이 만든 연결 · 새 업무 · 연결 해제 · 메모가 서버를 껐다 켠 뒤에도 그대로 보인다", async ({ page }) => {
+  test("사람이 만든 연결 · 새 업무 · 연결 해제 · 메모 · Agent 초안이 서버를 껐다 켠 뒤에도 그대로 보인다", async ({ page }) => {
     test.setTimeout(120_000);
     let server = await startServer();
     try {
@@ -86,13 +86,23 @@ test.describe("서버 재시작", () => {
       await openWork(page, "a1b2c3");
       await unlinkFromPanel(page, 710001, 12);
       await expect(page).toHaveURL(/notice=unlinked/);
+      // Agent 초안 (결정 20): 하나를 만들어 저장한다
+      await nav(page).getByRole("link", { name: /^Agents/ }).click();
+      await page.getByTestId("add-agent").locator("summary").click();
+      await page.getByRole("textbox", { name: "New agent name" }).fill("Keeper");
+      await page.getByRole("button", { name: "Create" }).click();
+      await expect(page.getByTestId("agent-saved")).toContainText("Created draft");
+      await hydrated(page);
+      await page.getByTestId("agent-editor").getByRole("textbox", { name: /^What it does/ }).fill("다시 켜도 남는 초안");
+      await page.getByTestId("agent-editor").getByRole("button", { name: "Save draft" }).click();
+      await expect(page.getByTestId("agent-saved")).toContainText("Saved draft");
 
       await stopServer(server); // 서버를 끈다
       await expect(page.goto(BASE)).rejects.toThrow(); // 정말 꺼졌다
       server = await startServer(); // 다시 켠다
 
       await page.goto(BASE);
-      await expect(page.getByTestId("work-b4c5d6")).toContainText("demo-org/coach-web#12");
+      await expect(page.getByTestId("work-b4c5d6").getByTestId("work-pr")).toContainText("#12");
       await filterProject(page, "docs");
       await expect(visibleWorks(page)).toHaveCount(1); // 시연 데이터를 다시 심지 않았다
       await expect(visibleWorks(page).first()).toContainText("로그인 안내 문서");
@@ -111,6 +121,9 @@ test.describe("서버 재시작", () => {
       await expect(memosAfter.first().getByTestId("memo-edited")).toHaveText("고침");
       await expect(memosAfter.nth(1).getByTestId("memo-deleted")).toContainText("지워진 메모");
       await expect(memosAfter.nth(1)).not.toContainText("지울 메모");
+      // Agent 초안이 남았고, 시연 초안을 다시 심지 않았다
+      await nav(page).getByRole("link", { name: /^Agents/ }).click();
+      await expect(page.getByTestId("agent-list").locator(".agent-item")).toHaveText([/Planner/, /Builder/, /Reviewer/, /Keeper.*다시 켜도 남는 초안/]);
       expect(newWorkUrl).toMatch(/^\/works\//);
     } finally {
       await stopServer(server);

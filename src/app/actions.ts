@@ -17,6 +17,8 @@ import { createEmptyWork } from "../application/new-work";
 import { startPreview, stopPreview } from "../application/preview";
 import { decisionBlockOf, isReviewVerdict, readFreshHead, recordReviewDecision } from "../application/review";
 import { setWorkGoal } from "../application/work-goal";
+import { addAgent, saveAgent } from "../application/agents";
+import { AGENT_DRAFT_COOKIE, problemsToParams } from "./agent-draft-cookie";
 import { checkReviewNote } from "../domain/review-note";
 import type { ReviewProblem } from "./components/labels";
 import { REVIEW_DRAFT_COOKIE, reviewKeyOf } from "./review-draft";
@@ -312,4 +314,52 @@ export async function writeReplyAction(form: FormData): Promise<void> {
   // 답글에 단 답글은 그 답글이 달린 스레드로 들어갔으므로(한 단계만), 돌아갈 스레드도 실제로 들어간 스레드다
   if (result.ok) redirect(memoPath(workId, { thread: threadKey(result.memo.thread!) }, memoAnchor(result.memo.id)));
   redirect(target === null ? memoPath(workId, {}, null) : memoPath(workId, { thread: key, reply: result.problem }, "thread"));
+}
+
+/**
+ * Agents 화면의 Add Agent (결정 20 — Demo). 이름만 받아 초안을 만들고, 그 초안을 고른 채 Agents 로 돌아간다.
+ * 걸리면 Add Agent 칸을 연 채로 이유를 보인다. 저장만 할 뿐 아무것도 실행하지 않는다.
+ */
+export async function addAgentAction(form: FormData): Promise<void> {
+  const container = getContainer();
+  await container.ensureSynced();
+  const result = await addAgent(container.deps, { name: String(form.get("name") ?? "") });
+  revalidatePath("/", "layout");
+  if (result.ok) redirect(`/agents?${new URLSearchParams({ agent: result.agent.id, created: "1" }).toString()}`);
+  const problem = result.problems?.name ?? "empty";
+  redirect(`/agents?${new URLSearchParams({ add: problem }).toString()}#add-agent`);
+}
+
+/**
+ * Agents 화면의 Save draft (결정 20 — Demo). 이름 · 소개 · 지시문 · Skill 을 저장한다. 모델 칸은 받지 않는다(연결된 모델이 없다).
+ * 칸 규칙에 걸리면 적은 칸을 짧은 쿠키에 두고(주소에 싣지 않는다) 칸마다의 이유와 함께 같은 초안으로 돌아간다.
+ */
+export async function saveAgentDraftAction(form: FormData): Promise<void> {
+  const input = {
+    id: String(form.get("id") ?? ""),
+    name: String(form.get("name") ?? ""),
+    summary: String(form.get("summary") ?? ""),
+    instructions: String(form.get("instructions") ?? ""),
+    skills: form.getAll("skills").map(String),
+  };
+  const container = getContainer();
+  await container.ensureSynced();
+  const result = await saveAgent(container.deps, input);
+  const jar = await cookies();
+  revalidatePath("/", "layout");
+  if (result.ok) {
+    jar.delete(AGENT_DRAFT_COOKIE);
+    redirect(`/agents?${new URLSearchParams({ agent: result.agent.id, saved: "1" }).toString()}`);
+  }
+  if (result.problems === undefined) {
+    jar.delete(AGENT_DRAFT_COOKIE);
+    redirect(`/agents?${new URLSearchParams({ missing: "1" }).toString()}`);
+  }
+  const draft = encodeURIComponent(JSON.stringify(input));
+  // 쿠키 하나는 4KB 안이어야 한다. 넘으면 되살리지 않는다(적은 글은 잃지만 저장하지 않았다는 사실과 이유는 그대로 보인다)
+  if (draft.length < 3800) jar.set(AGENT_DRAFT_COOKIE, draft, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 600 });
+  else jar.delete(AGENT_DRAFT_COOKIE);
+  const params = new URLSearchParams({ agent: input.id });
+  for (const bad of problemsToParams(result.problems)) params.append("bad", bad);
+  redirect(`/agents?${params.toString()}`);
 }

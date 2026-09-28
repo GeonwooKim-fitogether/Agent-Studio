@@ -27,10 +27,16 @@ test("Workspace 맨 위에 검사 실패와 Inbox 줄이 업무 하나에 한 �
   await expect(failing).toContainText("Checks failing");
   await expect(failing).toContainText("로그인 화면 만들기");
   await expect(failing).toContainText("결제 서비스");
-  await expect(failing).toContainText("demo-org/payments#12");
-  // 이유 문장은 줄이 아니라 Up next 에만 있다 (결정 18 — 줄은 제목 · 프로젝트 · 종류 · PR 한 구절)
+  // 줄은 제목 · 프로젝트 · 상태 아이콘 하나다 — PR 글자는 없다 (결정 19). 종류(Checks failing)는 아이콘의 title
+  await expect(failing).not.toContainText("#12");
+  await expect(failing.locator(".status-icon").first()).toHaveAttribute("title", "Checks failing");
   await expect(failing).not.toContainText("작성자가 고칠 차례");
-  await expect(page.getByTestId("up-next-reason")).toHaveText("demo-org/payments#12 · 검사 실패, 작성자가 고칠 차례");
+  // Up next: 큰 커밋 번호 한 번 · #번호 · 아이콘 줄. 이유는 검사 칸의 title 이다
+  const upNext = page.getByTestId("up-next");
+  await expect(upNext.getByTestId("up-next-sha")).toHaveText("3c4d5e6");
+  await expect(upNext.getByTestId("up-next-pr")).toContainText("#12");
+  await expect(upNext.getByTitle("Checks failing — 작성자가 고칠 차례")).toBeVisible();
+  await expect(upNext).not.toContainText("demo-org/");
   const inbox = rows(page).nth(1);
   await expect(inbox).toHaveAttribute("data-kind", "inbox");
   await expect(inbox.getByTestId("inbox-count")).toHaveText("5");
@@ -78,8 +84,9 @@ test.describe("검토 필요 줄 (서버 3101)", () => {
     await expect(first).toHaveAttribute("data-kind", "needs_review");
     await expect(first).toContainText("Needs review");
     await expect(first).toContainText("로그인 안내 문서");
-    await expect(first).toContainText("demo-org/docs-site#12");
-    await expect(page.getByTestId("up-next-reason")).toHaveText("demo-org/docs-site#12 · 검사 끝남, 판단 전");
+    await expect(first).not.toContainText("#12");
+    await expect(page.getByTestId("up-next-pr")).toContainText("#12");
+    await expect(page.getByTestId("up-next").locator('[data-slot="checks"]')).toHaveAttribute("title", "No checks — 판단 전");
     await expect(page.getByTestId("inbox-count")).toHaveText("4");
     await expect(page.getByTestId("up-next-title")).toHaveText("로그인 안내 문서");
     await expect(page.getByTestId("up-next-open")).toHaveText(/Review work/);

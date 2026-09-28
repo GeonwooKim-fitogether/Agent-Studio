@@ -2,28 +2,47 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import { DemoTag } from "./components/demo";
 import { Icon, type IconName } from "./components/glyph";
 
 /**
- * 사이드바 · 아래쪽 탭의 내비게이션 (결정 18, Q1). 실제로 동작하는 화면만 둔다(결정 7) — Flow · Agents 는 3단계 전이라 두지 않는다(Q3).
- * 업무 화면이 곧 그 업무의 Chat 이라 /works/… 에서는 Chat 이 켜진다.
+ * 사이드바 · 아래쪽 탭의 내비게이션 (결정 18, Q1 · 결정 20). Flow · Agents 는 실행 연결이 없는 Demo 라 점선 `Demo` 표시를 붙인다(결정 7).
+ * 업무 화면이 곧 그 업무의 Chat 이라 /works/… 에서는 Chat 이 켜지고, 그 업무의 Flow(/works/…/flow)에서는 Flow 가 켜진다.
  * 자바스크립트가 없어도 링크는 그대로 동작한다(켜진 표시만 서버가 그린 그대로다).
  */
 function useActive() {
   const pathname = usePathname();
+  const workFlow = pathname.startsWith("/works/") && pathname.endsWith("/flow");
   return {
     workspace: pathname === "/",
-    chat: pathname === "/chat" || pathname.startsWith("/works/"),
+    chat: pathname === "/chat" || (pathname.startsWith("/works/") && !workFlow),
+    flow: pathname === "/flow" || workFlow,
+    agents: pathname.startsWith("/agents"),
     inbox: pathname.startsWith("/inbox"),
     connections: pathname.startsWith("/connections"),
   };
 }
 
-function NavLink({ href, label, icon, active, count }: { href: string; label: string; icon: IconName; active: boolean; count?: number }) {
+function NavLink({
+  href,
+  label,
+  icon,
+  active,
+  count,
+  demo,
+}: {
+  href: string;
+  label: string;
+  icon: IconName;
+  active: boolean;
+  count?: number;
+  demo?: boolean;
+}) {
   return (
     <Link href={href} className={active ? "nav-item active" : "nav-item"} aria-current={active ? "page" : undefined}>
       <Icon name={icon} />
       <span className="nav-label">{label}</span>
+      {demo === true && <DemoTag />}
       {count !== undefined && count > 0 && (
         <span className="count" aria-label={`${count} waiting`}>
           {count}
@@ -39,6 +58,8 @@ export function Nav({ inboxCount }: { inboxCount: number }) {
     <nav className="nav" aria-label="Main">
       <NavLink href="/" label="Workspace" icon="workspace" active={active.workspace} />
       <NavLink href="/chat" label="Chat" icon="chat" active={active.chat} />
+      <NavLink href="/flow" label="Flow" icon="flow" active={active.flow} demo />
+      <NavLink href="/agents" label="Agents" icon="agents" active={active.agents} demo />
       <NavLink href="/inbox" label="Inbox" icon="inbox" active={active.inbox} count={inboxCount} />
     </nav>
   );
@@ -115,15 +136,34 @@ export function ProjectNav({ projects }: { projects: readonly ProjectItem[] }) {
   );
 }
 
-/** 휴대전화 폭의 아래쪽 탭 (Q1) */
+/** 휴대전화 폭의 아래쪽 탭 다섯 칸 (Q1 · 결정 20). Connections 는 위쪽 줄 오른쪽의 아이콘(MobileConnections)이다 */
 export function MobileTabs({ inboxCount }: { inboxCount: number }) {
   const active = useActive();
   return (
     <nav className="mobile-tabs" aria-label="Main">
       <NavLink href="/" label="Workspace" icon="workspace" active={active.workspace} />
       <NavLink href="/chat" label="Chat" icon="chat" active={active.chat} />
+      <NavLink href="/flow" label="Flow" icon="flow" active={active.flow} demo />
+      <NavLink href="/agents" label="Agents" icon="agents" active={active.agents} demo />
       <NavLink href="/inbox" label="Inbox" icon="inbox" active={active.inbox} count={inboxCount} />
-      <NavLink href="/connections" label="Connections" icon="settings" active={active.connections} />
+    </nav>
+  );
+}
+
+/** 휴대전화 폭 위쪽 줄 오른쪽의 Connections 아이콘 (결정 20) — 넓은 화면의 SettingsNav 와 같은 이름의 내비게이션이다 */
+export function MobileConnections() {
+  const active = useActive();
+  return (
+    <nav className="mobile-settings" aria-label="Settings">
+      <Link
+        href="/connections"
+        className={active.connections ? "conn-link active" : "conn-link"}
+        aria-current={active.connections ? "page" : undefined}
+        aria-label="Connections"
+        title="Connections"
+      >
+        <Icon name="settings" />
+      </Link>
     </nav>
   );
 }

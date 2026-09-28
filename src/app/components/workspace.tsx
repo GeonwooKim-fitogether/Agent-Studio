@@ -2,19 +2,18 @@ import Link from "next/link";
 import type { AttentionRow, OtherWorkFilter, OtherWorkItem, WorkspaceFocusView } from "../../application/focus";
 import type { PreviewCardView } from "../../application/preview";
 import type { WorkSummaryView } from "../../application/queries";
-import { visibleReviews } from "../../application/review";
 import type { WorkStatus } from "../../domain/model";
-import { Icon } from "./glyph";
-import { ATTENTION_EMPTY, ATTENTION_KIND, attentionText, githubLine, shortSha, VERDICT } from "./labels";
-import { PreviewStatus, previewSummary } from "./preview-status";
+import { Icon, type IconName } from "./glyph";
+import { allSameRepo, ATTENTION_EMPTY, ATTENTION_KIND, attentionText, prRef, shortSha } from "./labels";
+import { PrIcons } from "./pr-icons";
 import { StatusBadge } from "./work-status";
 
 /**
  * Workspace 의 세 조각 (결정 18, Q5). 무엇을 어느 순서로 보일지는 application/focus.ts 가 정하고, 여기서는 받은 것을 그리기만 한다.
- *   - NeedsYourAttention: 업무 하나에 한 줄(제목, 그리고 `프로젝트 · 종류 · PR` 한 구절 — 설명 문장은 Up next 에만). 넓은 화면에서 줄을 누르면 오른쪽 Up next 가 그 업무로 바뀌고(?focus=),
+ *   - NeedsYourAttention: 업무 하나에 한 줄 — 제목 · 프로젝트 · 왼쪽 상태 아이콘 하나(종류는 아이콘의 title). PR 글자는 두지 않는다(결정 19). 넓은 화면에서 줄을 누르면 오른쪽 Up next 가 그 업무로 바뀌고(?focus=),
  *     휴대전화 폭에서는 곧바로 업무 화면으로 간다(두 링크 중 하나만 보인다). 자바스크립트 없이도 동작한다.
- *   - OtherWork: attention 에 없는 업무의 목록. 필터 탭(Open · Done candidate · Done)과 프로젝트.
- *   - UpNext: 고른 업무 하나의 요약과 버튼 하나.
+ *   - OtherWork: attention 에 없는 업무의 목록(제목 · 프로젝트, PR 이 있으면 `#12` 와 세 칸 아이콘 줄). 필터 탭(Open · Done candidate · Done)과 프로젝트.
+ *   - UpNext: 고른 업무 하나 — 프로젝트 · 제목 · 큰 커밋 번호 한 번 · `#12` 와 아이콘 줄 · 버튼 하나.
  * Workspace 는 PR 카드 전체를 반복해 그리지 않는다 — 카드는 업무 화면에 있다.
  */
 
@@ -62,6 +61,13 @@ export function NeedsYourAttention({ view, query }: { view: WorkspaceFocusView; 
   );
 }
 
+/** attention 줄 왼쪽의 상태 아이콘 — 종류마다 하나. 아이콘 줄(pr-icons.tsx)과 같은 모양 · 색이다 */
+const LEAD_ICON: Record<"needs_review" | "checks_failing" | "outdated_preview", { readonly name: IconName; readonly tone: string }> = {
+  needs_review: { name: "review", tone: "ready" },
+  checks_failing: { name: "checksFailing", tone: "fail" },
+  outdated_preview: { name: "monitor", tone: "fail" },
+};
+
 function AttentionLine({ row, query, selected }: { row: AttentionRow; query: WorkspaceQuery; selected: boolean }) {
   if (row.kind === "inbox") {
     return (
@@ -73,7 +79,7 @@ function AttentionLine({ row, query, selected }: { row: AttentionRow; query: Wor
           <b className="row-title">
             PR <span data-testid="inbox-count">{row.count}</span>개가 업무 연결을 기다린다
           </b>
-          <small className="row-meta">Inbox · {attentionText(row).detail}</small>
+          <small className="row-meta">Inbox</small>
         </span>
         <span className="go">Open Inbox</span>
         <Icon name="chevron" />
@@ -82,22 +88,23 @@ function AttentionLine({ row, query, selected }: { row: AttentionRow; query: Wor
   }
   const [lead, ...rest] = row.reasons;
   if (lead === undefined) return null;
+  const icon = LEAD_ICON[lead.kind];
   const body = (
     <>
-      <span className="status-icon">
-        <Icon name={lead.kind === "needs_review" ? "review" : lead.kind === "checks_failing" ? "warning" : "off"} />
+      <span className={`status-icon ${icon.tone}`} title={ATTENTION_KIND[lead.kind]}>
+        <Icon name={icon.name} />
+        <span className="sr-only">{ATTENTION_KIND[lead.kind]}</span>
       </span>
       <span className="grow">
         <b className="row-title">{row.workTitle}</b>
         <small className="row-meta">
-          {row.projectName} · <span className="reason-kind">{ATTENTION_KIND[lead.kind]}</span>
-          {"pr" in lead && lead.pr !== null && (
-            <>
+          {row.projectName}
+          {rest.length > 0 && (
+            <span className="more" title={rest.map((r) => ATTENTION_KIND[r.kind]).join(" · ")}>
               {" "}
-              · {lead.pr.repoName}#{lead.pr.number}
-            </>
+              +{rest.length}
+            </span>
           )}
-          {rest.length > 0 && <span className="more"> +{rest.length}</span>}
         </small>
       </span>
       <Icon name="chevron" />
@@ -192,19 +199,22 @@ export function OtherWork({
 function WorkLine({ item }: { item: OtherWorkItem }) {
   const { work, prs } = item.summary;
   const pr = prs.find((p) => p.github.state === "open") ?? prs[0];
+  const sameRepo = allSameRepo(prs.map((p) => p.repoName));
   return (
     <Link href={workHref(work.id)} className="work-row" data-testid={`work-${work.id}`} data-project={item.projectId}>
       <span className={ring(work.status)} aria-hidden="true" />
       <span className="grow">
         <span className="work-title">{work.title}</span>
         <small className="row-meta">
-          {item.projectName} ·{" "}
-          {pr === undefined ? (
-            "PR 없음"
-          ) : (
+          {item.projectName}
+          {pr !== undefined && (
             <>
-              {pr.repoName}#{pr.number}
-              {prs.length > 1 && ` +${prs.length - 1}`}
+              {" "}
+              <span className="row-pr" data-testid="work-pr">
+                <span className="pr-no">{prRef(pr.repoName, pr.number, sameRepo)}</span>
+                <PrIcons github={pr.github} withPreview={false} />
+                {prs.length > 1 && <span className="more">+{prs.length - 1}</span>}
+              </span>
             </>
           )}
         </small>
@@ -241,57 +251,35 @@ export function UpNext({
   const pr = (lead !== undefined && "pr" in lead && lead.pr !== null
     ? summary.prs.find((p) => p.repoName === lead.pr!.repoName && p.number === lead.pr!.number)
     : undefined) ?? summary.prs.find((p) => p.github.state === "open") ?? summary.prs[0];
-  const decision = pr === undefined ? undefined : visibleReviews(pr.studio.reviews).filter((r) => r.freshness === "current").at(-1);
   const label = lead?.kind === "needs_review" ? "Review work" : "Open work";
-  const showPreview = preview !== undefined && previewSummary(preview).tone !== "quiet";
+  const sameRepo = allSameRepo(summary.prs.map((p) => p.repoName));
+  const checksNote = lead?.kind === "checks_failing" ? "작성자가 고칠 차례" : lead?.kind === "needs_review" ? "판단 전" : undefined;
   return (
-    <aside className="focus-panel desk-only" aria-label="Up next" data-testid="up-next">
+    <aside className="focus-panel desk-only" aria-label="Up next" data-testid="up-next" data-kind={lead?.kind}>
       <div className="focus-top">
         <span className="eyebrow">Up next</span>
-        {lead !== undefined && <span className={lead.kind === "needs_review" ? "pill blue" : "pill warn"}>{ATTENTION_KIND[lead.kind]}</span>}
       </div>
       <div className="focus-body">
         <p className="focus-context">{focus.projectName}</p>
         <h2 data-testid="up-next-title">{focus.workTitle}</h2>
         {summary.work.goal !== "" && <p className="focus-goal">{summary.work.goal}</p>}
-        {/* 서명: 결정의 대상인 커밋을 크게 (결정 18 — 본 커밋으로 결정한다). 그 아래 한 줄이 이유다 */}
-        {pr !== undefined && (
-          <code className="sha-big" data-testid="up-next-sha" title={pr.headSha}>
-            {shortSha(pr.headSha)}
-          </code>
-        )}
-        {lead !== undefined && (
-          <p className={pr !== undefined ? "sha-line" : "focus-reason"} data-testid="up-next-reason">
-            {attentionText(lead).detail}
-          </p>
-        )}
-        {pr !== undefined && (
-          <dl className="focus-summary">
-            <div>
-              <dt>Pull request</dt>
-              <dd>
-                {pr.repoName}#{pr.number}
-              </dd>
-            </div>
-            <div>
-              <dt>GitHub</dt>
-              <dd>{githubLine(pr.github)}</dd>
-            </div>
-            {decision !== undefined && (
-              <div>
-                <dt>Studio</dt>
-                <dd>{VERDICT[decision.verdict]}</dd>
-              </div>
-            )}
-            {showPreview && (
-              <div>
-                <dt>Preview</dt>
-                <dd>
-                  <PreviewStatus view={preview} />
-                </dd>
-              </div>
-            )}
-          </dl>
+        {/* 서명: 결정의 대상인 커밋을 크게 한 번 (결정 18 — 본 커밋으로 결정한다). 그 아래 `#12` 와 아이콘 줄 (결정 19) */}
+        {pr !== undefined ? (
+          <>
+            <code className="sha-big" data-testid="up-next-sha" title={pr.headSha}>
+              {shortSha(pr.headSha)}
+            </code>
+            <p className="sha-line" data-testid="up-next-pr">
+              <span className="pr-no">{prRef(pr.repoName, pr.number, sameRepo)}</span>{" "}
+              <PrIcons github={pr.github} preview={preview} checksNote={checksNote} />
+            </p>
+          </>
+        ) : (
+          lead !== undefined && (
+            <p className="focus-reason" data-testid="up-next-reason">
+              {attentionText(lead).detail}
+            </p>
+          )
         )}
         <Link href={workHref(focus.workId)} className="btn accent wide" data-testid="up-next-open">
           {label}

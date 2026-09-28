@@ -1,6 +1,7 @@
 /** 화면 라벨 — GitHub 와 Studio 의 표기가 겹치지 않는지, 연결 표기 · 사유 · 한국 시간이 맞는지. */
 import { describe, expect, it } from "vitest";
 import {
+  allSameRepo,
   DONE_CANDIDATE_NOTE,
   formatAgo,
   formatKst,
@@ -8,6 +9,9 @@ import {
   inboxReasonText,
   linkLabel,
   NO_INTERNAL_REVIEW,
+  prEventText,
+  prRef,
+  reviewProblemText,
   statusChangeText,
   VERDICT,
   WORK_STATUS,
@@ -71,5 +75,24 @@ describe("화면 라벨", () => {
     expect(formatAgo("2026-09-28T00:59:30.000Z", now)).toBe("방금");
     expect(formatAgo("2026-09-28T00:57:00.000Z", now)).toBe("3분 전");
     expect(formatAgo("2026-09-27T22:30:00.000Z", now)).toBe("2시간 전");
+  });
+
+  it("PR 을 가리키는 글자: 한 업무의 PR 이 모두 같은 저장소면 #번호만, 섞여 있으면 짧은 저장소 이름을 붙인다 (결정 19)", () => {
+    expect(allSameRepo(["demo-org/payments", "demo-org/payments"])).toBe(true);
+    expect(allSameRepo([])).toBe(true);
+    expect(allSameRepo(["demo-org/payments", "demo-org/docs-site"])).toBe(false);
+    expect(prRef("demo-org/payments", 12, true)).toBe("#12");
+    expect(prRef("demo-org/payments", 12, false)).toBe("payments#12");
+  });
+
+  it("타임라인 줄과 stale 문구에는 저장소 이름 · 커밋 번호가 없다 (결정 19 — 사실 하나는 한 자리에만)", () => {
+    const base = { id: "e1", repoId: 1, number: 12, at: "2026-09-28T01:00:00.000Z", commitSha: "3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d" };
+    const linked = prEventText({ ...base, kind: "linked", origin: "marker" } as Parameters<typeof prEventText>[0]);
+    expect(linked).toBe("연결됨");
+    expect(prEventText({ ...base, kind: "checks", checks: "failing" } as Parameters<typeof prEventText>[0])).toBe("검사 실패");
+    expect(prEventText({ ...base, kind: "merged" } as Parameters<typeof prEventText>[0])).toBe("병합됨");
+    const stale = reviewProblemText("stale");
+    expect(stale).toBe("새 커밋이 도착해 저장하지 않았다 — 위의 커밋이 새 판단 대상이다. 확인한 뒤 다시 판단한다.");
+    expect(stale).not.toMatch(/[0-9a-f]{7}/);
   });
 });

@@ -19,10 +19,13 @@
  * 다섯 저장소 모두 같은 브랜치 이름(feat/login-page)과 같은 PR 번호(#12)를 갖는다.
  * 그래도 PR 은 (저장소 숫자 ID, 번호) 로만 같으므로 서로 섞이지 않아야 한다 (시나리오 1).
  *
+ * Agent 초안 세 개 (결정 20, Demo): Planner · Builder · Reviewer. 저장만 되고 아무것도 실행하지 않는다. Builder 는 Flow 의 Build 노드가 가리킨다.
+ *
  * 내부 검토 결정 두 건:
  *   - 로그인 화면 만들기: payments#12 의 이전 커밋(9f8e7d6)에 대한 "수정 요청" → 지금은 새 커밋이 있어 "이전 버전" (시나리오 4)
  *   - 관리자 로그인 보안 점검: admin-console#12 의 최신 커밋에 대한 "내부 검토 완료" → GitHub 는 여전히 Open (시나리오 5)
  */
+import type { AgentDraft } from "../../../domain/agent-draft";
 import type { PrSnapshot, Repository } from "../../../domain/model";
 import type { StudioSeed } from "../../store/memory/memory-store";
 import type { FixtureData } from "./fixture-reader";
@@ -186,6 +189,41 @@ export function demoFixtureData(): FixtureData {
   return structuredClone({ repositories, pullRequests });
 }
 
+const SEEDED_AT = "2026-09-19T00:00:00.000Z";
+
+/** 시연 Agent 초안 셋 (결정 20). 지시문은 실행이 연결되면 AI 에게 갈 글이지만, 지금은 저장만 된다 */
+const agents: AgentDraft[] = [
+  {
+    id: "planner",
+    name: "Planner",
+    summary: "목표를 작은 작업과 완료 기준으로 나눈다.",
+    instructions: "업무의 목표와 제약을 먼저 확인한다.\n목표를 작은 작업으로 나누고, 작업마다 완료 기준을 적는다.\n모호한 요구는 추측하지 말고 질문으로 남긴다.",
+    skills: ["read_context"],
+    createdAt: SEEDED_AT,
+    updatedAt: SEEDED_AT,
+  },
+  {
+    id: "builder",
+    name: "Builder",
+    summary: "목표와 수정 기준을 받아 PR 에 커밋을 올린다.",
+    instructions:
+      "업무의 목표와 가장 최근 Request changes 의 이유 · 수정 기준을 먼저 읽는다.\n이미 연결된 PR 에 커밋을 올린다. 새 브랜치를 만들거나 병합하지 않는다.\n검사가 통과하는지 확인하고, 바꾼 것을 한 문단으로 요약한다.",
+    skills: ["read_context"],
+    createdAt: "2026-09-19T00:00:01.000Z",
+    updatedAt: "2026-09-19T00:00:01.000Z",
+  },
+  {
+    id: "reviewer",
+    name: "Reviewer",
+    summary: "최신 커밋을 읽고 사람이 판단할 거리를 정리한다.",
+    instructions:
+      "사람이 판단할 최신 커밋의 변경을 읽는다.\n목표와 수정 기준에 비추어 빠진 것을 목록으로 적는다.\nApprove in Studio 와 Request changes 는 사람이 누른다. 대신 결정하지 않는다.",
+    skills: ["read_context", "code_review"],
+    createdAt: "2026-09-19T00:00:02.000Z",
+    updatedAt: "2026-09-19T00:00:02.000Z",
+  },
+];
+
 /** Studio 쪽 처음 상태. 연결(PrLink)은 넣지 않는다 — 첫 동기화가 표식 규칙으로 만든다. */
 export function demoStudioSeed(): StudioSeed {
   return structuredClone({
@@ -222,5 +260,6 @@ export function demoStudioSeed(): StudioSeed {
         decidedAt: "2026-09-24T10:00:00.000Z",
       },
     ],
+    agents,
   } satisfies StudioSeed);
 }

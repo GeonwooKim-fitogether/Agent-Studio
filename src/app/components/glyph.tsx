@@ -84,12 +84,72 @@ const PATHS = {
       <path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
     </>
   ),
+  flow: (
+    <>
+      <rect x="3" y="3" width="6" height="6" rx="1" />
+      <rect x="15" y="15" width="6" height="6" rx="1" />
+      <path d="M6 9v9h9M9 6h9v9" />
+    </>
+  ),
   agents: (
     <>
       <rect x="4" y="7" width="16" height="14" rx="4" />
       <path d="M12 7V3m-2 10h.01M14 13h.01M9 17h6" />
     </>
   ),
+  // ── GitHub 상태 아이콘 줄 (pr-icons.tsx, 시안 v3) ──
+  prOpen: (
+    <>
+      <circle cx="6" cy="6" r="2.6" />
+      <circle cx="6" cy="18" r="2.6" />
+      <circle cx="18" cy="18" r="2.6" />
+      <path d="M6 9v6M13 6h3a2 2 0 0 1 2 2v7" />
+    </>
+  ),
+  prMerged: (
+    <>
+      <circle cx="6" cy="6" r="2.6" />
+      <circle cx="6" cy="18" r="2.6" />
+      <circle cx="18" cy="12" r="2.6" />
+      <path d="M6 9v6M6 9a6 6 0 0 0 6 3h3" />
+    </>
+  ),
+  prClosed: (
+    <>
+      <circle cx="6" cy="6" r="2.6" />
+      <circle cx="6" cy="18" r="2.6" />
+      <circle cx="18" cy="18" r="2.6" />
+      <path d="M6 9v6M18 11v4M15.5 3.5l5 5m0-5-5 5" />
+    </>
+  ),
+  checksPassing: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="m8.5 12 2.5 2.5 5-5" />
+    </>
+  ),
+  checksFailing: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="m9 9 6 6m0-6-6 6" />
+    </>
+  ),
+  checksPending: <circle cx="12" cy="12" r="9" strokeDasharray="3 3" />,
+  dash: <path d="M6 12h12" />,
+  reviewApproved: (
+    <>
+      <path d="M21 14a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2Z" />
+      <path d="m9 9.5 2.5 2.5 4-4" />
+    </>
+  ),
+  reviewChanges: (
+    <>
+      <path d="M21 14a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2Z" />
+      <path d="M12.5 6.5v4m0 2.5v.1" />
+    </>
+  ),
+  reviewNone: <path d="M21 14a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2Z" />,
+  monitorOff: <path d="M17 17H4a2 2 0 0 1-2-2V5c0-1 .5-1.7 1.2-2M9 3h11a2 2 0 0 1 2 2v10M8 21h8M12 17v4M2 2l20 20" />,
   sync: (
     <>
       <path d="M3 5v6h6M21 19v-6h-6" />

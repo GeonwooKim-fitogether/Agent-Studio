@@ -43,6 +43,6 @@ export function runMigrate(url: string, appEnv: string): string {
 /** 스키마는 두고 데이터만 비운다. 시험 하나하나가 빈 저장소에서 시작하도록. */
 export async function truncateAll(pool: pg.Pool): Promise<void> {
   await pool.query(
-    "truncate project, work, repository, pr_snapshot, pr_link, pr_unlink, review_decision, preview_record, work_status_change, pr_event, memo restart identity cascade",
+    "truncate project, work, repository, pr_snapshot, pr_link, pr_unlink, review_decision, preview_record, work_status_change, pr_event, memo, agent_draft restart identity cascade",
   );
 }

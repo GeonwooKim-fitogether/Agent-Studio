@@ -146,7 +146,7 @@ export default async function ConnectionsPage() {
           <section className="connection-card" aria-labelledby="c-ai" data-testid="ai-models">
             <Icon name="agents" />
             <h2 id="c-ai">AI models</h2>
-            <p className="muted">3단계 첫 단위(실행 경로 시험) 전에는 모델 선택 · Flow · Agents 를 열지 않는다. 대화와 메모는 AI 에게 전달되지 않는다.</p>
+            <p className="muted">3단계 첫 단위(실행 경로 시험) 전에는 모델을 연결하지 않는다. Flow · Agents 는 Demo 다 — 흐름은 기록을 보여 줄 뿐이고, Agent 의 지시문은 저장만 된다. 대화 · 메모 · 지시문은 AI 에게 전달되지 않는다.</p>
             <p className="card-state">
               <span className="pill" data-testid="ai-models-state">
                 Not connected
