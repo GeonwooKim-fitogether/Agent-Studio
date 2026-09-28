@@ -2,9 +2,11 @@
  * Inbox 에서 사람이 하는 두 가지 — PR 을 기존 업무에 연결하기(Link to Work), PR 로 새 업무 만들기(New Work).
  * 둘 다 Studio 의 연결만 바꾸고, GitHub 에는 아무것도 보내지 않는다.
  * 연결이 바뀐 업무는 그 자리에서 상태 규칙을 다시 판정한다(계약 §5-1 — 예: 첫 PR 이 연결되면 R1).
+ * 연결 · 연결 해제가 실제로 일어났으면 그 업무의 타임라인에 PR 이벤트로 남긴다(feature-plan F7).
  */
 import { isValidWorkId } from "../domain/work-marker";
-import { isValidPrRef, type PrRef, type PrSnapshot, type Project, StudioError, type Work } from "../domain/model";
+import { isValidPrRef, type PrLink, type PrRef, type PrSnapshot, type Project, StudioError, type Work } from "../domain/model";
+import { linkedEvent, unlinkedEvent } from "../domain/pr-event";
 import type { AppDeps } from "./deps";
 import { refreshWorkStatuses } from "./work-status";
 
@@ -20,11 +22,13 @@ export async function linkPrToWork(deps: AppDeps, input: PrRef & { readonly work
     if (existing.workId === input.workId) return;
     throw alreadyLinked();
   }
-  await addUserLink(deps, pr, input.workId);
+  const link = await addUserLink(deps, pr, input.workId);
+  if (link !== null) await deps.store.addPrEvents([linkedEvent(link, pr.headSha)]);
   await refreshWorkStatuses(deps, [input.workId]);
 }
 
-async function addUserLink(deps: AppDeps, pr: PrSnapshot, workId: string): Promise<void> {
+/** 사람의 연결을 쓴다. 이 요청이 연결을 만들었으면 그 연결을, 동시에 온 같은 요청이 먼저 만들었으면 null 을 돌려준다 */
+async function addUserLink(deps: AppDeps, pr: PrSnapshot, workId: string): Promise<PrLink | null> {
   const input = { repoId: pr.repoId, number: pr.number, workId };
   const project = await requireProjectOfRepo(deps, pr.repoId);
   const work = await deps.store.getWork(input.workId);
@@ -32,17 +36,13 @@ async function addUserLink(deps: AppDeps, pr: PrSnapshot, workId: string): Promi
   if (work.projectId !== project.id) {
     throw new StudioError("project_mismatch", "PR 은 같은 프로젝트의 업무에만 연결할 수 있다.");
   }
+  const link: PrLink = { repoId: pr.repoId, number: pr.number, workId: work.id, origin: "user", linkedAt: deps.now().toISOString() };
   try {
-    await deps.store.addLink({
-      repoId: pr.repoId,
-      number: pr.number,
-      workId: work.id,
-      origin: "user",
-      linkedAt: deps.now().toISOString(),
-    });
+    await deps.store.addLink(link);
+    return link;
   } catch (error) {
-    // 동시에 들어온 같은 요청이 먼저 같은 업무에 연결했다면 성공으로 본다.
-    if (isAlreadyLinked(error) && (await deps.store.getLink(input))?.workId === work.id) return;
+    // 동시에 들어온 같은 요청이 먼저 같은 업무에 연결했다면 성공으로 본다(연결됨 이벤트는 그 요청이 남긴다).
+    if (isAlreadyLinked(error) && (await deps.store.getLink(input))?.workId === work.id) return null;
     throw error;
   }
 }
@@ -53,7 +53,10 @@ async function addUserLink(deps: AppDeps, pr: PrSnapshot, workId: string): Promi
  */
 export async function unlinkPr(deps: AppDeps, input: PrRef & { readonly workId: string }): Promise<void> {
   requireValidRef(input);
-  await deps.store.unlink(input, deps.now().toISOString());
+  const at = deps.now().toISOString();
+  await deps.store.unlink(input, at);
+  const pr = await deps.store.getSnapshot(input);
+  if (pr !== undefined) await deps.store.addPrEvents([unlinkedEvent(input, pr.headSha, at)]);
   await refreshWorkStatuses(deps, [input.workId]); // PR 이 빠져도 초안으로 되돌리지는 않는다(R1). 남은 PR 로 다시 본다(예: R4)
 }
 
@@ -70,13 +73,9 @@ export async function createWorkFromPr(deps: AppDeps, ref: PrRef): Promise<Work>
     status: "draft",
     createdAt,
   };
-  await deps.store.createWorkWithLink(work, {
-    repoId: pr.repoId,
-    number: pr.number,
-    workId: work.id,
-    origin: "user",
-    linkedAt: createdAt,
-  });
+  const link: PrLink = { repoId: pr.repoId, number: pr.number, workId: work.id, origin: "user", linkedAt: createdAt };
+  await deps.store.createWorkWithLink(work, link);
+  await deps.store.addPrEvents([linkedEvent(link, pr.headSha)]);
   await refreshWorkStatuses(deps, [work.id]);
   return work;
 }

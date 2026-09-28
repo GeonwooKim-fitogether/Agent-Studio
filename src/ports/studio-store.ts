@@ -19,6 +19,7 @@ import type {
   Work,
   WorkStatus,
 } from "../domain/model";
+import type { PrEvent } from "../domain/pr-event";
 import type { PrFingerprint, StatusChange } from "../domain/work-status";
 
 /**
@@ -32,6 +33,8 @@ export interface StudioSeed {
   readonly reviews?: readonly ReviewDecision[];
   readonly previews?: readonly PreviewRecord[];
   readonly unlinks?: readonly UnlinkRecord[];
+  /** PR 이벤트 (feature-plan F7). 시연 데이터는 넣지 않는다 — 기록은 Studio 가 실제로 읽은 변화에서만 시작한다 */
+  readonly events?: readonly PrEvent[];
 }
 
 /**
@@ -111,6 +114,15 @@ export interface StudioStore {
   listStatusPins(): Promise<Record<string, PrFingerprint>>;
   /** 상태 이력 전부. 쌓인 순서(오래된 것부터)다 */
   listStatusChanges(): Promise<StatusChange[]>;
+
+  /**
+   * PR 이벤트를 덧붙인다 (feature-plan F7, src/domain/pr-event.ts). 이미 있는 ID 의 이벤트는 건너뛴다 — 같은 변화를 두 번 읽어도
+   * 한 번만 남는다(ID 가 변화의 내용에서 만들어지므로). 하나라도 걸리면 아무것도 쓰지 않는다.
+   * 확인 순서: PR 값이 범위 밖이거나 종류가 목록 밖 → invalid_input, 없는 업무 → not_found.
+   */
+  addPrEvents(events: readonly PrEvent[]): Promise<void>;
+  /** 한 업무의 PR 이벤트. 쌓인 순서(오래된 것부터)다 */
+  listPrEvents(workId: string): Promise<PrEvent[]>;
 
   /** 미리보기 실행은 2단계에서 붙으므로 이번 단위에는 읽기만 있다. */
   listPreviewRecords(): Promise<PreviewRecord[]>;

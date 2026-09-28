@@ -48,7 +48,12 @@ describe("마이그레이션 적용 명령 — 잘못된 연결 문자열 (데�
 });
 
 /** 저장소에 있는 마이그레이션 전부 (만든 순서) */
-const MIGRATIONS = ["20260925070338_initial_schema", "20260927224929_work_status_history", "20260927232653_status_rule_r1b"];
+const MIGRATIONS = [
+  "20260925070338_initial_schema",
+  "20260927224929_work_status_history",
+  "20260927232653_status_rule_r1b",
+  "20260928013218_pr_event",
+];
 
 describe.skipIf(!HAS_POSTGRES)("PostgreSQL 통합", () => {
   const tables = async () => {
@@ -95,7 +100,10 @@ describe.skipIf(!HAS_POSTGRES)("PostgreSQL 통합", () => {
       const out = runMigrate(TEST_DATABASE_URL, "test");
       expect(out).toContain("적용함 20260927224929_work_status_history.sql");
       expect(out).toContain("적용함 20260927232653_status_rule_r1b.sql");
-      expect(out).toContain("새로 적용 2개");
+      expect(out).toContain("적용함 20260928013218_pr_event.sql"); // 뒤에 온 마이그레이션도 함께 얹힌다
+      expect(out).toContain("새로 적용 3개");
+      // PR 이벤트 표는 비어서 시작한다 — 이 표가 생기기 전의 변화는 없다
+      expect((await client.query("select count(*)::int as n from pr_event")).rows[0]).toEqual({ n: 0 });
       const row = (await client.query("select status, status_pin from work where id = 'w1'")).rows[0];
       expect(row).toEqual({ status: "needs_review", status_pin: null });
       await client.query("update work set status = 'done_candidate'");

@@ -23,6 +23,7 @@ import {
   withoutNul,
   type Work,
 } from "../../../domain/model";
+import { isPrEventKind, type PrEvent } from "../../../domain/pr-event";
 import { isValidWorkId } from "../../../domain/work-marker";
 import { isWorkStatus, type PrFingerprint, type StatusChange } from "../../../domain/work-status";
 import type { StudioSeed, StudioStore } from "../../../ports/studio-store";
@@ -43,6 +44,7 @@ export function createMemoryStore(seed: StudioSeed = {}): StudioStore {
   const unlinks = new Map((seed.unlinks ?? []).map((u) => [prKey(u), copy(u)]));
   const statusPins = new Map<string, PrFingerprint>();
   const statusChanges: StatusChange[] = [];
+  const events: PrEvent[] = copies(seed.events ?? []);
 
   const rejectIfBadRef = (ref: PrRef) => {
     if (!isValidPrRef(ref)) throw new StudioError("invalid_input", "PR 을 가리키는 값이 올바르지 않다.");
@@ -171,6 +173,24 @@ export function createMemoryStore(seed: StudioSeed = {}): StudioStore {
     },
     async listStatusChanges() {
       return copies(statusChanges);
+    },
+
+    async addPrEvents(batch) {
+      // 확인을 모두 마친 뒤에 쓴다. 확인 순서는 PostgreSQL 구현과 같다: 범위 · 종류 → 없는 업무
+      for (const e of batch) {
+        rejectIfBadRef(e);
+        if (!isPrEventKind(e.kind)) throw new StudioError("invalid_input", "PR 이벤트 종류가 올바르지 않다.");
+      }
+      if (batch.some((e) => !works.has(e.workId))) throw new StudioError("not_found", "PR 이벤트를 남길 업무가 없다.");
+      const seen = new Set(events.map((e) => e.id));
+      for (const e of batch) {
+        if (seen.has(e.id)) continue;
+        seen.add(e.id);
+        events.push(copy(e));
+      }
+    },
+    async listPrEvents(workId) {
+      return copies(events.filter((e) => e.workId === workId));
     },
 
     async listPreviewRecords() {

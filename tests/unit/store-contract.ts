@@ -10,6 +10,7 @@ import { createWorkFromPr, linkPrToWork, unlinkPr } from "../../src/application/
 import { getPrNotice, getWorkspace } from "../../src/application/queries";
 import { syncAll } from "../../src/application/sync";
 import type { PrLink, PrSnapshot, Work } from "../../src/domain/model";
+import type { PrEvent } from "../../src/domain/pr-event";
 import type { StatusChange } from "../../src/domain/work-status";
 import type { StudioSeed, StudioStore } from "../../src/ports/studio-store";
 import { setup } from "./helpers";
@@ -409,6 +410,56 @@ export function describeStoreContract(kind: string, make: StoreFactory): void {
         await store.createWorkWithLink(fresh, userLink("w3"));
         expect(await store.listUnlinks()).toEqual([]);
         expect((await store.getLink({ repoId: 1, number: 1 }))?.workId).toBe("w3");
+      });
+    });
+
+    describe("PR 이벤트 (feature-plan F7)", () => {
+      const sha = (c: string) => c.repeat(40);
+      const events: PrEvent[] = [
+        { id: "e1", repoId: 1, number: 1, workId: "w1", kind: "linked", origin: "marker", commitSha: sha("a"), at: "2026-09-28T00:00:00.000Z" },
+        { id: "e2", repoId: 1, number: 1, workId: "w1", kind: "new_commit", previousSha: sha("a"), commitSha: sha("b"), at: "2026-09-28T00:00:00.000Z" },
+        { id: "e3", repoId: 1, number: 1, workId: "w1", kind: "checks", checks: "failing", commitSha: sha("b"), at: "2026-09-28T00:00:00.000Z" },
+        { id: "e4", repoId: 1, number: 1, workId: "w1", kind: "merged", commitSha: sha("b"), at: "2026-09-28T00:00:01.000Z" },
+        { id: "e5", repoId: 1, number: 1, workId: "w2", kind: "unlinked", commitSha: sha("b"), at: "2026-09-28T00:00:02.000Z" },
+      ];
+
+      it("쌓은 그대로(종류마다 다른 칸 포함) 업무별로, 쌓인 순서대로 돌아온다 (같은 시각이어도)", async () => {
+        const store = await make({ projects: [project], works: [work, other] });
+        await store.addPrEvents(events.slice(0, 2));
+        await store.addPrEvents(events.slice(2));
+        expect(await store.listPrEvents("w1")).toEqual(events.slice(0, 4));
+        expect(await store.listPrEvents("w2")).toEqual([events[4]]);
+        expect(await store.listPrEvents("nope")).toEqual([]);
+      });
+
+      it("같은 ID 는 한 번만 남는다 — 같은 묶음 안에서도, 동시에 들어와도", async () => {
+        const store = await make({ projects: [project], works: [work] });
+        await store.addPrEvents([events[0]!, events[0]!]);
+        await Promise.all([store.addPrEvents(events.slice(0, 2)), store.addPrEvents(events.slice(0, 2)), store.addPrEvents([events[1]!])]);
+        expect((await store.listPrEvents("w1")).map((e) => e.id)).toEqual(["e1", "e2"]);
+      });
+
+      it("범위 밖 PR · 목록 밖 종류 → invalid_input, 없는 업무 → not_found 이고 묶음 전체를 쓰지 않는다", async () => {
+        const store = await make({ projects: [project], works: [work] });
+        await expect(store.addPrEvents([events[0]!, { ...events[1]!, number: 0 }])).rejects.toMatchObject({ code: "invalid_input" });
+        await expect(store.addPrEvents([events[0]!, { ...events[3]!, kind: "exploded" } as unknown as PrEvent])).rejects.toMatchObject({
+          code: "invalid_input",
+        });
+        await expect(store.addPrEvents([events[0]!, { ...events[3]!, workId: "ghost" }])).rejects.toMatchObject({ code: "not_found" });
+        expect(await store.listPrEvents("w1")).toEqual([]);
+      });
+
+      it("돌려받은 이벤트를 고쳐도 저장된 값은 바뀌지 않는다", async () => {
+        const store = await make({ projects: [project], works: [work] });
+        await store.addPrEvents([events[0]!]);
+        const got = (await store.listPrEvents("w1")) as { commitSha: string }[];
+        got[0]!.commitSha = "x";
+        expect(await store.listPrEvents("w1")).toEqual([events[0]]);
+      });
+
+      it("처음 상태로 심은 이벤트도 그대로 돌아온다", async () => {
+        const store = await make({ projects: [project], works: [work], events: [events[0]!] });
+        expect(await store.listPrEvents("w1")).toEqual([events[0]]);
       });
     });
   });
