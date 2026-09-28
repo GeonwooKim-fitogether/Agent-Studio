@@ -39,28 +39,28 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         ? `GitHub 출처 일부를 읽지 못했다 — ${failedSources.map(sourceStatusText).join(" / ")}`
         : null;
 
-  const syncSummary = (
-    <div className="sync-summary" data-testid="sync-summary">
-      <span className="sync-line">
-        <Icon name={fixture ? "database" : "github"} />
-        <span>
-          {fixture && (
-            <b className="fixture" data-testid="fixture-badge">
-              Fixture data
-            </b>
-          )}
-          {!fixture && "GitHub"} ·{" "}
-          <time dateTime={status.lastSyncedAt ?? undefined} title={status.lastSyncedAt === null ? undefined : formatKst(status.lastSyncedAt)}>
-            {ago}
-          </time>
-        </span>
+  const syncLine = (
+    <span className="sync-line">
+      <Icon name={fixture ? "database" : "github"} />
+      <span>
+        {fixture && (
+          <b className="fixture" data-testid="fixture-badge">
+            Fixture data
+          </b>
+        )}
+        {!fixture && "GitHub"} ·{" "}
+        <time dateTime={status.lastSyncedAt ?? undefined} title={status.lastSyncedAt === null ? undefined : formatKst(status.lastSyncedAt)}>
+          {ago}
+        </time>
       </span>
-      <form action={syncAction}>
-        <button type="submit" className="btn small">
-          Sync
-        </button>
-      </form>
-    </div>
+    </span>
+  );
+  const syncButton = (
+    <form action={syncAction}>
+      <button type="submit" className="btn small">
+        Sync
+      </button>
+    </form>
   );
   const hostLine = (
     <span className={device.online ? "host-line" : "host-line offline"} data-testid="preview-host">
@@ -86,9 +86,18 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             <ProjectNav projects={sidebar.projects} />
             <div className="sidebar-bottom">
               <SettingsNav />
+              {/* 시안의 프로필 줄 자리 — 실제 값(출처 · 마지막 Sync · 미리보기 기기)을 같은 밀도로 */}
               <div className="sidebar-status">
-                {syncSummary}
-                {hostLine}
+                <span className="status-mark" aria-hidden="true">
+                  <Icon name={fixture ? "database" : "github"} />
+                </span>
+                <div className="status-lines" data-testid="sync-summary">
+                  {syncLine}
+                  <span className="status-second">
+                    {hostLine}
+                    {syncButton}
+                  </span>
+                </div>
               </div>
             </div>
           </aside>
@@ -102,7 +111,10 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                 </span>
                 Agent Studio
               </a>
-              {syncSummary}
+              <div className="sync-summary" data-testid="sync-summary">
+                {syncLine}
+                {syncButton}
+              </div>
             </header>
             {warning !== null && (
               <div className="warning-bar" role="alert" data-testid="sync-error">

@@ -13,6 +13,7 @@ import { MemoComposer } from "../../components/memo";
 import { RememberWork } from "../../components/remember-work";
 import { ReviewPanel } from "../../components/review-panel";
 import { ThreadPanel } from "../../components/thread";
+import { Topbar } from "../../components/topbar";
 import { GoalCard, NextActionCard, reviewHref, WorkDetails } from "../../components/work";
 import { StatusBadge } from "../../components/work-status";
 import { parseReviewKey, readReviewDraft, REVIEW_DRAFT_COOKIE } from "../../review-draft";
@@ -22,7 +23,7 @@ export const dynamic = "force-dynamic";
 /**
  * 업무 화면 (결정 18, Q6 · Q7 · Q8) — 목표 · 대화 · 연결된 PR 결과 · 다음 행동이 한 맥락에서 이어진다. 같은 주소가 그 업무의 Chat 이다(결정 13).
  *
- *   머리: 프로젝트 / 상태 배지 / 제목
+ *   위쪽 줄: Studio / 프로젝트 / 표식 (빵부스러기). 머리: `표식 · 상태` 눈썹 → 제목. 탭은 두지 않는다(Conversation 하나뿐이라)
  *   왼쪽: Goal(고정) → 타임라인(시스템 사건은 작은 한 줄, PR 결과는 최신 커밋 카드 하나, 이전 커밋 카드는 접힘) → 메모 입력칸
  *   오른쪽: Work details — 맨 위 Next action, 그 아래 속성 · 상태 · Link a PR
  *   휴대전화 폭: 한 열. 목표 바로 아래에 Next action 이 오고, 속성은 Details 로 접는다(?details=1)
@@ -80,15 +81,29 @@ export default async function WorkPage({
   return (
     <div className={["work-page", panel === null ? "" : `panel-open ${panel}-open`].filter(Boolean).join(" ")} data-testid="chat">
       <RememberWork id={work.id} />
+      <Topbar
+        crumbs={[
+          <a key="p" href={`/?project=${encodeURIComponent(project.id)}`}>
+            {project.name}
+          </a>,
+          <span key="m" className="mono">
+            {marker}
+          </span>,
+        ]}
+      />
       <header className="work-header">
-        <p className="work-crumb">
-          <a href={`/?project=${encodeURIComponent(project.id)}`}>{project.name}</a>
-          <span aria-hidden="true">/</span>
-          <span className="mono">{marker}</span>
-        </p>
         <div className="work-head">
+          <p className="work-eyebrow">
+            {/* 휴대전화 폭에는 빵부스러기가 없어 프로젝트 이름을 여기에 */}
+            <a className="mobile-only" href={`/?project=${encodeURIComponent(project.id)}`}>
+              {project.name}
+            </a>
+            <span className="mono" data-testid="work-eyebrow-marker">
+              {marker}
+            </span>
+            <StatusBadge status={work.status} />
+          </p>
           <h1>{work.title}</h1>
-          <StatusBadge status={work.status} />
         </div>
       </header>
 
