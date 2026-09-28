@@ -11,9 +11,10 @@
 #   PR 열림·제목 수정    → 브랜치 이름과 제목 형식을 검사한다. 어기면 빨간 체크 + 코멘트.
 #   PR 머지됨           → head 브랜치를 지운다 (`claude/…` 포함). 저장소 설정의 자동 삭제가
 #                         켜져 있으면 이미 지워져 있으므로 조용히 지나간다.
-#   매주 월요일 + 수동   → main 에 머지된 채 남은 브랜치를 전부 지우고, 14일 이상 활동 없는
+#   매주 월요일 + 수동   → 머지된 채 남은 브랜치를 전부 지우고(main 의 조상인 것과, PR 이
+#                         squash 로 머지돼 git 은 모르는 것 둘 다), 14일 이상 활동 없는
 #                         열린 PR 과 21일 이상 활동 없는 브랜치를 잡 요약에 나열한다.
-#                         열린 PR 은 지우지 않는다 — 닫는 것은 사람이다.
+#                         열린 PR 이 걸린 브랜치는 지우지 않는다 — 닫는 것은 사람이다.
 #
 # ── API 키가 필요하지 않다 ──────────────────────────────────────────────────
 # 판단하지 않고 형식과 날짜만 본다. git 과 gh 만으로 돌고, 시크릿이 없어도 언제나 돈다.
@@ -181,17 +182,31 @@ jobs:
           git fetch origin --quiet --prune
           printf '%s\n' "${KEEP:-}" | grep -v '^[[:space:]]*$' | sort -u > /tmp/keep.txt
 
-          # (a) main 에 머지된 채 남은 브랜치를 지운다.
-          deleted=(); failed=()
-          for ref in $(git for-each-ref --merged origin/main --format='%(refname:short)' refs/remotes/origin); do
+          # (a) 머지된 채 남은 브랜치를 지운다. "머지됐다"는 두 가지로 잰다.
+          #   ① git 이 보기에 main 의 조상이다 (merge commit 방식으로 머지된 것).
+          #   ② 그 브랜치를 head 로 한 PR 이 하나 이상 머지됐다 (squash 방식으로 머지된 것 —
+          #      브랜치의 커밋이 main 에 들어가지 않고 새 커밋 하나로 합쳐지므로 git 은 "머지 안 됨"으로
+          #      본다. 첫 실행(2026-09-29)에서 ①만 보다가 창고에 이런 브랜치 19개가 그대로 남았다).
+          #   어느 쪽이든 **열린 PR 이 걸려 있으면 절대 지우지 않는다.**
+          deleted=(); deleted_squash=(); failed=()
+          : > /tmp/deleted.txt
+          # refs/remotes/origin/HEAD 는 short 이름이 `origin` 으로 나와 브랜치처럼 보인다 — 함께 거른다.
+          for ref in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin); do
             b="${ref#origin/}"
-            [ "$b" = "HEAD" ] && continue
+            { [ "$b" = "HEAD" ] || [ "$b" = "main" ] || [ "$b" = "origin" ]; } && continue
             grep -qx "$b" /tmp/keep.txt && continue
-            # 열린 PR 이 걸려 있는 브랜치는 머지된 것처럼 보여도(내용이 main 과 같아도) 지우지 않는다.
             open_pr=$(gh pr list --head "$b" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)
             [ -n "$open_pr" ] && continue
+            if git merge-base --is-ancestor "$ref" origin/main 2>/dev/null; then
+              how="ancestor"
+            else
+              merged_n=$(gh pr list --head "$b" --state merged --limit 1 --json number --jq 'length' 2>/dev/null || echo 0)
+              [ "${merged_n:-0}" -gt 0 ] || continue
+              how="squash"
+            fi
             if gh api -X DELETE "repos/$REPO/git/refs/heads/$b" >/dev/null 2>&1; then
-              deleted+=("$b")
+              if [ "$how" = "ancestor" ]; then deleted+=("$b"); else deleted_squash+=("$b"); fi
+              echo "$b" >> /tmp/deleted.txt
             else
               failed+=("$b")
             fi
@@ -208,8 +223,9 @@ jobs:
           : > /tmp/stale_branches.txt
           for ref in $(git for-each-ref --no-merged origin/main --format='%(refname:short)' refs/remotes/origin); do
             b="${ref#origin/}"
-            [ "$b" = "HEAD" ] && continue
+            { [ "$b" = "HEAD" ] || [ "$b" = "origin" ]; } && continue
             grep -qx "$b" /tmp/keep.txt && continue
+            grep -qx "$b" /tmp/deleted.txt && continue  # 방금 (a)에서 지운 것은 방치 목록에 올리지 않는다
             ts=$(git log -1 --format=%ct "$ref" 2>/dev/null || echo 0)
             if [ "${ts:-0}" -lt "$cutoff_br" ]; then
               pr=$(gh pr list --head "$b" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)
@@ -225,8 +241,14 @@ jobs:
             echo ""
             echo "지금 원격 브랜치 **${total_branches}개** (main 제외), 열린 PR **${open_prs}개**. 목표는 브랜치 수 − 열린 PR 수 ≤ 1 이다."
             echo ""
-            echo "### 지운 브랜치 (main 에 머지된 채 남아 있던 것) — ${#deleted[@]}개"
-            if [ "${#deleted[@]}" -gt 0 ]; then printf -- '- `%s`\n' "${deleted[@]}"; else echo "없음"; fi
+            echo "### 지운 브랜치 — $(( ${#deleted[@]} + ${#deleted_squash[@]} ))개"
+            echo ""
+            echo "main 에 머지된 채 남아 있던 것 (merge commit): ${#deleted[@]}개"
+            if [ "${#deleted[@]}" -gt 0 ]; then printf -- '- `%s`\n' "${deleted[@]}"; fi
+            echo ""
+            echo "PR 이 머지됐는데 브랜치만 남아 있던 것 (squash merge): ${#deleted_squash[@]}개"
+            if [ "${#deleted_squash[@]}" -gt 0 ]; then printf -- '- `%s`\n' "${deleted_squash[@]}"; fi
+            if [ "${#deleted[@]}" -eq 0 ] && [ "${#deleted_squash[@]}" -eq 0 ]; then echo "없음"; fi
             if [ "${#failed[@]}" -gt 0 ]; then
               echo ""
               echo "지우지 못한 것: $(printf '`%s` ' "${failed[@]}") — 보호 규칙이나 권한을 확인한다."
