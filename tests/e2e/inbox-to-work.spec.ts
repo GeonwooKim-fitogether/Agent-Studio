@@ -7,7 +7,7 @@
  *   1 coach-web#12 · 2 docs-site#12 · 3 player-app#9 · 4 player-app#12 · 5 남은 것 전부
  */
 import { type Browser, expect, type Locator, type Page, test } from "@playwright/test";
-import { filterProject, nav, openConnections, openReview, openWork, sync, unlinkFromPanel, visibleWorks, watchServerErrors } from "./helpers";
+import { filterProject, nav, openConnections, openLinkSection, openReview, openWork, sync, unlinkFromPanel, visibleWorks, watchServerErrors } from "./helpers";
 
 const SHOTS = "docs/plan/screenshots";
 const POSTGRES = process.env.E2E_STORAGE === "postgres";
@@ -79,8 +79,11 @@ test("Workspace 에서 Inbox 로 가서 PR 을 기존 업무에 연결하면, �
   const payments = await openReview(page, 710001, 12);
   await expectSeparateStateRows(payments);
   await expect(payments.getByTestId("link-origin")).toHaveText("Linked by marker (body)");
-  await expect(payments.getByTestId("review-decision")).toHaveAttribute("data-freshness", "outdated");
-  await expect(payments.getByTestId("review-decision")).toContainText("Internal: changes requested");
+  // 이전 커밋에 대한 결정은 패널이 아니라 타임라인의 한 줄에 "이전 커밋" 으로 남는다. 패널의 알약은 지금 커밋의 결정뿐이다 (결정 19)
+  await expect(payments.getByTestId("review-decision")).toHaveCount(0);
+  const oldDecision = page.getByTestId("timeline").locator('[data-kind="review"][data-commit="9f8e7d6"]');
+  await expect(oldDecision).toHaveAttribute("data-freshness", "outdated");
+  await expect(oldDecision).toHaveAttribute("data-verdict", "changes_requested");
   // GitHub 리뷰와 Studio 결정의 글자가 다르다
   await expect(payments.getByTestId("github-status")).toContainText("Changes requested");
   await expect(payments.getByTestId("github-status")).not.toContainText("Internal:");
@@ -100,7 +103,7 @@ test("Workspace 에서 Inbox 로 가서 PR 을 기존 업무에 연결하면, �
 
   await nav(page).getByRole("link", { name: "Workspace" }).click();
   const before = await inboxCount(page);
-  await expect(page.getByTestId("work-b4c5d6")).toContainText("PR 없음"); // 아직 어느 업무에도 없다
+  await expect(page.getByTestId("work-b4c5d6").getByTestId("work-pr")).toHaveCount(0); // 아직 어느 업무에도 없다
 
   // 1. 클릭으로 Inbox 에 간다
   await nav(page).getByRole("link", { name: "Inbox" }).click();
@@ -138,13 +141,13 @@ test("Workspace 에서 Inbox 로 가서 PR 을 기존 업무에 연결하면, �
   // 4. 클릭으로 Workspace 에 돌아오면 그 업무 줄에 PR 이 보이고, Inbox 수는 하나 줄었다
   await nav(page).getByRole("link", { name: "Workspace" }).click();
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByTestId("work-b4c5d6")).toContainText("demo-org/coach-web#12");
+  await expect(page.getByTestId("work-b4c5d6").getByTestId("work-pr")).toContainText("#12");
   expect(await inboxCount(page)).toBe(before - 1);
   await shot(page, "03-workspace-after-link.png");
 
   // 5. Sync 로 다시 읽어도 사람이 만든 연결은 그대로다
   await sync(page);
-  await expect(page.getByTestId("work-b4c5d6")).toContainText("demo-org/coach-web#12");
+  await expect(page.getByTestId("work-b4c5d6").getByTestId("work-pr")).toContainText("#12");
   expect(await inboxCount(page)).toBe(before - 1);
 
   // 6. Inbox 에서는 사라졌다
@@ -253,6 +256,7 @@ test("업무 화면에서 Unlink 하면 PR 이 Inbox 로 돌아가고, 표식이
 
   const panel = await openReview(page, 710001, 12);
   await expect(panel.getByTestId("link-origin")).toHaveText("Linked by marker (body)");
+  await openLinkSection(panel);
   // 확인 체크 없이 누르면 브라우저가 제출을 막는다
   await panel.getByRole("button", { name: "Unlink" }).click();
   await expect(page).toHaveURL(/\/works\/a1b2c3\?review=710001:12/);
@@ -266,6 +270,7 @@ test("업무 화면에서 Unlink 하면 PR 이 Inbox 로 돌아가고, 표식이
   await page.goBack();
   await page.reload();
   await expect(page.getByTestId("pr-card-710001-12")).toBeVisible();
+  await openLinkSection(panel);
 
   // 체크하고 Unlink
   await panel.getByRole("checkbox").check();
@@ -283,6 +288,7 @@ test("업무 화면에서 Unlink 하면 PR 이 Inbox 로 돌아가고, 표식이
   // 오래된 탭에서 같은 PR 을 다시 Unlink 하면 500 대신 사유 안내
   const staleErrors = watchServerErrors(stalePage);
   const stalePanel = stalePage.getByTestId("review-panel");
+  await openLinkSection(stalePanel);
   await stalePanel.getByRole("checkbox").check();
   await stalePanel.getByRole("button", { name: "Unlink" }).click();
   await expect(stalePage).toHaveURL(/\/inbox\?notice=not_linked/);
@@ -353,7 +359,7 @@ test("범위를 넘는 PR 번호(2^31 이상)가 주소나 폼으로 들어와�
   // (앞 시험이 Inbox 를 비웠을 수 있으므로, 늘 카드가 있는 업무 화면의 폼을 쓴다)
   await page.goto("/");
   await openWork(page, "d0e1f2");
-  await openReview(page, 710004, 12);
+  await openLinkSection(await openReview(page, 710004, 12));
   const form = page.getByTestId("unlink-form").first();
   await form.locator('input[name="number"]').evaluate((el) => ((el as HTMLInputElement).value = "3000000000"));
   await form.getByRole("checkbox").check();

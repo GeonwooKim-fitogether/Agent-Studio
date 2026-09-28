@@ -103,7 +103,8 @@ test("PR 카드의 Reply 는 최신 커밋 카드에만 있고, 그 커밋의 �
   const serverErrors = watchServerErrors(page);
   await openLoginWork(page);
   const timeline = page.getByTestId("timeline");
-  await expect(timeline.getByTestId(OLD).getByRole("link")).toHaveCount(0); // 이전 커밋 카드에는 Reply 를 반복하지 않는다(결정 16-5)
+  // 이전 커밋(9f8e7d6) 카드는 답글이 없고 그 커밋의 결정 줄이 같은 사실을 말하므로 따로 그리지 않는다 (결정 19) — Reply 는 최신 카드에만 있다(결정 16-5)
+  await expect(timeline.getByTestId(OLD)).toHaveCount(0);
   await expect(timeline.getByTestId(LATEST).getByTestId("reply-count")).toHaveCount(0);
 
   await timeline.getByTestId(LATEST).getByRole("link", { name: "Reply" }).click();
@@ -117,8 +118,7 @@ test("PR 카드의 Reply 는 최신 커밋 카드에만 있고, 그 커밋의 �
   await panel.getByRole("button", { name: "Reply" }).click();
   await expect(panel.getByTestId("reply")).toHaveCount(1);
   await expect(timeline.getByTestId(LATEST).getByTestId("reply-count")).toHaveText("답글 1");
-  await expect(timeline.getByTestId(OLD).getByTestId("reply-count")).toHaveCount(0); // 옛 카드의 스레드는 옛 카드 것이다
-  await expect(timeline.getByTestId(OLD).getByRole("link")).toHaveCount(0);
+  await expect(timeline.getByTestId(OLD)).toHaveCount(0); // 최신 카드에 단 답글은 옛 카드를 되살리지 않는다 — 옛 카드의 스레드는 옛 카드 것이다(tests/unit/thread.test.ts)
   await expect(timeline).not.toContainText("코드 입력칸이 6칸인지"); // 메인 타임라인에는 없다
 
   await panel.getByRole("link", { name: "Close" }).click();

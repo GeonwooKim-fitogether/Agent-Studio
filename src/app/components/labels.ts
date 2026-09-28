@@ -81,7 +81,7 @@ export function statusCauseText(change: StatusChangeView, pinned = false): strin
     .join(" · ");
 }
 
-/** GitHub 의 PR 상태 · 검사 · 리뷰. 늘 "GitHub" 이라고 적힌 줄 안에서만 쓰므로 출처를 글자에 다시 붙이지 않는다 (결정 18) */
+/** GitHub 의 PR 상태 · 검사 · 리뷰. 화면에는 아이콘으로만 보이고, 이 낱말은 그 아이콘의 title 과 화면 읽기용 글자다 (결정 19, pr-icons.tsx) */
 export const PR_STATE: Record<PrState, string> = { open: "Open", merged: "Merged", closed: "Closed" };
 
 export const CHECKS: Record<ChecksState, string> = {
@@ -93,18 +93,17 @@ export const CHECKS: Record<ChecksState, string> = {
 
 export const GITHUB_REVIEW: Record<GitHubReviewState, string> = { approved: "Approved", changes_requested: "Changes requested", none: "No review" };
 
-/** GitHub 줄의 칩 셋 (상태 · 검사 · 리뷰). 카드 · Inbox 항목 · Up next · Review 패널이 같은 셋을 쓴다 */
-export interface GitHubState {
-  readonly state: PrState;
-  readonly checks: ChecksState;
-  readonly review: GitHubReviewState;
-}
-export const githubChips = (g: GitHubState): readonly { readonly text: string; readonly className: string }[] => [
-  { text: PR_STATE[g.state], className: `pr-${g.state}` },
-  { text: CHECKS[g.checks], className: `checks-${g.checks}` },
-  { text: GITHUB_REVIEW[g.review], className: "" },
-];
-export const githubLine = (g: GitHubState) => `${PR_STATE[g.state]} · ${CHECKS[g.checks]} · ${GITHUB_REVIEW[g.review]}`;
+/** 저장소 이름에서 소유자(`owner/`)를 뗀 짧은 이름 */
+export const shortRepoName = (fullName: string) => fullName.slice(fullName.lastIndexOf("/") + 1);
+
+/**
+ * PR 을 가리키는 짧은 글자 (결정 19 — 사실 하나는 한 자리에만). 한 업무의 PR 이 모두 같은 저장소면 저장소 이름은 되풀이하지 않고 `#12`,
+ * 저장소가 섞여 있으면 짧은 저장소 이름을 붙여 `payments#12`. 저장소의 전체 이름은 Connections 한 곳에 있다.
+ */
+export const prRef = (repoName: string, number: number, sameRepo: boolean) => (sameRepo ? `#${number}` : `${shortRepoName(repoName)}#${number}`);
+
+/** 이름 목록이 모두 한 저장소인가 (비었으면 참) */
+export const allSameRepo = (repoNames: Iterable<string>) => new Set(repoNames).size <= 1;
 
 export const VERDICT: Record<ReviewVerdict, string> = {
   changes_requested: "Internal: changes requested",
@@ -127,12 +126,13 @@ export const REVIEW_BLOCK: Record<DecisionBlock, string> = {
 /** 미리보기 기기가 꺼져 있을 때 Review 패널 · Next action 에 보이는 한 줄 (Q10) — 검토는 막지 않는다 */
 export const PREVIEW_HOST_OFFLINE = "Preview host offline — 미리보기 없이 GitHub 에서 확인한다.";
 
-/** Review 패널이 결정을 남기지 않은 이유 (?problem=). stale 은 새 커밋 SHA 를 받아 문장을 만든다 */
+/** Review 패널이 결정을 남기지 않은 이유 (?problem=) */
 export type ReviewProblem = ReviewNoteProblem | "stale" | "outdated_preview" | "refused";
-export function reviewProblemText(problem: ReviewProblem, headSha: string): string {
+export function reviewProblemText(problem: ReviewProblem): string {
   switch (problem) {
     case "stale":
-      return `새 커밋 ${shortSha(headSha)} 이 도착해 저장하지 않았다. 최신 커밋을 확인한 뒤 다시 판단한다.`;
+      // 새 커밋 번호는 패널 머리에 이미 있다 — 여기서 되풀이하지 않는다 (결정 19)
+      return "새 커밋이 도착해 저장하지 않았다 — 위의 커밋이 새 판단 대상이다. 확인한 뒤 다시 판단한다.";
     case "reason_missing":
       return "Request changes 에는 Reason(무엇이 왜 문제인가)이 필요하다.";
     case "done_when_missing":
@@ -323,31 +323,32 @@ export function recordStartText(since: string): string {
   return `기록 시작 · ${formatKst(since)}`;
 }
 
-/** PR 이벤트 한 줄 (PR 이름은 앞에 굵게 따로 붙인다). 커밋 번호는 연결 사건에만 적는다 — 줄마다 되풀이하지 않는다 (Focus 시안) */
+/**
+ * PR 이벤트 한 줄 (`PR #12` 는 앞에 따로 붙인다). 저장소 이름 · 커밋 번호 · 연결 방식은 적지 않는다 (결정 19) —
+ * 커밋은 Next action 과 Review 패널에, 연결 방식은 Review 패널의 Link 에 한 번씩 있다.
+ */
+const CHECKS_EVENT: Record<ChecksState, string> = { passing: "검사 통과", failing: "검사 실패", pending: "검사 진행 중", none: "검사 없음" };
 export function prEventText(event: PrEvent): string {
   switch (event.kind) {
     case "linked":
-      return `연결됨 · ${event.origin === "marker" ? "Linked by marker" : "Linked manually"} · 커밋 ${shortSha(event.commitSha)}`;
+      return "연결됨";
     case "unlinked":
-      return `연결 해제 (Unlink) · Inbox 로 돌아갔다`;
+      return "연결 해제 · Inbox 로 돌아갔다";
     case "new_commit":
-      return "새 커밋 도착";
+      return "새 커밋";
     case "checks":
-      return CHECKS[event.checks];
+      return CHECKS_EVENT[event.checks];
     case "merged":
-      return "병합됨 (Merged)";
+      return "병합됨";
     case "closed":
-      return `닫힘 (Closed) · 병합 없이 닫혔다`;
+      return "병합 없이 닫힘";
     case "reopened":
-      return `다시 열림 (Open)`;
+      return "다시 열림";
   }
 }
 
-/** 내부 검토 결정 한 줄 */
-export function reviewEventText(verdict: ReviewVerdict, commitSha: string): string {
-  const button = verdict === "internal_review_done" ? "Approve in Studio" : "Request changes";
-  return `커밋 ${shortSha(commitSha)} 에 ${button} — ${VERDICT[verdict]}`;
-}
+/** 내부 검토 결정 줄의 버튼 이름 — 줄은 "<버튼> 남김 · PR #12" 이다 */
+export const REVIEW_BUTTON: Record<ReviewVerdict, string> = { internal_review_done: "Approve in Studio", changes_requested: "Request changes" };
 
 /** 채널 목록 아래의 한 줄 (시안 v2) */
 export const CHANNELS_FOOT = "채널 하나가 업무 하나다. 새 업무는 Workspace 의 New Work 로 만든다.";

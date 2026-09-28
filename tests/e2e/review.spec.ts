@@ -19,11 +19,14 @@ test("Workspace 에서 업무를 열어 Approve in Studio · Request changes 를
   await openWork(page, "a1b2c3");
 
   let panel = await openReview(page, 710001, 12);
-  const decisions = panel.getByTestId("review-decision");
-  // 처음: 이전 커밋 하나
-  await expect(decisions).toHaveCount(1);
-  await expect(decisions).toHaveAttribute("data-freshness", "outdated");
-  await expect(decisions).toHaveText("Internal: changes requested · 커밋 9f8e7d6 · 이전 커밋");
+  const timeline = page.getByTestId("timeline");
+  const oldLine = timeline.locator('[data-kind="review"][data-commit="9f8e7d6"]');
+  // 처음: 지금 커밋에는 결정이 없어 패널의 Studio 알약이 없고, 이전 커밋에 대한 결정은 타임라인의 한 줄이다 (결정 19)
+  await expect(panel.getByTestId("review-decision")).toHaveCount(0);
+  await expect(oldLine).toHaveCount(1);
+  await expect(oldLine).toHaveAttribute("data-freshness", "outdated");
+  await expect(oldLine).toContainText("Request changes 남김 · PR #12");
+  await expect(oldLine).toContainText("이전 커밋");
   await expect(panel.getByTestId("approve-note")).toHaveText("Studio 에만 기록된다 — GitHub 리뷰 · 병합이 아니다.");
   await expect(panel.getByTestId("viewed-sha")).toHaveValue("3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d"); // 본 커밋을 폼에 싣는다
   const githubBefore = await panel.getByTestId("github-status").textContent();
@@ -31,11 +34,15 @@ test("Workspace 에서 업무를 열어 Approve in Studio · Request changes 를
   // Approve in Studio → 지금 커밋(3c4d5e6)에 대한 내부 검토 완료. 패널은 닫히고 타임라인의 결정 줄로 간다
   await panel.getByRole("button", { name: "Approve in Studio" }).click();
   await expect(page).toHaveURL(/\/works\/a1b2c3#decision-/);
-  await expect(page.getByTestId("timeline").locator('[data-kind="review"]').last()).toContainText("커밋 3c4d5e6 에 Approve in Studio");
+  const approved = timeline.locator('[data-kind="review"]').last();
+  await expect(approved).toContainText("Approve in Studio 남김 · PR #12");
+  await expect(approved).toHaveAttribute("data-commit", "3c4d5e6");
+  await expect(approved).not.toContainText("이전 커밋");
   panel = await openReview(page, 710001, 12);
   const current = panel.locator('[data-testid="review-decision"][data-freshness="current"]');
-  await expect(current).toHaveText("Internal: review done · 커밋 3c4d5e6");
-  await expect(panel.locator('[data-testid="review-decision"][data-freshness="outdated"]')).toContainText("커밋 9f8e7d6 · 이전 커밋");
+  await expect(current).toHaveText("Internal: review done");
+  await expect(panel.getByTestId("studio-status")).toHaveAttribute("title", /커밋 3c4d5e6/);
+  await expect(oldLine).toHaveAttribute("data-freshness", "outdated"); // 앞선 결정은 지우지 않고 이전 커밋으로 남는다 (계약 §6)
   // GitHub 줄은 한 글자도 바뀌지 않고, Studio 결정과 다른 줄에 있다 (계약 §5 · §8-5)
   await expect(panel.getByTestId("github-status")).toHaveText(githubBefore ?? "");
   await expect(panel.getByTestId("github-status")).toContainText("Open");
@@ -51,22 +58,21 @@ test("Workspace 에서 업무를 열어 Approve in Studio · Request changes 를
   await panel.getByRole("button", { name: "Request changes" }).click();
   await expect(panel.getByTestId("review-problem")).toHaveText("Request changes 에는 Done when(무엇이 되면 수정이 끝나나)이 필요하다.");
   await expect(panel.getByRole("textbox", { name: "Reason" })).toHaveValue("오류 문구가 입력칸 위아래에 두 번 보인다"); // 적은 이유는 되살린다
-  await expect(current).toHaveText("Internal: review done · 커밋 3c4d5e6"); // 아직 아무것도 남지 않았다
+  await expect(current).toHaveText("Internal: review done"); // 아직 아무것도 남지 않았다
   await panel.getByRole("textbox", { name: "Done when" }).fill("오류 문구가 입력칸 아래에 한 번만 보인다");
   await panel.getByRole("button", { name: "Request changes" }).click();
   await expect(page).toHaveURL(/\/works\/a1b2c3#decision-/);
 
   // 같은 커밋의 결정은 마지막 것 하나로 보이고, 타임라인에 이유 · 수정 기준 · 본 커밋이 남는다
   const line = page.getByTestId("timeline").locator('[data-kind="review"]').last();
-  await expect(line).toContainText("커밋 3c4d5e6 에 Request changes");
+  await expect(line).toContainText("Request changes 남김 · PR #12");
   await expect(line.getByTestId("decision-reason")).toHaveText("오류 문구가 입력칸 위아래에 두 번 보인다");
   await expect(line.getByTestId("decision-done-when")).toHaveText("오류 문구가 입력칸 아래에 한 번만 보인다");
-  await expect(line.getByTestId("decision-commit")).toHaveText("3c4d5e6");
+  await expect(line).toHaveAttribute("data-commit", "3c4d5e6");
   await expect(page.getByTestId("pr-card-710001-12").getByTestId("studio-status")).toContainText("Internal: changes requested");
   panel = await openReview(page, 710001, 12);
-  await expect(current).toHaveCount(1);
-  await expect(current).toHaveText("Internal: changes requested · 커밋 3c4d5e6");
-  await expect(decisions).toHaveCount(2);
+  await expect(current).toHaveCount(1); // 같은 커밋의 결정은 마지막 것 하나만 알약으로 보인다
+  await expect(current).toHaveText("Internal: changes requested");
   await expect(panel.getByRole("textbox", { name: "Reason" })).toHaveValue(""); // 남긴 뒤에는 되살리지 않는다
   await panel.getByTestId("review-close").click();
 

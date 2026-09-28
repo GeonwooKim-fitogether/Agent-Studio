@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
-import { nextActionFor, primaryPrOf } from "../../../application/focus";
+import { nextActionFor } from "../../../application/focus";
 import { getPreviewCards } from "../../../application/preview";
 import { getWorkChat } from "../../../application/queries";
 import { decisionBlockOf } from "../../../application/review";
@@ -8,7 +8,7 @@ import { parseThreadKey } from "../../../domain/memo";
 import { getContainer } from "../../../server/container";
 import { Timeline } from "../../components/chat";
 import { Icon } from "../../components/glyph";
-import { GOAL_PROBLEM, kstDay, MEMO_PROBLEM, REVIEW_PROBLEMS, type ReviewProblem } from "../../components/labels";
+import { allSameRepo, GOAL_PROBLEM, kstDay, MEMO_PROBLEM, REVIEW_PROBLEMS, type ReviewProblem } from "../../components/labels";
 import { MemoComposer } from "../../components/memo";
 import { RememberWork } from "../../components/remember-work";
 import { ReviewPanel } from "../../components/review-panel";
@@ -29,7 +29,7 @@ export const dynamic = "force-dynamic";
  *   휴대전화 폭: 한 열. 목표 바로 아래에 Next action 이 오고, 속성은 Details 로 접는다(?details=1)
  *
  * 오른쪽 칸을 바꾸는 것 둘 — 주소 파라미터로 같은 화면을 다시 그린다(자바스크립트 없이 동작한다). 휴대전화 폭에서는 화면 전체를 덮는다.
- *   ?review=<저장소 ID>:<PR 번호>  Review 패널 (본 커밋 · GitHub 상태 · 미리보기 · 결정 폼 · Link)
+ *   ?review=<저장소 ID>:<PR 번호>  Review 패널 (본 커밋 · 아이콘 줄 · 결정 폼 · 미리보기 · Link)
  *   ?thread=<스레드 이름>          스레드 칸 (F9)
  * 메모의 Edit 은 ?edit=<메모 ID>, 목표 고치기는 ?goal=edit 로 연다.
  */
@@ -64,9 +64,7 @@ export default async function WorkPage({
   const { work, project, marker, prs } = chat;
   const previews = await getPreviewCards(container.deps, container.preview, prs);
   const running = container.preview.current();
-  const hostOnline = container.preview.status().online;
   const action = nextActionFor(chat, running);
-  const primary = primaryPrOf(chat, action);
 
   // Review 패널: 이 업무에 연결된 PR 일 때만 연다(연결이 풀린 PR 의 오래된 주소면 열지 않는다)
   const reviewPr = wantedReview === null ? undefined : prs.find((p) => p.repoId === wantedReview.repoId && p.number === wantedReview.number);
@@ -128,7 +126,6 @@ export default async function WorkPage({
           <section className="tl-col" aria-label="Timeline">
             <Timeline
               entries={chat.timeline}
-              marker={marker}
               workId={work.id}
               editingMemoId={editingMemoId}
               previewFor={(pr) => previews.get(pr.key)}
@@ -145,15 +142,15 @@ export default async function WorkPage({
           <MemoComposer workId={work.id} problem={memoProblem} />
         </div>
         <div className="work-side">
-          <NextActionCard action={action} work={work} marker={marker} previews={previews} hostOnline={hostOnline} />
-          <WorkDetails summary={chat} projectName={project.name} primary={primary} previews={previews} open={showDetails} />
+          <NextActionCard action={action} work={work} marker={marker} previews={previews} sameRepo={allSameRepo(prs.map((p) => p.repoName))} />
+          <WorkDetails summary={chat} projectName={project.name} open={showDetails} />
         </div>
         {reviewPr !== undefined && (
           <ReviewPanel
             work={work}
             pr={reviewPr}
             preview={previews.get(reviewPr.key)}
-            hostOnline={hostOnline}
+            sameRepo={allSameRepo(prs.map((p) => p.repoName))}
             block={decisionBlockOf({ ...reviewPr, state: reviewPr.github.state }, running)}
             problem={reviewProblem}
             draft={draft}

@@ -7,7 +7,8 @@ import { Icon } from "./glyph";
 /**
  * PR 카드 안의 미리보기 칸 (docs/plan/04-remote-preview.md §4).
  *
- * 열 수 없으면 Open Preview 를 없애지 않고 비활성으로 두고, 그 바로 옆에 이유 문장을 보인다(결정 7).
+ * 열 수 없으면 Open Preview 를 없애지 않고 비활성으로 두고 이유를 title 에 둔다(결정 7). PR 쪽 이유(복제본 등)는 옆에 문장으로도 보이고,
+ * 미리보기 기기가 꺼진 것은 사이드바가 한 곳에서 말하므로 아이콘(꺼진 모니터)과 title 로만 보인다(결정 19).
  * 실행 중이면 "Running · PR #n · 커밋 앞 7자리 · 주소" 와 열기 링크 · 종료 버튼을 보인다.
  * PR 에 새 커밋이 올라와 실행 중인 커밋이 최신이 아니면 "이전 버전" 으로 표시하고 검토 근거로 쓰지 말라고 적는다(계약 §6).
  */
@@ -28,6 +29,7 @@ export function PreviewControls({
   const reason =
     availability.kind === "runner_offline" ? availability.reason : availability.kind === "blocked" ? PREVIEW_BLOCK[availability.block] : null;
   const live = session !== null && (session.busy || session.phase === "running");
+  const offline = availability.kind === "runner_offline";
 
   return (
     <section className="preview-box" data-testid="preview-box" aria-label="Preview">
@@ -90,11 +92,12 @@ export function PreviewControls({
           </form>
         ) : (
           <>
-            <button type="button" className="btn" disabled aria-describedby={`preview-reason-${pr.repoId}-${pr.number}`}>
-              <Icon name="monitor" />
+            <button type="button" className="btn small" disabled title={reason} aria-describedby={`preview-reason-${pr.repoId}-${pr.number}`}>
+              <Icon name={offline ? "monitorOff" : "monitor"} />
               Open Preview
             </button>
-            <span className="muted" id={`preview-reason-${pr.repoId}-${pr.number}`} data-testid="preview-blocked-reason">
+            {/* 기기가 꺼져 있다는 것은 사이드바 한 곳이 말한다 — 여기서는 아이콘과 title 로만 (결정 19). PR 쪽 이유(복제본 등)는 여기만 있으니 보인다 */}
+            <span className={offline ? "sr-only" : "muted"} id={`preview-reason-${pr.repoId}-${pr.number}`} data-testid="preview-blocked-reason">
               {reason}
             </span>
           </>

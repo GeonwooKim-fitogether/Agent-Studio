@@ -21,7 +21,7 @@ export const metadata: Metadata = { title: "Agent Studio" };
  * 모든 화면의 틀 (결정 18, Q1 · Q2). 넓은 화면은 왼쪽 사이드바, 휴대전화 폭은 위쪽 한 줄 + 아래쪽 탭이다.
  *
  * 기술 정보(출처 · 저장소 · 마지막 Sync 시각 · 저장 방식 · 출처별 결과 · 미리보기 기기 상세)는 Connections 화면에 있다.
- * 여기에는 판단에 필요한 것만 남긴다 — 한 줄 요약(GitHub · 3분 전 + Sync, Preview host), 그리고 동기화가 실패했거나 설정이
+ * 여기에는 판단에 필요한 것만 남긴다 — 한 줄 요약(GitHub · 3분 전 + Sync, 그 아래 Preview host — 휴대전화 폭은 점 하나), 그리고 동기화가 실패했거나 설정이
  * 틀렸으면 모든 화면 맨 위의 경고 한 줄. 고정 데이터로 돌면 "Fixture data" 가 늘 보인다.
  */
 export default async function RootLayout({ children }: { children: ReactNode }) {
@@ -63,10 +63,18 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       </button>
     </form>
   );
+  // 미리보기 기기의 상태는 이 한 곳에 글자로 있다(결정 19) — 카드 · 패널은 회색 아이콘으로만 보인다. 휴대전화 폭은 위쪽 줄의 점 하나다
+  const hostText = device.online ? "Preview host connected" : "Preview host offline";
   const hostLine = (
     <span className={device.online ? "host-line" : "host-line offline"} data-testid="preview-host">
-      <Icon name={device.online ? "monitor" : "off"} />
-      Preview host · {device.online ? "Connected" : "Offline"}
+      <i className="host-dot" aria-hidden="true" />
+      {hostText}
+    </span>
+  );
+  const hostDot = (
+    <span className={device.online ? "host-line dot-only" : "host-line dot-only offline"} data-testid="preview-host" title={hostText}>
+      <i className="host-dot" aria-hidden="true" />
+      <span className="sr-only">{hostText}</span>
     </span>
   );
 
@@ -94,11 +102,11 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                   <Icon name={fixture ? "database" : "github"} />
                 </span>
                 <div className="status-lines" data-testid="sync-summary">
-                  {syncLine}
                   <span className="status-second">
-                    {hostLine}
+                    {syncLine}
                     {syncButton}
                   </span>
+                  {hostLine}
                 </div>
               </div>
             </div>
@@ -115,6 +123,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
               </a>
               <div className="sync-summary" data-testid="sync-summary">
                 {syncLine}
+                {hostDot}
                 {syncButton}
               </div>
             </header>

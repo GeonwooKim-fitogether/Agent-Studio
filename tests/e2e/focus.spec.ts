@@ -18,6 +18,8 @@ const PORT = 3104;
 const BASE = `http://127.0.0.1:${PORT}`;
 const HEADS = join(tmpdir(), "agent-studio-e2e-focus-heads.json");
 const NEW_HEAD = "c0ffee".repeat(6) + "c0ff"; // 40자
+/** 새 커밋 번호는 문구에 넣지 않는다 — 패널 머리의 커밋이 새 판단 대상이다 (결정 19) */
+const STALE = "새 커밋이 도착해 저장하지 않았다 — 위의 커밋이 새 판단 대상이다. 확인한 뒤 다시 판단한다.";
 const SHOTS = process.env.FOCUS_SHOTS;
 
 test.describe("Focus 흐름 (서버 3104)", () => {
@@ -79,7 +81,7 @@ test.describe("Focus 흐름 (서버 3104)", () => {
     const panel = page.getByTestId("review-panel");
     await expect(panel).toBeVisible();
     await expect(panel.getByTestId("review-commit")).toHaveText("3c4d5e6");
-    await expect(panel.getByTestId("host-offline-note")).toBeVisible();
+    await expect(panel.getByTestId("preview-status")).toHaveAttribute("data-value", "offline");
     if (SHOTS !== undefined) await page.screenshot({ path: join(SHOTS, "desktop-review.png") });
 
     await panel.getByRole("button", { name: "Request changes" }).click();
@@ -89,10 +91,10 @@ test.describe("Focus 흐름 (서버 3104)", () => {
     await panel.getByRole("button", { name: "Request changes" }).click();
     await expect(page).toHaveURL(/\/works\/a1b2c3#decision-/);
     const line = page.getByTestId("timeline").locator('[data-kind="review"]').last();
-    await expect(line).toContainText("커밋 3c4d5e6 에 Request changes");
+    await expect(line).toContainText("Request changes 남김 · PR #12");
     await expect(line.getByTestId("decision-reason")).toHaveText("비밀번호 오류 문구가 두 번 보인다");
     await expect(line.getByTestId("decision-done-when")).toHaveText("오류 문구가 입력칸 아래에 한 번만 보이고, 390px 에서도 줄바꿈이 없다");
-    await expect(line.getByTestId("decision-commit")).toHaveText("3c4d5e6");
+    await expect(line).toHaveAttribute("data-commit", "3c4d5e6");
     await expect(page.getByTestId("next-action")).toHaveAttribute("data-kind", "checks_failing");
     if (SHOTS !== undefined) await page.screenshot({ path: join(SHOTS, "desktop-work.png") });
     expect(serverErrors).toEqual([]);
@@ -110,7 +112,7 @@ test.describe("Focus 흐름 (서버 3104)", () => {
     writeFileSync(HEADS, JSON.stringify({ "710001#12": NEW_HEAD }));
     await panel.getByRole("button", { name: "Approve in Studio" }).click();
     await expect(page).toHaveURL(/review=710001:12&problem=stale/);
-    await expect(panel.getByTestId("review-problem")).toHaveText("새 커밋 c0ffeec 이 도착해 저장하지 않았다. 최신 커밋을 확인한 뒤 다시 판단한다.");
+    await expect(panel.getByTestId("review-problem")).toHaveText(STALE);
     await expect(panel.getByTestId("review-commit")).toHaveText("c0ffeec"); // 새 커밋으로 다시 그렸다
     await expect(panel.getByTestId("viewed-sha")).toHaveValue(NEW_HEAD);
     await expect(panel.getByRole("textbox", { name: "Reason" })).toHaveValue("본 화면 기준으로는 괜찮다"); // 적은 글은 되살린다
@@ -121,10 +123,14 @@ test.describe("Focus 흐름 (서버 3104)", () => {
     await panel.getByRole("button", { name: "Approve in Studio" }).click();
     await expect(page).toHaveURL(/\/works\/a1b2c3#decision-/);
     const line = page.getByTestId("timeline").locator('[data-kind="review"]').last();
-    await expect(line).toContainText("커밋 c0ffeec 에 Approve in Studio");
+    await expect(line).toContainText("Approve in Studio 남김 · PR #12");
+    await expect(line).toHaveAttribute("data-commit", "c0ffeec");
     await expect(line.getByTestId("decision-reason")).toHaveText("본 화면 기준으로는 괜찮다");
-    // 앞 시험의 수정 요청은 이전 커밋 카드의 기록으로 남는다 (계약 §6)
-    await expect(page.getByTestId("pr-card-old-710001-12-3c4d5e6")).toContainText("Internal: changes requested");
+    // 앞 시험의 수정 요청은 "이전 커밋" 의 결정 줄로 남는다 (계약 §6). 그 커밋의 카드는 결정 줄과 같은 사실이라 따로 그리지 않는다 (결정 19)
+    const old = page.getByTestId("timeline").locator('[data-kind="review"][data-commit="3c4d5e6"][data-verdict="changes_requested"]');
+    await expect(old).toHaveAttribute("data-freshness", "outdated");
+    await expect(old).toContainText("이전 커밋");
+    await expect(page.getByTestId("pr-card-old-710001-12-3c4d5e6")).toHaveCount(0);
     expect(serverErrors).toEqual([]);
   });
 
@@ -144,7 +150,8 @@ test.describe("Focus 흐름 (서버 3104)", () => {
     await panel.getByRole("textbox", { name: "Reason" }).fill("문구");
     await panel.getByRole("textbox", { name: "Done when" }).fill("기준");
     await panel.getByRole("button", { name: "Request changes" }).click();
-    await expect(panel.getByTestId("review-problem")).toHaveText("새 커밋 ddddddd 이 도착해 저장하지 않았다. 최신 커밋을 확인한 뒤 다시 판단한다.");
+    await expect(panel.getByTestId("review-problem")).toHaveText(STALE);
+    await expect(panel.getByTestId("review-commit")).toHaveText("ddddddd"); // 새 커밋 번호는 문구가 아니라 패널 머리에 있다
     await expect(panel).toBeInViewport();
     if (SHOTS !== undefined) await page.screenshot({ path: join(SHOTS, "phone-review-stale.png") });
   });

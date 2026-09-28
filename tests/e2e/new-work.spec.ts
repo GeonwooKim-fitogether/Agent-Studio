@@ -66,7 +66,8 @@ test.describe("클립보드를 쓸 수 있는 브라우저", () => {
     // Workspace 의 업무 줄에도 표식이 보인다
     await nav(page).getByRole("link", { name: "Workspace" }).click();
     const row = page.getByTestId(`work-${marker.replace("studio-work-", "")}`);
-    await expect(row).toContainText("코치 대시보드 · PR 없음");
+    await expect(row).toContainText("코치 대시보드");
+    await expect(row.getByTestId("work-pr")).toHaveCount(0); // PR 이 없으면 #번호 · 아이콘 줄이 없다
     await expect(page.getByRole("link", { name: "New Work" })).toBeVisible();
     expect(serverErrors).toEqual([]);
   });

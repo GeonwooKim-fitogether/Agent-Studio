@@ -92,7 +92,7 @@ test.describe("서버 재시작", () => {
       server = await startServer(); // 다시 켠다
 
       await page.goto(BASE);
-      await expect(page.getByTestId("work-b4c5d6")).toContainText("demo-org/coach-web#12");
+      await expect(page.getByTestId("work-b4c5d6").getByTestId("work-pr")).toContainText("#12");
       await filterProject(page, "docs");
       await expect(visibleWorks(page)).toHaveCount(1); // 시연 데이터를 다시 심지 않았다
       await expect(visibleWorks(page).first()).toContainText("로그인 안내 문서");

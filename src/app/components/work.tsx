@@ -1,14 +1,14 @@
 import type { ReactNode } from "react";
-import { currentDecisionOf, type NextAction } from "../../application/focus";
+import type { NextAction } from "../../application/focus";
 import type { PreviewCardView } from "../../application/preview";
-import type { PrCardView, WorkSummaryView } from "../../application/queries";
+import type { WorkSummaryView } from "../../application/queries";
 import { MAX_WORK_GOAL_LENGTH } from "../../domain/work-goal";
 import type { Work } from "../../domain/model";
 import { markDoneAction, setGoalAction } from "../actions";
 import { CopyButton } from "./copy-button";
 import { Icon } from "./glyph";
-import { CHECKS, DONE_CANDIDATE_NOTE, githubLine, linkLabel, MARKER_HINT, NO_INTERNAL_REVIEW, PREVIEW_HOST_OFFLINE, shortSha, VERDICT } from "./labels";
-import { PreviewStatus, previewSummary } from "./preview-status";
+import { allSameRepo, DONE_CANDIDATE_NOTE, MARKER_HINT, prRef, shortSha } from "./labels";
+import { PrIcons } from "./pr-icons";
 import { WorkStatusPanel } from "./work-status";
 
 /**
@@ -76,20 +76,22 @@ export function GoalCard({ work, editing, problem }: { work: Work; editing: bool
 
 /**
  * Next action 카드 (Q6). 상황마다 제목 · 주 버튼 하나. 규칙 설명은 두지 않는다(결정 18).
- * PR 을 두고 결정하는 상황에서는 **결정의 대상인 커밋**을 크게 보인다(서명 — 결정 18 "본 커밋으로 결정한다") 그 아래 `저장소#번호 · 검사 상태` 한 줄.
+ * PR 을 두고 결정하는 상황에서는 **결정의 대상인 커밋**을 크게 한 번 보인다(서명 — 결정 18 "본 커밋으로 결정한다") 그 아래 `#12` 와 아이콘 줄 (결정 19).
+ * 미리보기 기기가 꺼져 있다는 것은 아이콘 줄의 회색 칸과 사이드바 한 곳이 말한다 — 여기에 문장을 되풀이하지 않는다.
  */
 export function NextActionCard({
   action,
   work,
   marker,
   previews,
-  hostOnline,
+  sameRepo,
 }: {
   action: NextAction;
   work: Work;
   marker: string;
   previews: ReadonlyMap<string, PreviewCardView>;
-  hostOnline: boolean;
+  /** 이 업무의 PR 이 모두 같은 저장소인가 (그러면 `#12` 로만 적는다) */
+  sameRepo: boolean;
 }) {
   const path = `/works/${encodeURIComponent(work.id)}`;
   const button = (href: string, label: string, testid = "next-action-button") => (
@@ -97,16 +99,6 @@ export function NextActionCard({
       {label}
       <Icon name="arrow" />
     </a>
-  );
-  /** 큰 커밋 번호 아래의 한 줄: `저장소#번호 · 검사 상태` (검사 실패는 경고색, 판단 전은 강조색) */
-  const prLine = (pr: PrCardView, note?: string) => (
-    <>
-      {pr.repoName}#{pr.number} ·{" "}
-      <span className={pr.github.checks === "failing" ? "checks-failing" : pr.github.checks === "passing" ? "checks-ready" : undefined}>
-        {CHECKS[pr.github.checks]}
-      </span>
-      {note !== undefined && ` · ${note}`}
-    </>
   );
   let title: string;
   let text: ReactNode = null;
@@ -130,17 +122,14 @@ export function NextActionCard({
       break;
     case "review":
       title = "결과를 확인한다";
-      text = prLine(action.pr, "판단 전");
       primary = button(reviewHref(work.id, action.pr), "Open review");
       break;
     case "outdated_preview":
       title = "미리보기를 최신 커밋으로 다시 연다";
-      text = prLine(action.pr, `미리보기는 커밋 ${shortSha(action.previewCommitSha)}`);
       primary = button(reviewHref(work.id, action.pr), "Open review");
       break;
     case "checks_failing":
       title = "검사 실패 — 작성자가 고칠 차례";
-      text = prLine(action.pr);
       primary = button(reviewHref(work.id, action.pr), "Open review");
       break;
     case "set_goal":
@@ -158,48 +147,38 @@ export function NextActionCard({
       break;
     case "changes_requested":
       title = "수정을 기다린다";
-      text = prLine(action.pr, "Request changes 남김");
       primary = button(reviewHref(work.id, action.pr), "View decision");
       break;
     case "await_merge":
       title = "GitHub 병합을 기다린다";
-      text = prLine(action.pr, "Studio 승인");
       primary = button(reviewHref(work.id, action.pr), "View decision");
       break;
     case "checks_pending":
       title = "검사가 끝나길 기다린다";
-      text = prLine(action.pr);
       primary = button(reviewHref(work.id, action.pr), "Open review");
       break;
     case "open_review":
       title = "결과를 본다";
-      text = prLine(action.pr);
       primary = button(reviewHref(work.id, action.pr), "Open review");
       break;
   }
   const reviewing = "pr" in action;
-  const preview = "pr" in action ? previews.get(action.pr.key) : undefined;
   return (
     <section className="next-action" aria-label="Next action" data-testid="next-action" data-kind={action.kind}>
       <p className="eyebrow">Next action</p>
       <h3>{title}</h3>
       {reviewing && (
-        <code className="sha-big" data-testid="next-action-sha" title={action.pr.headSha}>
-          {shortSha(action.pr.headSha)}
-        </code>
+        <>
+          <code className="sha-big" data-testid="next-action-sha" title={action.pr.headSha}>
+            {shortSha(action.pr.headSha)}
+          </code>
+          <p className="sha-line" data-testid="next-action-pr">
+            <span className="pr-no">{prRef(action.pr.repoName, action.pr.number, sameRepo)}</span>{" "}
+            <PrIcons github={action.pr.github} preview={previews.get(action.pr.key)} />
+          </p>
+        </>
       )}
-      {text !== null && <p className={reviewing ? "sha-line" : "next-text"}>{text}</p>}
-      {reviewing && !hostOnline && (
-        <p className="host-offline" data-testid="host-offline-note">
-          <Icon name="off" />
-          {PREVIEW_HOST_OFFLINE}
-        </p>
-      )}
-      {reviewing && hostOnline && preview !== undefined && (
-        <p className="next-preview">
-          Preview · <PreviewStatus view={preview} />
-        </p>
-      )}
+      {text !== null && <p className="next-text">{text}</p>}
       {primary}
     </section>
   );
@@ -236,23 +215,22 @@ export function WorkPath({ status }: { status: Work["status"] }) {
   );
 }
 
-/** Work details (Q6) — 속성, Work path, 상태, "Link a PR"(표식 · Copy). 휴대전화 폭에서는 Details 로 접힌다 */
+/**
+ * Work details (Q6, 결정 19) — Project · Pull requests(PR 마다 `#12 제목` 과 세 칸 아이콘 줄, 누르면 그 PR 의 Review 패널) · Work path · 상태 · Link a PR(표식 · Copy).
+ * 커밋 · GitHub · Studio · Preview 행은 두지 않는다 — 같은 사실이 Next action 과 카드의 아이콘 줄에 이미 있다. 휴대전화 폭에서는 Details 로 접힌다.
+ */
 export function WorkDetails({
   summary,
   projectName,
-  primary,
-  previews,
   open,
 }: {
   summary: WorkSummaryView;
   projectName: string;
-  primary: PrCardView | null;
-  previews: ReadonlyMap<string, PreviewCardView>;
   /** 휴대전화 폭에서 속성을 펼쳤나 (?details=1). 넓은 화면에서는 늘 펼쳐 보인다 */
   open: boolean;
 }) {
   const { work, prs, marker } = summary;
-  const decision = primary === null ? null : currentDecisionOf(primary);
+  const sameRepo = allSameRepo(prs.map((p) => p.repoName));
   const body = (
     <>
       <dl className="properties" data-testid="work-properties">
@@ -260,66 +238,34 @@ export function WorkDetails({
           <dt>Project</dt>
           <dd>{projectName}</dd>
         </div>
-        <div className="property">
-          <dt>Pull request</dt>
-          <dd data-testid="prop-prs">
+        <div className="property stack">
+          <dt>Pull requests</dt>
+          <dd className="pr-list" data-testid="prop-prs">
             {prs.length === 0
               ? "Not linked"
               : prs.map((p) => (
-                  <span key={p.key} className="pr-ref">
-                    {p.repoName}#{p.number}
-                  </span>
+                  <a key={p.key} className="pr-line" href={reviewHref(work.id, p)} data-testid={`prop-pr-${p.repoId}-${p.number}`}>
+                    <span className="pr-no">{prRef(p.repoName, p.number, sameRepo)}</span>
+                    <span className="t">{p.title}</span>
+                    <PrIcons github={p.github} withPreview={false} />
+                  </a>
                 ))}
           </dd>
         </div>
-        {primary !== null && (
-          <>
-            <div className="property">
-              <dt>Commit</dt>
-              <dd>
-                <code>{shortSha(primary.headSha)}</code>
-              </dd>
-            </div>
-            <div className="property">
-              <dt>GitHub</dt>
-              <dd>
-                {githubLine(primary.github)}
-              </dd>
-            </div>
-            <div className="property">
-              <dt>Studio</dt>
-              <dd>{decision === null ? NO_INTERNAL_REVIEW : `${VERDICT[decision.verdict]} · ${shortSha(decision.commitSha)}`}</dd>
-            </div>
-            {previews.get(primary.key) !== undefined && previewSummary(previews.get(primary.key)).tone !== "quiet" && (
-              <div className="property">
-                <dt>Preview</dt>
-                <dd>
-                  <PreviewStatus view={previews.get(primary.key)} />
-                </dd>
-              </div>
-            )}
-          </>
-        )}
       </dl>
       <WorkPath status={work.status} />
       <WorkStatusPanel summary={summary} />
       <details className="link-pr" id="link-pr" open={prs.length === 0}>
-        <summary>Link a PR</summary>
+        <summary>
+          <Icon name="chevron" />
+          Link a PR
+        </summary>
         <div className="marker">
           <code id="work-marker" data-testid="work-marker" title={MARKER_HINT}>
             {marker}
           </code>
           <CopyButton text={marker} targetId="work-marker" />
         </div>
-        {prs.length > 0 && (
-          <ul className="link-list">
-            {prs.map((p) => (
-              <li key={p.key}>
-                {p.repoName}#{p.number} · <span data-testid="link-origin-summary">{linkLabel(p.studio.linkOrigin, p.studio.markerFoundIn)}</span>
-              </li>
-            ))}
-          </ul>
-        )}
       </details>
     </>
   );

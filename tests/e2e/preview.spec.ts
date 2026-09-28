@@ -16,7 +16,7 @@ async function shot(page: Page, name: string): Promise<void> {
 
 test("미리보기 기기가 연결되지 않았으면 Open Preview 는 비활성이고 바로 옆에 이유가 보이며, 검토는 막지 않는다", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByTestId("preview-host").first()).toContainText("Preview host · Offline");
+  await expect(page.getByTestId("preview-host").first()).toContainText("Preview host offline");
   // Workspace 에는 미리보기 버튼이 없다 — 업무 화면의 Review 패널에서 연다
   await expect(page.getByRole("button", { name: "Open Preview" })).toHaveCount(0);
   await openConnections(page);
@@ -32,7 +32,10 @@ test("미리보기 기기가 연결되지 않았으면 Open Preview 는 비활�
   await expect(panel.getByTestId("preview-blocked-reason")).toHaveText(
     "미리보기 기기가 연결되지 않았다 — PREVIEW_WORKDIR 를 설정한 컴퓨터에서 Studio 를 띄운다.",
   );
-  await expect(panel.getByTestId("host-offline-note")).toHaveText("Preview host offline — 미리보기 없이 GitHub 에서 확인한다.");
+  await expect(button).toHaveAttribute("title", "미리보기 기기가 연결되지 않았다 — PREVIEW_WORKDIR 를 설정한 컴퓨터에서 Studio 를 띄운다.");
+  // 기기가 꺼진 것을 글로 말하는 곳은 사이드바 한 곳이다 — 패널은 머리의 회색 미리보기 칸과 그 title 로만 (결정 19)
+  await expect(panel.getByTestId("preview-status")).toHaveAttribute("title", "Preview host offline — 미리보기 없이 GitHub 에서 확인한다.");
+  await expect(panel.getByTestId("preview-status")).toHaveAttribute("data-value", "offline");
   await expect(panel.getByRole("button", { name: "Approve in Studio" })).toBeEnabled(); // 미리보기 없이도 검토한다
   await shot(page, "08-preview-not-connected.png");
 });
@@ -50,7 +53,7 @@ test.describe("미리보기 기기가 연결된 서버", () => {
     context,
   }) => {
     await page.goto("/");
-    await expect(page.getByTestId("preview-host").first()).toContainText("Preview host · Connected");
+    await expect(page.getByTestId("preview-host").first()).toContainText("Preview host connected");
     await openConnections(page);
     await expect(page.getByTestId("preview-device")).toHaveText("Preview device: connected");
     await expect(page.getByTestId("preview-device-detail")).toContainText("this computer · 127.0.0.1");
@@ -73,7 +76,8 @@ test.describe("미리보기 기기가 연결된 서버", () => {
     await expect(card.getByTestId("preview-outdated")).toHaveCount(0);
     const url = await card.getByTestId("preview-url").textContent();
     expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/$/);
-    await expect(page.getByTestId("pr-card-710004-12").getByTestId("preview-status")).toHaveText("Running · 9e28961");
+    await expect(page.getByTestId("pr-card-710004-12").getByTestId("preview-status")).toHaveAttribute("data-value", "running");
+    await expect(page.getByTestId("pr-card-710004-12").getByTestId("preview-status")).toHaveAttribute("title", "Preview: Running · 9e28961");
     await shot(page, "09-preview-running.png");
 
     // Open 링크는 새 탭에서 PR 커밋의 앱을 연다
@@ -133,6 +137,7 @@ test.describe("미리보기 기기가 연결된 서버", () => {
     await sync(page);
     await expect(panel.getByTestId("review-commit")).toHaveText("abababa");
     await expect(panel.getByTestId("preview-session")).toHaveAttribute("data-freshness", "outdated");
+    await expect(panel.getByTestId("preview-status")).toHaveAttribute("data-value", "outdated"); // 머리의 미리보기 칸이 경고색이 된다
     await expect(panel.getByTestId("preview-outdated")).toContainText("이전 버전");
     await expect(panel.getByRole("button", { name: "Approve in Studio" })).toBeDisabled();
     await expect(panel.getByRole("button", { name: "Request changes" })).toBeDisabled();
