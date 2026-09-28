@@ -58,6 +58,7 @@ const MIGRATIONS = [
   "20260928021302_memo_thread",
   "20260928093232_work_goal",
   "20260928093233_review_reason",
+  "20260928215247_agent_draft",
 ];
 
 describe.skipIf(!HAS_POSTGRES)("PostgreSQL 통합", () => {
@@ -110,6 +111,7 @@ describe.skipIf(!HAS_POSTGRES)("PostgreSQL 통합", () => {
       expect(out).toContain("적용함 20260928021302_memo_thread.sql");
       expect(out).toContain("적용함 20260928093232_work_goal.sql");
       expect(out).toContain("적용함 20260928093233_review_reason.sql");
+      expect(out).toContain("적용함 20260928215247_agent_draft.sql");
       expect(out).toContain(`새로 적용 ${MIGRATIONS.length - 1}개`);
       // PR 이벤트 표는 비어서 시작한다 — 이 표가 생기기 전의 변화는 없다
       expect((await client.query("select count(*)::int as n from pr_event")).rows[0]).toEqual({ n: 0 });
@@ -143,7 +145,7 @@ describe.skipIf(!HAS_POSTGRES)("PostgreSQL 통합", () => {
 
       const out = runMigrate(TEST_DATABASE_URL, "test");
       expect(out).toContain("적용함 20260928021302_memo_thread.sql");
-      expect(out).toContain("새로 적용 3개"); // 스레드 + 그 뒤의 목표 · 검토 이유
+      expect(out).toContain("새로 적용 4개"); // 스레드 + 그 뒤의 목표 · 검토 이유 · Agent 초안
       expect((await client.query("select id, body, is_reply, thread_memo_id from memo order by id")).rows).toEqual([
         { id: "m1", body: "이미 쓴 메모", is_reply: false, thread_memo_id: null },
         { id: "m2", body: "다른 업무 메모", is_reply: false, thread_memo_id: null },
@@ -191,7 +193,7 @@ describe.skipIf(!HAS_POSTGRES)("PostgreSQL 통합", () => {
       );
 
       const out = runMigrate(TEST_DATABASE_URL, "test");
-      expect(out).toContain("새로 적용 2개");
+      expect(out).toContain("새로 적용 3개"); // 목표 · 검토 이유 + 그 뒤의 Agent 초안
       expect((await client.query("select goal from work")).rows).toEqual([{ goal: "" }]);
       expect((await client.query("select reason, done_when from review_decision")).rows).toEqual([{ reason: null, done_when: null }]);
       await expect(client.query(`update work set goal = '${"x".repeat(501)}'`)).rejects.toMatchObject({ code: "23514" });

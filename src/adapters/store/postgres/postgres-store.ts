@@ -24,6 +24,7 @@ import {
   isValidPrRef,
   withoutNul,
 } from "../../../domain/model";
+import { type AgentDraft, type AgentSkillId, isAcceptedAgentDraft } from "../../../domain/agent-draft";
 import { isAcceptedMemoBody, isValidThreadTarget, type Memo, type ThreadTarget } from "../../../domain/memo";
 import { isPrEventKind, type PrEvent } from "../../../domain/pr-event";
 import { isValidWorkId } from "../../../domain/work-marker";
@@ -146,6 +147,27 @@ const toMemo = (r: Row): Memo => ({
   deletedAt: r["deleted_at"] === null ? null : iso(r["deleted_at"]),
   thread: toThread(r),
 });
+
+const toAgent = (r: Row): AgentDraft => ({
+  id: String(r["id"]),
+  name: String(r["name"]),
+  summary: String(r["summary"]),
+  instructions: String(r["instructions"]),
+  skills: (r["skills"] as unknown[]).map((v) => String(v) as AgentSkillId),
+  createdAt: iso(r["created_at"]),
+  updatedAt: iso(r["updated_at"]),
+});
+
+/** Agent 초안 한 건을 쓴다. 같은 ID 가 이미 있으면 invalid_input (메모리 구현과 같다) */
+async function insertAgent(db: Queryable, a: AgentDraft): Promise<void> {
+  const inserted = await db.query(
+    `insert into agent_draft (id, name, summary, instructions, skills, created_at, updated_at)
+     values ($1, $2, $3, $4, $5, $6, $7)
+     on conflict (id) do nothing`,
+    [a.id, a.name, a.summary, a.instructions, a.skills, a.createdAt, a.updatedAt],
+  );
+  if ((inserted.rowCount ?? 0) === 0) throw new StudioError("invalid_input", "같은 ID 의 Agent 초안이 이미 있다.");
+}
 
 function toThread(r: Row): ThreadTarget | null {
   if (r["thread_memo_id"] !== null) return { kind: "memo", memoId: String(r["thread_memo_id"]) };
@@ -557,6 +579,34 @@ export function createPostgresStore(pool: Pool): StudioStore {
       if (row === undefined) throw new StudioError("not_found", "지울 메모가 없다.");
     },
 
+    async listAgentDrafts() {
+      return (await rows("select * from agent_draft order by created_at, id")).map(toAgent);
+    },
+    async getAgentDraft(id) {
+      const [row] = await rows("select * from agent_draft where id = $1", [id]);
+      return row && toAgent(row);
+    },
+    async createAgentDraft(draft) {
+      // 확인 순서는 메모리 구현과 같다: 칸 · 시각 → 같은 ID
+      if (!isAcceptedAgentDraft(draft) || draft.createdAt === "" || draft.updatedAt === "") {
+        throw new StudioError("invalid_input", "Agent 초안의 값이 올바르지 않다.");
+      }
+      try {
+        await insertAgent(pool, draft);
+      } catch (error) {
+        throw translate(error);
+      }
+    },
+    async saveAgentDraft(u) {
+      // 확인 순서는 메모리 구현과 같다: 칸 · 시각 → 없는 초안
+      if (!isAcceptedAgentDraft(u) || u.updatedAt === "") throw new StudioError("invalid_input", "Agent 초안의 값이 올바르지 않다.");
+      const updated = await run(
+        "update agent_draft set name = $2, summary = $3, instructions = $4, skills = $5, updated_at = $6 where id = $1",
+        [u.id, u.name, u.summary, u.instructions, u.skills, u.updatedAt],
+      );
+      if ((updated.rowCount ?? 0) === 0) throw new StudioError("not_found", "고칠 Agent 초안이 없다.");
+    },
+
     async listPreviewRecords() {
       return (await rows("select * from preview_record order by started_at, id")).map(toPreview);
     },
@@ -566,10 +616,14 @@ export function createPostgresStore(pool: Pool): StudioStore {
 /**
  * 저장소가 비어 있을 때만(프로젝트가 하나도 없을 때만) 처음 상태를 한 번 심는다. 트랜잭션 하나로 한다.
  * 조립부가 fixture 모드에서 시연 데이터를 심을 때 쓴다. 이미 데이터가 있으면 아무것도 하지 않고 false 를 돌려준다.
+ * Agent 초안(결정 20)만은 따로 본다 — 초안 표가 비어 있으면, 프로젝트가 이미 있는 데이터베이스에도 심는다
+ * (초안 표는 나중에 생겨 옛 데이터베이스에서는 늘 비어 시작하므로). 이미 초안이 있으면 다시 심지 않는다.
  */
 export async function seedIfEmpty(pool: Pool, seed: StudioSeed): Promise<boolean> {
   return inTransaction(pool, async (db) => {
-    await db.query("lock table project in exclusive mode");
+    await db.query("lock table project, agent_draft in exclusive mode");
+    const drafts = await db.query("select 1 from agent_draft limit 1");
+    if ((drafts.rowCount ?? 0) === 0) for (const a of seed.agents ?? []) await insertAgent(db, a);
     const existing = await db.query("select 1 from project limit 1");
     if ((existing.rowCount ?? 0) > 0) return false;
     for (const p of seed.projects ?? []) {

@@ -5,6 +5,7 @@
 import pg from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createPostgresStore, lockPr, seedIfEmpty } from "../../src/adapters/store/postgres/postgres-store";
+import { demoStudioSeed } from "../../src/adapters/github/fixture/demo-scenario";
 import { HAS_POSTGRES, recreateSchema, TEST_DATABASE_URL, truncateAll } from "./postgres-harness";
 import { describeStoreContract } from "./store-contract";
 
@@ -20,6 +21,21 @@ describe.skipIf(!HAS_POSTGRES)("PostgreSQL", () => {
   describeStoreContract("postgres", async (seed) => {
     await seedIfEmpty(pool, seed);
     return createPostgresStore(pool);
+  });
+
+  it("Agent 초안은 초안 표가 비어 있을 때만 심는다 — 프로젝트가 이미 있는 데이터베이스에도 심고, 이미 있으면 다시 심지 않는다 (결정 20)", async () => {
+    await seedIfEmpty(pool, { projects: [{ id: "p", name: "p", repoIds: [1] }] }); // 초안 표가 생기기 전부터 쓰던 데이터베이스
+    const seed = demoStudioSeed();
+    expect(await seedIfEmpty(pool, seed)).toBe(false); // 프로젝트는 다시 심지 않는다
+    const store = createPostgresStore(pool);
+    expect((await store.listAgentDrafts()).map((a) => a.id)).toEqual(["planner", "builder", "reviewer"]);
+    await store.saveAgentDraft({ id: "builder", name: "Builder", summary: "고친 소개", instructions: "", skills: [], updatedAt: "2026-09-28T01:00:00.000Z" });
+    await seedIfEmpty(pool, seed);
+    expect((await store.listAgentDrafts()).map((a) => a.id)).toEqual(["planner", "builder", "reviewer"]);
+    expect((await store.getAgentDraft("builder"))?.summary).toBe("고친 소개"); // 사람이 고친 초안을 덮어쓰지 않는다
+    // 표의 제약도 칸 규칙의 바깥 경계를 지킨다
+    await expect(pool.query("insert into agent_draft (id, name, skills, created_at, updated_at) values ('x', '', '{}', now(), now())")).rejects.toThrow();
+    await expect(pool.query("insert into agent_draft (id, name, skills, created_at, updated_at) values ('x', 'X', '{deploy}', now(), now())")).rejects.toThrow();
   });
 
   it("두 연결의 경쟁: 연결 해제가 커밋되기 전에 들어온 표식 연결은, 해제가 커밋된 뒤 해제 기록을 보고 거절된다", async () => {

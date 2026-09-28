@@ -23,6 +23,7 @@ import {
   withoutNul,
   type Work,
 } from "../../../domain/model";
+import { type AgentDraft, isAcceptedAgentDraft } from "../../../domain/agent-draft";
 import { isAcceptedMemoBody, isValidThreadTarget, type Memo } from "../../../domain/memo";
 import { isPrEventKind, type PrEvent } from "../../../domain/pr-event";
 import { isValidWorkId } from "../../../domain/work-marker";
@@ -49,6 +50,8 @@ export function createMemoryStore(seed: StudioSeed = {}): StudioStore {
   const statusChanges: StatusChange[] = [];
   const events: PrEvent[] = copies(seed.events ?? []);
   const memos: Memo[] = copies(seed.memos ?? []);
+  const agents = new Map((seed.agents ?? []).map((a) => [a.id, copy(a)]));
+  const byCreated = (a: AgentDraft, b: AgentDraft) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
   const memoIn = (workId: string, id: string) => memos.findIndex((m) => m.workId === workId && m.id === id);
 
   const rejectIfBadRef = (ref: PrRef) => {
@@ -247,6 +250,30 @@ export function createMemoryStore(seed: StudioSeed = {}): StudioStore {
       if (i < 0) throw new StudioError("not_found", "지울 메모가 없다.");
       const memo = memos[i]!;
       if (memo.deletedAt === null) memos[i] = { ...memo, body: "", deletedAt: target.deletedAt };
+    },
+
+    async listAgentDrafts() {
+      return copies([...agents.values()].sort(byCreated));
+    },
+    async getAgentDraft(id) {
+      const draft = agents.get(id);
+      return draft && copy(draft);
+    },
+    async createAgentDraft(draft) {
+      // 확인 순서는 PostgreSQL 구현과 같다: 칸 · 시각 → 같은 ID
+      if (!isAcceptedAgentDraft(draft) || draft.createdAt === "" || draft.updatedAt === "") {
+        throw new StudioError("invalid_input", "Agent 초안의 값이 올바르지 않다.");
+      }
+      if (agents.has(draft.id)) throw new StudioError("invalid_input", "같은 ID 의 Agent 초안이 이미 있다.");
+      agents.set(draft.id, copy(draft));
+    },
+    async saveAgentDraft(update) {
+      // 확인 순서는 PostgreSQL 구현과 같다: 칸 · 시각 → 없는 초안
+      if (!isAcceptedAgentDraft(update) || update.updatedAt === "") throw new StudioError("invalid_input", "Agent 초안의 값이 올바르지 않다.");
+      const draft = agents.get(update.id);
+      if (draft === undefined) throw new StudioError("not_found", "고칠 Agent 초안이 없다.");
+      const { name, summary, instructions, skills, updatedAt } = update;
+      agents.set(draft.id, copy({ ...draft, name, summary, instructions, skills, updatedAt }));
     },
 
     async listPreviewRecords() {

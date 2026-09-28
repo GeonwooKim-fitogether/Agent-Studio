@@ -10,6 +10,7 @@ import { createWorkFromPr, linkPrToWork, unlinkPr } from "../../src/application/
 import { getPrNotice, getWorkspace } from "../../src/application/queries";
 import { syncAll } from "../../src/application/sync";
 import type { PrLink, PrSnapshot, Work } from "../../src/domain/model";
+import type { AgentDraft } from "../../src/domain/agent-draft";
 import type { Memo } from "../../src/domain/memo";
 import type { PrEvent } from "../../src/domain/pr-event";
 import type { StatusChange } from "../../src/domain/work-status";
@@ -654,6 +655,74 @@ export function describeStoreContract(kind: string, make: StoreFactory): void {
           const store = await make({ projects: [project], works: [work], memos: [memo("m0"), toMemo("r0", "m0"), toCard("r1")] });
           expect(await store.listMemos("w1")).toEqual([memo("m0"), toMemo("r0", "m0"), toCard("r1")]);
         });
+      });
+    });
+
+    describe("Agent 초안 (결정 20)", () => {
+      const draft = (id: string, fields: Partial<AgentDraft> = {}): AgentDraft => ({
+        id,
+        name: `Agent ${id}`,
+        summary: "",
+        instructions: "",
+        skills: [],
+        createdAt: "2026-09-28T00:00:00.000Z",
+        updatedAt: "2026-09-28T00:00:00.000Z",
+        ...fields,
+      });
+
+      it("심은 시연 초안 셋이 만든 순서대로 돌아온다", async () => {
+        const store = await make(demoStudioSeed());
+        expect((await store.listAgentDrafts()).map((a) => [a.id, a.name, a.skills])).toEqual([
+          ["planner", "Planner", ["read_context"]],
+          ["builder", "Builder", ["read_context"]],
+          ["reviewer", "Reviewer", ["read_context", "code_review"]],
+        ]);
+      });
+
+      it("만든 그대로(줄바꿈 · Skill 포함) 돌아오고, 고치면 네 칸과 고친 시각만 바뀐다. 같은 시각이면 ID 순이다", async () => {
+        const store = await make({});
+        const b = draft("b", { instructions: "첫 줄\n둘째 줄", skills: ["read_context", "code_review"] });
+        await store.createAgentDraft(b);
+        await store.createAgentDraft(draft("a"));
+        expect(await store.listAgentDrafts()).toEqual([draft("a"), b]);
+        const update = { id: "b", name: "Builder", summary: "소개", instructions: "", skills: ["code_review" as const], updatedAt: "2026-09-28T01:00:00.000Z" };
+        await store.saveAgentDraft(update);
+        expect(await store.getAgentDraft("b")).toEqual({ ...b, ...update, createdAt: b.createdAt });
+        expect(await store.getAgentDraft("nobody")).toBeUndefined();
+      });
+
+      it("규칙 밖 칸 · 모양 밖 ID · 같은 ID → invalid_input, 없는 초안 고치기 → not_found 이고 아무것도 쓰지 않는다", async () => {
+        const store = await make({});
+        await store.createAgentDraft(draft("a"));
+        const bad: AgentDraft[] = [
+          draft("b", { name: "" }),
+          draft("b", { name: " 앞 공백" }),
+          draft("b", { name: "가".repeat(41) }),
+          draft("b", { summary: "가".repeat(121) }),
+          draft("b", { instructions: "가".repeat(4001) }),
+          draft("b", { skills: ["deploy" as never] }),
+          draft("b", { skills: ["code_review", "read_context"] }),
+          draft("B"),
+          draft("a"),
+        ];
+        for (const d of bad) await expect(store.createAgentDraft(d)).rejects.toMatchObject({ code: "invalid_input" });
+        await expect(store.saveAgentDraft({ id: "a", name: "", summary: "", instructions: "", skills: [], updatedAt: "2026-09-28T01:00:00.000Z" })).rejects.toMatchObject({
+          code: "invalid_input",
+        });
+        await expect(store.saveAgentDraft({ id: "zz", name: "X", summary: "", instructions: "", skills: [], updatedAt: "2026-09-28T01:00:00.000Z" })).rejects.toMatchObject({
+          code: "not_found",
+        });
+        expect(await store.listAgentDrafts()).toEqual([draft("a")]);
+      });
+
+      it("돌려받은 초안을 고쳐도 저장된 값은 바뀌지 않는다", async () => {
+        const store = await make({ agents: [draft("a", { skills: ["read_context"] })] });
+        const got = (await store.listAgentDrafts()) as unknown as { name: string; skills: string[] }[];
+        got[0]!.name = "고침";
+        got[0]!.skills.push("code_review");
+        const one = (await store.getAgentDraft("a")) as { name: string };
+        one.name = "고침";
+        expect(await store.listAgentDrafts()).toEqual([draft("a", { skills: ["read_context"] })]);
       });
     });
   });
