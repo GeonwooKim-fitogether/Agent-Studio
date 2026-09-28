@@ -21,8 +21,8 @@ export type StoreFactory = (seed: StudioSeed) => Promise<StudioStore>;
 
 const payments12 = { repoId: DEMO_REPO.payments, number: 12 };
 const project = { id: "p", name: "시험 프로젝트", repoIds: [1] };
-const work: Work = { id: "w1", projectId: "p", title: "업무", status: "draft", createdAt: "2026-09-25T00:00:00.000Z" };
-const other: Work = { id: "w2", projectId: "p", title: "다른 업무", status: "draft", createdAt: "2026-09-25T00:00:01.000Z" };
+const work: Work = { id: "w1", projectId: "p", title: "업무", goal: "", status: "draft", createdAt: "2026-09-25T00:00:00.000Z" };
+const other: Work = { id: "w2", projectId: "p", title: "다른 업무", goal: "", status: "draft", createdAt: "2026-09-25T00:00:01.000Z" };
 const userLink = (workId: string): PrLink => ({ repoId: 1, number: 1, workId, origin: "user", linkedAt: "2026-09-25T00:00:00.000Z" });
 const markerLink = (workId: string): PrLink => ({
   repoId: 1,
@@ -197,6 +197,61 @@ export function describeStoreContract(kind: string, make: StoreFactory): void {
       });
     });
 
+    describe("업무의 목표 (결정 18)", () => {
+      it("목표를 담아 만들면 그대로 돌아오고, 목표를 적거나 고치면 그 글이 남는다. 심은 업무에 목표 칸이 없으면 빈 목표다", async () => {
+        const store = await make({ projects: [project], works: [other] });
+        expect((await store.getWork("w2"))?.goal).toBe("");
+        const withGoal = { ...work, goal: "코치가 선수를 3초 안에 찾는다\n모바일에서도" };
+        await store.createWork(withGoal);
+        expect(await store.getWork("w1")).toEqual(withGoal);
+        await store.setWorkGoal({ workId: "w2", goal: "다른 업무의 목표" });
+        expect((await store.getWork("w2"))?.goal).toBe("다른 업무의 목표");
+        await store.setWorkGoal({ workId: "w2", goal: "고친 목표" });
+        expect((await store.getWork("w2"))?.goal).toBe("고친 목표");
+      });
+
+      it("규칙 밖 목표 · 빈 목표로 고치기 → invalid_input, 없는 업무 → not_found 이고 아무것도 바꾸지 않는다", async () => {
+        const store = await make({ projects: [project], works: [{ ...other, goal: "처음 목표" }] });
+        await expect(store.createWork({ ...work, goal: "x".repeat(501) })).rejects.toMatchObject({ code: "invalid_input" });
+        await expect(store.createWork({ ...work, goal: " 앞뒤 공백 " })).rejects.toMatchObject({ code: "invalid_input" });
+        await expect(store.createWorkWithLink({ ...work, goal: "a\tb" }, userLink("w1"))).rejects.toMatchObject({ code: "invalid_input" });
+        await expect(store.setWorkGoal({ workId: "w2", goal: "" })).rejects.toMatchObject({ code: "invalid_input" });
+        await expect(store.setWorkGoal({ workId: "w2", goal: "a\u0000b" })).rejects.toMatchObject({ code: "invalid_input" });
+        await expect(store.setWorkGoal({ workId: "nowork", goal: "목표" })).rejects.toMatchObject({ code: "not_found" });
+        expect(await store.listWorks()).toEqual([{ ...other, goal: "처음 목표" }]);
+        expect(await store.listLinks()).toEqual([]);
+      });
+    });
+
+    describe("내부 검토 결정의 이유와 수정 기준 (결정 18)", () => {
+      const decision = {
+        id: "r1",
+        workId: "w1",
+        repoId: 1,
+        number: 1,
+        commitSha: "c".repeat(40),
+        verdict: "changes_requested" as const,
+        decidedAt: "2026-09-25T00:00:00.000Z",
+        reason: "오류 문구가 두 번 보인다\n모바일에서",
+        doneWhen: "오류 문구가 한 번만 보인다",
+      };
+
+      it("이유와 수정 기준이 그대로 돌아오고, 칸 없이 심은 옛 결정은 둘 다 null 이다", async () => {
+        const seededOld = { id: "r0", workId: "w1", repoId: 1, number: 1, commitSha: "c".repeat(40), verdict: "internal_review_done" as const, decidedAt: "2026-09-24T00:00:00.000Z" };
+        const store = await make({ projects: [project], works: [work], reviews: [seededOld] });
+        await store.addReviewDecision(decision);
+        expect(await store.listReviewDecisions()).toEqual([{ ...seededOld, reason: null, doneWhen: null }, decision]);
+      });
+
+      it("모양 밖의 이유 · 수정 기준(빈 글 · 앞뒤 공백 · 제어 문자 · 길이 초과)은 invalid_input 이고 아무것도 쓰지 않는다", async () => {
+        const store = await make({ projects: [project], works: [work] });
+        for (const bad of [{ reason: "" }, { reason: " a" }, { doneWhen: "a\tb" }, { reason: "x".repeat(2001) }]) {
+          await expect(store.addReviewDecision({ ...decision, ...bad })).rejects.toMatchObject({ code: "invalid_input" });
+        }
+        expect(await store.listReviewDecisions()).toEqual([]);
+      });
+    });
+
     describe("오류 코드는 저장소 종류와 무관하게 같다", () => {
       it("같은 ID 의 업무가 있고 PR 도 이미 연결돼 있으면 already_linked (이미 연결됨을 먼저 본다)", async () => {
         const store = await make({ projects: [project], works: [work], links: [userLink("w1")] });
@@ -223,7 +278,7 @@ export function describeStoreContract(kind: string, make: StoreFactory): void {
       it("없는 업무에 내부 검토 결정을 남기면 not_found", async () => {
         const store = await make({ projects: [project] });
         await expect(
-          store.addReviewDecision({ id: "r", workId: "nowork", repoId: 1, number: 1, commitSha: "c".repeat(40), verdict: "internal_review_done", decidedAt: "2026-09-25T00:00:00.000Z" }),
+          store.addReviewDecision({ id: "r", workId: "nowork", repoId: 1, number: 1, commitSha: "c".repeat(40), verdict: "internal_review_done", decidedAt: "2026-09-25T00:00:00.000Z", reason: null, doneWhen: null }),
         ).rejects.toMatchObject({ code: "not_found" });
       });
 

@@ -1,32 +1,36 @@
+import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
+import { nextActionFor, primaryPrOf } from "../../../application/focus";
 import { getPreviewCards } from "../../../application/preview";
-import { getWorkChat, type PrCardView } from "../../../application/queries";
-import { getContainer } from "../../../server/container";
-import { unlinkAction } from "../../actions";
-import { Channels, Timeline } from "../../components/chat";
-import { CopyButton } from "../../components/copy-button";
-import { kstDay, MEMO_PROBLEM } from "../../components/labels";
-import { MemoComposer } from "../../components/memo";
-import { ThreadPanel } from "../../components/thread";
+import { getWorkChat } from "../../../application/queries";
+import { decisionBlockOf } from "../../../application/review";
 import { parseThreadKey } from "../../../domain/memo";
-import { StateLegend } from "../../components/pr-card";
-import { PreviewControls } from "../../components/preview-controls";
+import { getContainer } from "../../../server/container";
+import { Timeline } from "../../components/chat";
+import { Icon } from "../../components/glyph";
+import { GOAL_PROBLEM, kstDay, MEMO_PROBLEM, REVIEW_PROBLEMS, type ReviewProblem } from "../../components/labels";
+import { MemoComposer } from "../../components/memo";
 import { RememberWork } from "../../components/remember-work";
-import { ReviewControls } from "../../components/review-controls";
-import { StatusBadge, WorkStatusPanel } from "../../components/work-status";
+import { ReviewPanel } from "../../components/review-panel";
+import { ThreadPanel } from "../../components/thread";
+import { GoalCard, NextActionCard, reviewHref, WorkDetails } from "../../components/work";
+import { StatusBadge } from "../../components/work-status";
+import { parseReviewKey, readReviewDraft, REVIEW_DRAFT_COOKIE } from "../../review-draft";
 
 export const dynamic = "force-dynamic";
 
 /**
- * 업무 화면 = 업무 Chat (feature-plan F7, 결정 13: 2.5단계부터 같은 주소에서 Chat 배치가 된다).
- * 왼쪽에 채널 목록(프로젝트 > 업무), 가운데 머리(제목 · 상태 · 표식 Copy · 상태 칸)와 시간순 타임라인.
- * PR 카드는 타임라인 속에 커밋마다 쌓이고, 버튼은 최신 카드에만 있다.
+ * 업무 화면 (결정 18, Q6 · Q7 · Q8) — 목표 · 대화 · 연결된 PR 결과 · 다음 행동이 한 맥락에서 이어진다. 같은 주소가 그 업무의 Chat 이다(결정 13).
  *
- * 휴대전화 폭에서는 채널 목록과 타임라인 중 하나만 보인다. `‹ Channels` 는 ?channels=1 로 같은 화면을 다시 그려
- * 채널 목록을 연다 — 자바스크립트 없이도 동작한다.
- * 타임라인 아래에 메모 입력칸(F8)이 있다. 메모의 Edit 은 ?edit=<메모 ID> 로 같은 화면을 다시 그려 고치기 칸을 연다(자바스크립트 없이도 동작한다).
- * 메모와 PR 카드의 Reply · "답글 N"(F9)은 ?thread=<스레드 이름> 으로 같은 화면을 다시 그려 오른쪽에 스레드 칸을 연다. Close 는 파라미터 없는
- * 주소로 돌아간다 — 둘 다 자바스크립트 없이도 동작한다. 휴대전화 폭에서는 스레드 칸이 화면 전체를 덮는다.
+ *   머리: 프로젝트 / 상태 배지 / 제목
+ *   왼쪽: Goal(고정) → 타임라인(시스템 사건은 작은 한 줄, PR 결과는 최신 커밋 카드 하나, 이전 커밋 카드는 접힘) → 메모 입력칸
+ *   오른쪽: Work details — 맨 위 Next action, 그 아래 속성 · 상태 · Link a PR
+ *   휴대전화 폭: 한 열. 목표 바로 아래에 Next action 이 오고, 속성은 Details 로 접는다(?details=1)
+ *
+ * 오른쪽 칸을 바꾸는 것 둘 — 주소 파라미터로 같은 화면을 다시 그린다(자바스크립트 없이 동작한다). 휴대전화 폭에서는 화면 전체를 덮는다.
+ *   ?review=<저장소 ID>:<PR 번호>  Review 패널 (본 커밋 · GitHub 상태 · 미리보기 · 결정 폼 · Link)
+ *   ?thread=<스레드 이름>          스레드 칸 (F9)
+ * 메모의 Edit 은 ?edit=<메모 ID>, 목표 고치기는 ?goal=edit 로 연다.
  */
 export default async function WorkPage({
   params,
@@ -37,91 +41,114 @@ export default async function WorkPage({
 }) {
   const { id } = await params;
   const query = await searchParams;
-  const refused = query["preview"] === "refused";
-  const reviewRefused = query["review"] === "refused";
-  const statusRefused = query["status"] === "refused";
-  const showChannels = query["channels"] === "1";
-  const memoProblem = typeof query["memo"] === "string" && Object.hasOwn(MEMO_PROBLEM, query["memo"]) ? MEMO_PROBLEM[query["memo"] as keyof typeof MEMO_PROBLEM] : null;
-  const editingMemoId = typeof query["edit"] === "string" ? query["edit"] : null;
-  const wantedThread = typeof query["thread"] === "string" ? parseThreadKey(query["thread"]) : null;
-  const replyProblem = typeof query["reply"] === "string" && Object.hasOwn(MEMO_PROBLEM, query["reply"]) ? MEMO_PROBLEM[query["reply"] as keyof typeof MEMO_PROBLEM] : null;
+  const one = (name: string) => (typeof query[name] === "string" ? (query[name] as string) : null);
+  const previewRefused = one("preview") === "refused";
+  const statusRefused = one("status") === "refused";
+  const memoParam = one("memo");
+  const memoProblem = memoParam !== null && Object.hasOwn(MEMO_PROBLEM, memoParam) ? MEMO_PROBLEM[memoParam as keyof typeof MEMO_PROBLEM] : null;
+  const replyParam = one("reply");
+  const replyProblem = replyParam !== null && Object.hasOwn(MEMO_PROBLEM, replyParam) ? MEMO_PROBLEM[replyParam as keyof typeof MEMO_PROBLEM] : null;
+  const goalParam = one("goalProblem");
+  const goalProblem = goalParam !== null && Object.hasOwn(GOAL_PROBLEM, goalParam) ? GOAL_PROBLEM[goalParam as keyof typeof GOAL_PROBLEM] : null;
+  const editingMemoId = one("edit");
+  const wantedThread = one("thread") === null ? null : parseThreadKey(one("thread")!);
+  const wantedReview = parseReviewKey(one("review"));
+  const reviewProblemParam = one("problem");
+  const reviewProblem = REVIEW_PROBLEMS.find((p) => p === reviewProblemParam) ?? null;
+
   const container = getContainer();
   await container.ensureSynced();
   const chat = await getWorkChat(container.deps, id, { now: container.deps.now().toISOString(), dayOf: kstDay, thread: wantedThread });
   if (chat === undefined) notFound();
   const { work, project, marker, prs } = chat;
   const previews = await getPreviewCards(container.deps, container.preview, prs);
-  const source = container.deps.reader.source;
-  const workPath = `/works/${encodeURIComponent(work.id)}`;
+  const running = container.preview.current();
+  const hostOnline = container.preview.status().online;
+  const action = nextActionFor(chat, running);
+  const primary = primaryPrOf(chat, action);
 
-  const actionsFor = (pr: PrCardView) => (
-    <>
-      {previews.get(pr.key) !== undefined && <PreviewControls view={previews.get(pr.key)!} pr={pr} workId={work.id} />}
-      <ReviewControls pr={pr} workId={work.id} />
-      {/* 오조작을 막는 확인 한 단계: 체크박스를 체크해야 제출된다. 자바스크립트 없이도 브라우저가 막는다(required). */}
-      <form action={unlinkAction} className="unlink-form" data-testid="unlink-form">
-        <input type="hidden" name="repoId" value={pr.repoId} />
-        <input type="hidden" name="number" value={pr.number} />
-        <input type="hidden" name="workId" value={work.id} />
-        <label>
-          <input type="checkbox" name="confirm" value="yes" required /> 이 PR 을 업무에서 떼어 Inbox 로 돌려보낸다 (표식이 있어도 다시 자동으로 붙지
-          않는다)
-        </label>
-        <button type="submit" className="btn">
-          Unlink
-        </button>
-      </form>
-    </>
-  );
+  // Review 패널: 이 업무에 연결된 PR 일 때만 연다(연결이 풀린 PR 의 오래된 주소면 열지 않는다)
+  const reviewPr = wantedReview === null ? undefined : prs.find((p) => p.repoId === wantedReview.repoId && p.number === wantedReview.number);
+  const draftCookie = readReviewDraft((await cookies()).get(REVIEW_DRAFT_COOKIE)?.value);
+  const draft =
+    reviewPr !== undefined && reviewProblem !== null && draftCookie !== null && draftCookie.workId === work.id && draftCookie.key === `${reviewPr.repoId}:${reviewPr.number}`
+      ? draftCookie
+      : null;
+  const panel = reviewPr !== undefined ? "review" : chat.thread !== null ? "thread" : null;
+  const showDetails = one("details") === "1";
 
   return (
-    <div className={["chat", showChannels ? "show-channels" : "", chat.thread !== null ? "thread-open" : ""].filter(Boolean).join(" ")} data-testid="chat">
+    <div className={["work-page", panel === null ? "" : `panel-open ${panel}-open`].filter(Boolean).join(" ")} data-testid="chat">
       <RememberWork id={work.id} />
-      <Channels groups={chat.channels} currentId={work.id} />
-      <section className="tl-col" aria-label="Timeline">
-        <header className="tl-head">
-          <div className="work-head">
-            <a className="btn tiny back" href={`${workPath}?channels=1`} data-testid="show-channels">
-              ‹ Channels
-            </a>
-            <h1>{work.title}</h1>
-            <StatusBadge status={work.status} />
-          </div>
-          <div className="marker">
-            <code id="work-marker" data-testid="work-marker">
-              {marker}
-            </code>
-            <CopyButton text={marker} targetId="work-marker" />
-            <span className="why marker-why">
-              {project.name} · PR 본문이나 브랜치 이름에 이 표식을 넣으면 다음 Sync 때 이 업무에 자동으로 연결된다. 표식 앞뒤는 띄어 쓴다.
-            </span>
-          </div>
-          <WorkStatusPanel summary={chat} />
+      <header className="work-header">
+        <p className="work-crumb">
+          <a href={`/?project=${encodeURIComponent(project.id)}`}>{project.name}</a>
+          <span aria-hidden="true">/</span>
+          <span className="mono">{marker}</span>
+        </p>
+        <div className="work-head">
+          <h1>{work.title}</h1>
+          <StatusBadge status={work.status} />
+        </div>
+      </header>
 
+      {(statusRefused || previewRefused) && (
+        <div className="notice-bar">
           {statusRefused && (
-            <p className="source-error" data-testid="status-refused">
+            <p className="form-error" data-testid="status-refused">
               업무 상태를 바꾸지 않았다 — 화면이 오래됐을 수 있다(그사이 PR 이 바뀌어 더는 완료 후보가 아닐 수 있다). 지금 상태를 확인한다.
             </p>
           )}
-          {refused && (
-            <p className="source-error" data-testid="preview-refused">
-              미리보기를 열지 않았다 — 화면이 오래됐을 수 있다. 아래 최신 카드의 이유를 확인한다.
+          {previewRefused && (
+            <p className="form-error" data-testid="preview-refused">
+              미리보기를 열지 않았다 — 화면이 오래됐을 수 있다. Review 패널의 이유를 확인한다.
             </p>
           )}
-          {reviewRefused && (
-            <p className="source-error" data-testid="review-refused">
-              내부 검토 결정을 남기지 않았다 — 화면이 오래됐을 수 있다(그사이 PR 이 병합 · 닫히거나 연결이 풀렸을 수 있다). 아래 최신 카드를 확인한다.
-            </p>
-          )}
-          {prs.length > 0 && <StateLegend />}
-        </header>
+        </div>
+      )}
 
-        <Timeline entries={chat.timeline} marker={marker} source={source} actionsFor={actionsFor} workId={work.id} editingMemoId={editingMemoId} />
-        {prs.length === 0 && <p className="empty-note tl-empty">아직 연결된 PR 이 없다. Inbox 에서 연결하거나 위 표식을 PR 에 넣는다.</p>}
-        {/* 고치기에서 걸린 이유는 그 메모 옆이 아니라 여기 한 곳에 보인다 — 입력칸은 늘 화면 아래에 있다 */}
-        <MemoComposer workId={work.id} problem={memoProblem} />
-      </section>
-      {chat.thread !== null && <ThreadPanel thread={chat.thread} workId={work.id} editingMemoId={editingMemoId} problem={replyProblem} />}
+      <div className="work-grid">
+        <div className="work-main">
+          <GoalCard work={work} editing={one("goal") === "edit"} problem={goalProblem} />
+          <section className="tl-col" aria-label="Timeline">
+            <Timeline
+              entries={chat.timeline}
+              marker={marker}
+              workId={work.id}
+              editingMemoId={editingMemoId}
+              previewFor={(pr) => previews.get(pr.key)}
+              reviewHrefFor={(pr) => reviewHref(work.id, pr)}
+            />
+            {prs.length === 0 && (
+              <p className="state-message tl-empty">
+                <Icon name="clock" />
+                아직 연결된 PR 이 없다. Inbox 에서 연결하거나, Link a PR 의 표식을 PR 에 넣는다.
+              </p>
+            )}
+          </section>
+          {/* 고치기에서 걸린 이유는 그 메모 옆이 아니라 여기 한 곳에 보인다 — 입력칸은 늘 타임라인 아래에 있다 */}
+          <MemoComposer workId={work.id} problem={memoProblem} />
+        </div>
+        <div className="work-side">
+          <NextActionCard action={action} work={work} marker={marker} previews={previews} hostOnline={hostOnline} />
+          <WorkDetails summary={chat} projectName={project.name} primary={primary} previews={previews} open={showDetails} />
+        </div>
+        {reviewPr !== undefined && (
+          <ReviewPanel
+            work={work}
+            pr={reviewPr}
+            preview={previews.get(reviewPr.key)}
+            hostOnline={hostOnline}
+            block={decisionBlockOf({ ...reviewPr, state: reviewPr.github.state }, running)}
+            problem={reviewProblem}
+            draft={draft}
+            source={container.deps.reader.source}
+          />
+        )}
+        {reviewPr === undefined && chat.thread !== null && (
+          <ThreadPanel thread={chat.thread} workId={work.id} editingMemoId={editingMemoId} problem={replyProblem} />
+        )}
+      </div>
     </div>
   );
 }

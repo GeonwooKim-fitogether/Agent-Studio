@@ -9,19 +9,11 @@
  */
 import { type ChildProcess, spawn } from "node:child_process";
 import { expect, type Page, test } from "@playwright/test";
+import { nav, watchServerErrors } from "./helpers";
 
-const nav = (page: Page) => page.getByRole("navigation", { name: "Main" });
 const rows = (page: Page) => page.getByTestId("attention-row");
 
-function watchServerErrors(page: Page): string[] {
-  const errors: string[] = [];
-  page.on("response", (r) => {
-    if (r.status() >= 500) errors.push(`${r.status()} ${r.url()}`);
-  });
-  return errors;
-}
-
-test("Workspace 맨 위에 검사 실패와 Inbox 줄이 모이고, 누르면 그 업무와 Inbox 로 간다", async ({ page }) => {
+test("Workspace 맨 위에 검사 실패와 Inbox 줄이 업무 하나에 한 줄로 모이고, Up next 를 거쳐 그 업무와 Inbox 로 간다", async ({ page }) => {
   const serverErrors = watchServerErrors(page);
   await page.goto("/");
   const section = page.getByTestId("attention");
@@ -31,8 +23,10 @@ test("Workspace 맨 위에 검사 실패와 Inbox 줄이 모이고, 누르면 �
 
   const failing = rows(page).nth(0);
   await expect(failing).toHaveAttribute("data-kind", "checks_failing");
+  await expect(failing).toHaveAttribute("data-work", "a1b2c3");
   await expect(failing).toContainText("Checks failing");
-  await expect(failing).toContainText("'로그인 화면 만들기' · demo-org/payments#12");
+  await expect(failing).toContainText("로그인 화면 만들기");
+  await expect(failing).toContainText("결제 서비스");
   await expect(failing).toContainText("작성자가 고칠 차례라 업무 상태는 그대로 둔다");
   const inbox = rows(page).nth(1);
   await expect(inbox).toHaveAttribute("data-kind", "inbox");
@@ -42,9 +36,16 @@ test("Workspace 맨 위에 검사 실패와 Inbox 줄이 모이고, 누르면 �
   for (const row of await rows(page).all()) {
     expect(["needs_review", "checks_failing", "outdated_preview", "inbox"]).toContain(await row.getAttribute("data-kind"));
   }
+  // 같은 업무를 두 번 보이지 않는다 — attention 에 있는 업무는 Other work 에 없다 (사용자 요구 1)
+  await expect(page.getByTestId("other-work").getByTestId("work-a1b2c3")).toHaveCount(0);
+  await expect(page.getByTestId("other-work").getByTestId("work-d0e1f2")).toBeVisible();
+  // Up next 는 고르지 않으면 첫 줄의 업무다
+  await expect(page.getByTestId("up-next-title")).toHaveText("로그인 화면 만들기");
   await page.screenshot({ fullPage: true });
 
-  await failing.click();
+  await failing.getByRole("link").first().click();
+  await expect(page).toHaveURL(/focus=a1b2c3/);
+  await page.getByTestId("up-next-open").click();
   await expect(page).toHaveURL(/\/works\/a1b2c3$/);
   await expect(page.getByRole("heading", { level: 1, name: "로그인 화면 만들기" })).toBeVisible();
   await expect(page.getByTestId("pr-card-710001-12")).toBeVisible();
@@ -73,13 +74,17 @@ test.describe("검토 필요 줄 (서버 3101)", () => {
     const first = rows(page).first();
     await expect(first).toHaveAttribute("data-kind", "needs_review");
     await expect(first).toContainText("Needs review");
-    await expect(first).toContainText("'로그인 안내 문서'");
+    await expect(first).toContainText("로그인 안내 문서");
     await expect(first).toContainText("demo-org/docs-site#12 최신 커밋 6f7a8b9 의 검사가 끝났다. 아직 판단하지 않았다.");
     await expect(page.getByTestId("inbox-count")).toHaveText("4");
-    await first.click();
+    await expect(page.getByTestId("up-next-title")).toHaveText("로그인 안내 문서");
+    await expect(page.getByTestId("up-next-open")).toHaveText(/Review work/);
+    await first.getByRole("link").first().click();
+    await page.getByTestId("up-next-open").click();
     await expect(page).toHaveURL(workUrl);
     await expect(page.getByRole("heading", { level: 1, name: "로그인 안내 문서" })).toBeVisible();
     await expect(page.locator(".work-head").getByTestId("status-badge")).toHaveText("Needs review");
+    await expect(page.getByTestId("next-action")).toHaveAttribute("data-kind", "review");
     expect(serverErrors).toEqual([]);
   });
 });

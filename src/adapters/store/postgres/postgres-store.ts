@@ -28,7 +28,9 @@ import { isAcceptedMemoBody, isValidThreadTarget, type Memo, type ThreadTarget }
 import { isPrEventKind, type PrEvent } from "../../../domain/pr-event";
 import { isValidWorkId } from "../../../domain/work-marker";
 import { isWorkStatus, type PrFingerprint, type StatusCause, type StatusChange, type StatusEvidence } from "../../../domain/work-status";
-import type { StudioSeed, StudioStore } from "../../../ports/studio-store";
+import { isAcceptedReviewNoteField } from "../../../domain/review-note";
+import { isAcceptedWorkGoal } from "../../../domain/work-goal";
+import { reviewFromSeed, type StudioSeed, type StudioStore, workFromSeed } from "../../../ports/studio-store";
 
 type Row = Record<string, unknown>;
 
@@ -44,6 +46,7 @@ const toWork = (r: Row): Work => ({
   id: String(r["id"]),
   projectId: String(r["project_id"]),
   title: String(r["title"]),
+  goal: String(r["goal"] ?? ""),
   status: r["status"] as Work["status"],
   createdAt: iso(r["created_at"]),
 });
@@ -76,6 +79,8 @@ const toReview = (r: Row): ReviewDecision => ({
   commitSha: String(r["commit_sha"]),
   verdict: r["verdict"] as ReviewDecision["verdict"],
   decidedAt: iso(r["decided_at"]),
+  reason: r["reason"] === null || r["reason"] === undefined ? null : String(r["reason"]),
+  doneWhen: r["done_when"] === null || r["done_when"] === undefined ? null : String(r["done_when"]),
 });
 const toPreview = (r: Row): PreviewRecord => ({
   id: String(r["id"]),
@@ -169,6 +174,19 @@ async function insertMemo(db: Queryable, m: Memo): Promise<void> {
     ],
   );
   if ((inserted.rowCount ?? 0) === 0) throw new StudioError("invalid_input", "같은 ID 의 메모가 이미 있다.");
+}
+
+/** 검토 결정 한 건을 쓴다 */
+async function insertReview(db: Queryable, d: ReviewDecision): Promise<void> {
+  try {
+    await db.query(
+      `insert into review_decision (id, work_id, repo_id, number, commit_sha, verdict, decided_at, reason, done_when)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [d.id, d.workId, d.repoId, d.number, d.commitSha, d.verdict, d.decidedAt, d.reason, d.doneWhen],
+    );
+  } catch (error) {
+    throw translate(error);
+  }
 }
 
 /** PR 이벤트 한 건을 쓴다. 같은 ID 가 이미 있으면 아무것도 하지 않는다(같은 변화는 한 번만) */
@@ -306,6 +324,7 @@ export function createPostgresStore(pool: Pool): StudioStore {
       assertRef(link);
       if (link.workId !== work.id) throw new StudioError("invalid_input", "연결이 새 업무를 가리키지 않는다.");
       if (!isValidWorkId(work.id)) throw new StudioError("invalid_input", "업무 ID 는 영문 소문자와 숫자로만 이뤄진다.");
+      if (!isAcceptedWorkGoal(work.goal)) throw new StudioError("invalid_input", "업무 목표가 올바르지 않다.");
       await inTransaction(pool, async (db) => {
         await lockPr(db, link);
         const linked = await db.query("select 1 from pr_link where repo_id = $1 and number = $2", [link.repoId, link.number]);
@@ -317,9 +336,9 @@ export function createPostgresStore(pool: Pool): StudioStore {
           if ((blocked.rowCount ?? 0) > 0) throw new StudioError("unlinked_by_user", "사람이 연결을 푼 PR 은 표식으로 다시 연결하지 않는다.");
         }
         const inserted = await db.query(
-          `insert into work (id, project_id, title, status, created_at) values ($1, $2, $3, $4, $5)
+          `insert into work (id, project_id, title, goal, status, created_at) values ($1, $2, $3, $4, $5, $6)
            on conflict (id) do nothing`,
-          [work.id, work.projectId, work.title, work.status, work.createdAt],
+          [work.id, work.projectId, work.title, work.goal, work.status, work.createdAt],
         );
         if ((inserted.rowCount ?? 0) === 0) throw new StudioError("invalid_input", "같은 ID 의 업무가 이미 있다.");
         await writeLink(db, link); // 이미 연결된 PR 이면 여기서 던지고, 위의 업무도 함께 되돌려진다
@@ -329,16 +348,23 @@ export function createPostgresStore(pool: Pool): StudioStore {
     async createWork(work) {
       // 확인 순서는 메모리 구현과 같다: 업무 ID 형식 → 없는 프로젝트 → 업무 ID 중복
       if (!isValidWorkId(work.id)) throw new StudioError("invalid_input", "업무 ID 는 영문 소문자와 숫자로만 이뤄진다.");
+      if (!isAcceptedWorkGoal(work.goal)) throw new StudioError("invalid_input", "업무 목표가 올바르지 않다.");
       await inTransaction(pool, async (db) => {
         const project = await db.query("select 1 from project where id = $1 for share", [work.projectId]);
         if ((project.rowCount ?? 0) === 0) throw new StudioError("not_found", "업무를 둘 프로젝트가 없다.");
         const inserted = await db.query(
-          `insert into work (id, project_id, title, status, created_at) values ($1, $2, $3, $4, $5)
+          `insert into work (id, project_id, title, goal, status, created_at) values ($1, $2, $3, $4, $5, $6)
            on conflict (id) do nothing`,
-          [work.id, work.projectId, work.title, work.status, work.createdAt],
+          [work.id, work.projectId, work.title, work.goal, work.status, work.createdAt],
         );
         if ((inserted.rowCount ?? 0) === 0) throw new StudioError("invalid_input", "같은 ID 의 업무가 이미 있다.");
       });
+    },
+    async setWorkGoal(update) {
+      // 확인 순서는 메모리 구현과 같다: 목표 값 → 없는 업무
+      if (!isAcceptedWorkGoal(update.goal) || update.goal === "") throw new StudioError("invalid_input", "업무 목표가 올바르지 않다.");
+      const updated = await run("update work set goal = $2 where id = $1", [update.workId, update.goal]);
+      if ((updated.rowCount ?? 0) === 0) throw new StudioError("not_found", "목표를 적을 업무가 없다.");
     },
 
     async listRepositories() {
@@ -418,12 +444,12 @@ export function createPostgresStore(pool: Pool): StudioStore {
       return (await rows("select * from review_decision order by decided_at, id")).map(toReview);
     },
     async addReviewDecision(d) {
+      // 확인 순서는 메모리 구현과 같다: 범위 · 이유와 수정 기준의 모양 → 없는 업무(외래 키 위반 → not_found)
       assertRef(d);
-      await run(
-        `insert into review_decision (id, work_id, repo_id, number, commit_sha, verdict, decided_at)
-         values ($1, $2, $3, $4, $5, $6, $7)`,
-        [d.id, d.workId, d.repoId, d.number, d.commitSha, d.verdict, d.decidedAt],
-      );
+      if (!isAcceptedReviewNoteField(d.reason) || !isAcceptedReviewNoteField(d.doneWhen)) {
+        throw new StudioError("invalid_input", "검토 결정의 이유 · 수정 기준이 올바르지 않다.");
+      }
+      await insertReview(pool, d);
     },
 
     async updateWorkStatus(update) {
@@ -549,11 +575,13 @@ export async function seedIfEmpty(pool: Pool, seed: StudioSeed): Promise<boolean
     for (const p of seed.projects ?? []) {
       await db.query("insert into project (id, name, repo_ids) values ($1, $2, $3)", [p.id, p.name, p.repoIds]);
     }
-    for (const w of seed.works ?? []) {
-      await db.query("insert into work (id, project_id, title, status, created_at) values ($1, $2, $3, $4, $5)", [
+    for (const seeded of seed.works ?? []) {
+      const w = workFromSeed(seeded);
+      await db.query("insert into work (id, project_id, title, goal, status, created_at) values ($1, $2, $3, $4, $5, $6)", [
         w.id,
         w.projectId,
         w.title,
+        w.goal,
         w.status,
         w.createdAt,
       ]);
@@ -567,13 +595,7 @@ export async function seedIfEmpty(pool: Pool, seed: StudioSeed): Promise<boolean
         u.unlinkedAt,
       ]);
     }
-    for (const d of seed.reviews ?? []) {
-      await db.query(
-        `insert into review_decision (id, work_id, repo_id, number, commit_sha, verdict, decided_at)
-         values ($1, $2, $3, $4, $5, $6, $7)`,
-        [d.id, d.workId, d.repoId, d.number, d.commitSha, d.verdict, d.decidedAt],
-      );
-    }
+    for (const d of seed.reviews ?? []) await insertReview(db, reviewFromSeed(d));
     for (const e of seed.events ?? []) await insertPrEvent(db, e);
     for (const m of seed.memos ?? []) await insertMemo(db, m);
     for (const p of seed.previews ?? []) {

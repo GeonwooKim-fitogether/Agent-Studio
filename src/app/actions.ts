@@ -8,13 +8,18 @@
  * 오래된 폼(자바스크립트를 끈 상태 포함)이나 빠른 이중 클릭도 같은 길로 간다.
  */
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createWorkFromPr, linkPrToWork, unlinkPr } from "../application/inbox-actions";
 import { deleteMemo, editMemo, type MemoProblem, writeMemo, writeReply } from "../application/memo";
 import { parseThreadKey, threadKey } from "../domain/memo";
 import { createEmptyWork } from "../application/new-work";
 import { startPreview, stopPreview } from "../application/preview";
-import { isReviewVerdict, recordReviewDecision } from "../application/review";
+import { decisionBlockOf, isReviewVerdict, readFreshHead, recordReviewDecision } from "../application/review";
+import { setWorkGoal } from "../application/work-goal";
+import { checkReviewNote } from "../domain/review-note";
+import type { ReviewProblem } from "./components/labels";
+import { REVIEW_DRAFT_COOKIE, reviewKeyOf } from "./review-draft";
 import { setWorkStatusByPerson } from "../application/work-status";
 import { isWorkStatus } from "../domain/work-status";
 import { isValidPrRef, type PrRef, StudioError, type WorkStatus } from "../domain/model";
@@ -90,7 +95,11 @@ export async function newEmptyWorkAction(form: FormData): Promise<void> {
   const projectId = String(form.get("projectId") ?? "");
   const container = getContainer();
   await container.ensureSynced();
-  const result = await createEmptyWork(container.deps, { projectId, title: String(form.get("title") ?? "") });
+  const result = await createEmptyWork(container.deps, {
+    projectId,
+    title: String(form.get("title") ?? ""),
+    goal: String(form.get("goal") ?? ""),
+  });
   const params = result.ok ? new URLSearchParams({ created: result.work.id }) : new URLSearchParams({ newWork: "1", problem: result.problem, project: projectId });
   revalidatePath("/", "layout");
   redirect(`/?${params.toString()}`);
@@ -102,12 +111,12 @@ export async function syncAction(): Promise<void> {
 }
 
 /** 업무 화면으로 돌아갈 주소. 업무 ID 는 영문 소문자 · 숫자뿐이지만, 그래도 주소에 넣기 전에 인코딩한다. */
-function workPath(
-  form: FormData,
-  notice?: { readonly preview: "refused" } | { readonly review: "refused" } | { readonly status: "refused" },
-): string {
+function workPath(form: FormData, notice?: { readonly preview: "refused" } | { readonly status: "refused" }): string {
   const path = `/works/${encodeURIComponent(String(form.get("workId") ?? ""))}`;
-  return notice === undefined ? path : `${path}?${new URLSearchParams(notice).toString()}`;
+  // Review 패널 안의 폼(미리보기 열기 · 끄기)이면 패널을 연 채로 돌아간다
+  const review = String(form.get("review") ?? "");
+  const parts = [notice === undefined ? "" : new URLSearchParams(notice).toString(), /^\d+:\d+$/.test(review) ? `review=${review}` : ""].filter((p) => p !== "");
+  return `${path}${parts.length === 0 ? "" : `?${parts.join("&")}`}${parts.some((p) => p.startsWith("review=")) ? "#review" : ""}`;
 }
 
 /**
@@ -137,26 +146,77 @@ export async function stopPreviewAction(form: FormData): Promise<void> {
 }
 
 /**
- * Approve · Request Changes (feature-plan F2). 내부 검토 결정을 PR 의 **지금** 최신 커밋에 대해 Studio 저장소에만 남긴다.
- * 화면에서 온 커밋 SHA 는 받지 않는다. GitHub 로는 아무것도 보내지 않는다(계약 §8-5).
- * 오래된 화면에서 눌러 거절되면(PR 이 병합 · 닫힘 · 연결 해제됨) 업무 화면으로 돌아가 알린다.
+ * Review 패널의 Approve in Studio · Request changes (결정 18, feature-plan F2). 내부 검토 결정을 Studio 저장소에만 남긴다.
+ * GitHub 로는 아무것도 보내지 않는다(계약 §8-5). 폼은 사람이 본 커밋(viewedSha)을 싣는다.
+ *
+ * 저장하기 전에 차례로 본다. 걸리면 패널을 연 채로 돌아가 이유를 보이고, 적어 둔 Reason · Done when 은 짧은 쿠키에 담아 되살린다
+ * (본문은 주소에 싣지 않는다).
+ *   1. Request changes 의 Reason · Done when (서버에서도 검사한다)
+ *   2. 이 PR 의 미리보기가 이전 커밋을 실행 중인가 (Q10)
+ *   3. GitHub 에서 그 PR 하나의 최신 커밋을 GET 으로 다시 읽어, 본 커밋과 다르면 거절하고 Sync 해 새 커밋으로 다시 그린다 (Q9)
+ *   4. recordReviewDecision — 저장된 스냅샷과 본 커밋을 비교해 다르면 stale_commit
  */
 export async function reviewAction(form: FormData): Promise<void> {
-  let target: string;
+  const workId = String(form.get("workId") ?? "");
+  const reason = String(form.get("reason") ?? "");
+  const doneWhen = String(form.get("doneWhen") ?? "");
+  const viewedSha = String(form.get("viewedSha") ?? "");
+  const key = reviewKeyOf({ repoId: Number(form.get("repoId")), number: Number(form.get("number")) });
+  const base = `/works/${encodeURIComponent(workId)}`;
+  let problem: ReviewProblem | null = null;
+  let savedId: string | null = null;
   try {
     const ref = readPrRef(form);
     const verdict = form.get("verdict");
     if (!isReviewVerdict(verdict)) throw new StudioError("invalid_input", "검토 결정 값이 올바르지 않다.");
     const container = getContainer();
     await container.ensureSynced();
-    await recordReviewDecision(container.deps, { ...ref, workId: String(form.get("workId") ?? ""), verdict });
-    target = workPath(form);
+    const note = checkReviewNote(verdict, { reason, doneWhen });
+    const snapshot = await container.deps.store.getSnapshot(ref);
+    const preview = container.preview.current();
+    const fresh = note.ok ? await readFreshHead(container.deps, ref) : null;
+    if (!note.ok) problem = note.problem;
+    else if (snapshot !== undefined && decisionBlockOf(snapshot, preview) === "outdated_preview") problem = "outdated_preview";
+    else if (fresh !== null && fresh !== viewedSha) {
+      // GitHub 에 새 커밋이 올라와 있다 — 받아 적은 뒤(GET 만) 새 커밋으로 다시 그린다
+      await container.sync();
+      problem = "stale";
+    } else {
+      const decision = await recordReviewDecision(container.deps, { ...ref, workId, verdict, viewedSha, reason, doneWhen, preview });
+      savedId = decision.id;
+    }
   } catch (error) {
     if (!(error instanceof StudioError)) throw error;
-    target = workPath(form, { review: "refused" });
+    problem = error.code === "stale_commit" ? "stale" : "refused";
+  }
+  const jar = await cookies();
+  if (problem === null) {
+    jar.delete(REVIEW_DRAFT_COOKIE);
+  } else {
+    const draft = encodeURIComponent(JSON.stringify({ key, workId, reason, doneWhen }));
+    // 쿠키 하나는 4KB 안이어야 한다. 넘으면 되살리지 않는다(적은 글은 잃지만 결정은 남지 않았다는 사실은 그대로 보인다)
+    if (draft.length < 3800) jar.set(REVIEW_DRAFT_COOKIE, draft, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 600 });
+    else jar.delete(REVIEW_DRAFT_COOKIE);
   }
   revalidatePath("/", "layout");
-  redirect(target);
+  redirect(
+    problem === null
+      ? `${base}#decision-${savedId ?? ""}`
+      : key === null
+        ? `${base}?${new URLSearchParams({ status: "refused" }).toString()}`
+        : `${base}?review=${key}&problem=${problem}#review`,
+  );
+}
+
+/** 업무 화면의 Set goal · Edit goal (결정 18). 걸리면 고치기 칸을 연 채로 이유를 보인다(목표 글은 주소에 싣지 않는다) */
+export async function setGoalAction(form: FormData): Promise<void> {
+  const workId = String(form.get("workId") ?? "");
+  const container = getContainer();
+  await container.ensureSynced();
+  const result = await setWorkGoal(container.deps, { workId, goal: String(form.get("goal") ?? "") });
+  revalidatePath("/", "layout");
+  const base = `/works/${encodeURIComponent(workId)}`;
+  redirect(result.ok ? base : `${base}?${new URLSearchParams({ goal: "edit", goalProblem: result.problem }).toString()}#goal`);
 }
 
 /**

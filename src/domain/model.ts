@@ -116,6 +116,11 @@ export interface Work {
   readonly id: string;
   readonly projectId: string;
   readonly title: string;
+  /**
+   * 업무의 목표 (결정 18). 업무 화면의 대화 위에 고정된다. 아직 적지 않았으면 빈 글("")이다 —
+   * Inbox 의 PR 로 만든 업무와 목표 칸이 생기기 전의 업무가 그렇다. 규칙은 work-goal.ts 에 있다.
+   */
+  readonly goal: string;
   readonly status: WorkStatus;
   readonly createdAt: string;
 }
@@ -151,13 +156,20 @@ export interface UnlinkRecord extends PrRef {
 /** 내부 검토 결정 (계약 §5: 수정 요청 · 내부 검토 완료). GitHub 병합이나 GitHub 리뷰를 뜻하지 않는다. */
 export type ReviewVerdict = "changes_requested" | "internal_review_done";
 
-/** 내부 검토 결정 기록. "이 PR 의 이 커밋을 봤다" 가 기록 단위이므로 커밋 SHA 를 반드시 함께 갖는다. */
+/**
+ * 내부 검토 결정 기록. "이 PR 의 이 커밋을 봤다" 가 기록 단위이므로 커밋 SHA 를 반드시 함께 갖는다.
+ * commitSha 는 사람이 화면에서 **실제로 본** 커밋이다 — 저장하는 순간의 PR 최신 커밋과 같을 때만 남는다(결정 18, 계약 §5).
+ */
 export interface ReviewDecision extends PrRef {
   readonly id: string;
   readonly workId: string;
   readonly commitSha: string;
   readonly verdict: ReviewVerdict;
   readonly decidedAt: string;
+  /** 무엇이 왜 문제인가 (Request changes 는 필수, Approve in Studio 는 선택 메모). 없으면 null. 규칙은 review-note.ts */
+  readonly reason: string | null;
+  /** 무엇이 되면 수정이 끝난 것인가 (Request changes 만, 필수). 없으면 null */
+  readonly doneWhen: string | null;
 }
 
 /**
@@ -178,7 +190,8 @@ export type StudioErrorCode =
   | "project_mismatch"
   | "not_linked"
   | "invalid_input"
-  | "unlinked_by_user"; // 사람이 연결을 푼 PR 에 표식으로 연결하려 했다
+  | "unlinked_by_user" // 사람이 연결을 푼 PR 에 표식으로 연결하려 했다
+  | "stale_commit"; // 사람이 본 커밋이 PR 의 지금 최신 커밋이 아니다 — 결정을 남기지 않았다 (결정 18)
 
 /** 도메인 규칙을 어기는 요청을 거절할 때 쓰는 오류. 메시지는 사용자에게 보여도 되는 한국어 문장이다. */
 export class StudioError extends Error {

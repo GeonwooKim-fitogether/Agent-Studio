@@ -2,6 +2,7 @@ import type { PreviewCardView } from "../../application/preview";
 import { startPreviewAction, stopPreviewAction } from "../actions";
 import { PREVIEW_BLOCK, PREVIEW_PHASE, shortSha } from "./labels";
 import { AutoRefresh } from "./auto-refresh";
+import { Icon } from "./glyph";
 
 /**
  * PR 카드 안의 미리보기 칸 (docs/plan/04-remote-preview.md §4).
@@ -14,11 +15,15 @@ export function PreviewControls({
   view,
   pr,
   workId,
+  review = null,
 }: {
   view: PreviewCardView;
   pr: { readonly repoId: number; readonly number: number; readonly headSha: string };
   workId: string;
+  /** Review 패널 안에서 그리면 그 패널의 이름(?review=) — 열기 · 끄기 뒤에 패널을 연 채로 돌아온다 */
+  review?: string | null;
 }) {
+  const back = review === null ? null : <input type="hidden" name="review" value={review} />;
   const { availability, session, otherActive } = view;
   const reason =
     availability.kind === "runner_offline" ? availability.reason : availability.kind === "blocked" ? PREVIEW_BLOCK[availability.block] : null;
@@ -77,13 +82,16 @@ export function PreviewControls({
             <input type="hidden" name="repoId" value={pr.repoId} />
             <input type="hidden" name="number" value={pr.number} />
             <input type="hidden" name="workId" value={workId} />
+            {back}
             <button type="submit" className="btn">
+              <Icon name="monitor" />
               Open Preview
             </button>
           </form>
         ) : (
           <>
             <button type="button" className="btn" disabled aria-describedby={`preview-reason-${pr.repoId}-${pr.number}`}>
+              <Icon name="monitor" />
               Open Preview
             </button>
             <span className="muted" id={`preview-reason-${pr.repoId}-${pr.number}`} data-testid="preview-blocked-reason">
@@ -94,6 +102,7 @@ export function PreviewControls({
         {live && (
           <form action={stopPreviewAction}>
             <input type="hidden" name="workId" value={workId} />
+            {back}
             <button type="submit" className="btn">
               Stop Preview
             </button>

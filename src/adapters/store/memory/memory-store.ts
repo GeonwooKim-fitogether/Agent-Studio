@@ -27,7 +27,9 @@ import { isAcceptedMemoBody, isValidThreadTarget, type Memo } from "../../../dom
 import { isPrEventKind, type PrEvent } from "../../../domain/pr-event";
 import { isValidWorkId } from "../../../domain/work-marker";
 import { isWorkStatus, type PrFingerprint, type StatusChange } from "../../../domain/work-status";
-import type { StudioSeed, StudioStore } from "../../../ports/studio-store";
+import { isAcceptedReviewNoteField } from "../../../domain/review-note";
+import { isAcceptedWorkGoal } from "../../../domain/work-goal";
+import { reviewFromSeed, type StudioSeed, type StudioStore, workFromSeed } from "../../../ports/studio-store";
 
 export type { StudioSeed } from "../../../ports/studio-store";
 
@@ -36,11 +38,11 @@ const copies = <T>(values: Iterable<T>): T[] => [...values].map(copy);
 
 export function createMemoryStore(seed: StudioSeed = {}): StudioStore {
   const projects = new Map((seed.projects ?? []).map((p) => [p.id, copy(p)]));
-  const works = new Map((seed.works ?? []).map((w) => [w.id, copy(w)]));
+  const works = new Map((seed.works ?? []).map((w) => [w.id, copy(workFromSeed(w))]));
   const repositories = new Map<number, Repository>();
   const snapshots = new Map<string, PrSnapshot>();
   const links = new Map((seed.links ?? []).map((l) => [prKey(l), copy(l)]));
-  const reviews: ReviewDecision[] = copies(seed.reviews ?? []);
+  const reviews: ReviewDecision[] = copies((seed.reviews ?? []).map(reviewFromSeed));
   const previews: PreviewRecord[] = copies(seed.previews ?? []);
   const unlinks = new Map((seed.unlinks ?? []).map((u) => [prKey(u), copy(u)]));
   const statusPins = new Map<string, PrFingerprint>();
@@ -87,6 +89,7 @@ export function createMemoryStore(seed: StudioSeed = {}): StudioStore {
       rejectIfBadRef(link);
       if (link.workId !== work.id) throw new StudioError("invalid_input", "연결이 새 업무를 가리키지 않는다.");
       if (!isValidWorkId(work.id)) throw new StudioError("invalid_input", "업무 ID 는 영문 소문자와 숫자로만 이뤄진다.");
+      if (!isAcceptedWorkGoal(work.goal)) throw new StudioError("invalid_input", "업무 목표가 올바르지 않다.");
       rejectIfLinked(link);
       if (!projects.has(work.projectId)) throw new StudioError("not_found", "업무를 둘 프로젝트가 없다.");
       rejectIfUnlinkedByUser(link);
@@ -97,9 +100,16 @@ export function createMemoryStore(seed: StudioSeed = {}): StudioStore {
 
     async createWork(work) {
       if (!isValidWorkId(work.id)) throw new StudioError("invalid_input", "업무 ID 는 영문 소문자와 숫자로만 이뤄진다.");
+      if (!isAcceptedWorkGoal(work.goal)) throw new StudioError("invalid_input", "업무 목표가 올바르지 않다.");
       if (!projects.has(work.projectId)) throw new StudioError("not_found", "업무를 둘 프로젝트가 없다.");
       if (works.has(work.id)) throw new StudioError("invalid_input", "같은 ID 의 업무가 이미 있다.");
       works.set(work.id, copy(work));
+    },
+    async setWorkGoal(update) {
+      if (!isAcceptedWorkGoal(update.goal) || update.goal === "") throw new StudioError("invalid_input", "업무 목표가 올바르지 않다.");
+      const work = works.get(update.workId);
+      if (work === undefined) throw new StudioError("not_found", "목표를 적을 업무가 없다.");
+      works.set(work.id, { ...work, goal: update.goal });
     },
 
     async listRepositories() {
@@ -153,6 +163,9 @@ export function createMemoryStore(seed: StudioSeed = {}): StudioStore {
     },
     async addReviewDecision(decision) {
       rejectIfBadRef(decision);
+      if (!isAcceptedReviewNoteField(decision.reason) || !isAcceptedReviewNoteField(decision.doneWhen)) {
+        throw new StudioError("invalid_input", "검토 결정의 이유 · 수정 기준이 올바르지 않다.");
+      }
       if (!works.has(decision.workId)) throw new StudioError("not_found", "검토 결정을 남길 업무가 없다.");
       reviews.push(copy(decision));
     },

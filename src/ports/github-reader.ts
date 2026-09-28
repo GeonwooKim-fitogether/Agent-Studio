@@ -26,6 +26,12 @@ export interface GitHubReader {
   startRun?(budget?: RequestBudget): ReaderRun;
   /** 저장소 하나의 PR 스냅샷 목록. 저장소는 listRepositories() 가 돌려준 값을 그대로 넘긴다. */
   listPullRequests(repository: Repository): Promise<PrSnapshot[]>;
+  /**
+   * PR 하나의 **지금** 최신 커밋 SHA 를 GET 하나로 읽는다(있으면, 결정 18). 내부 검토 결정을 저장하기 직전에
+   * "사람이 본 커밋이 아직 최신인가" 를 확인하는 데만 쓴다. 저장소는 listRepositories() 가 돌려준 값을 넘긴다.
+   * 그 PR 이 그 저장소의 것이 아니거나 응답 모양이 틀리면 던진다.
+   */
+  readPullRequestHead?(repository: Repository, number: number): Promise<string>;
 }
 
 /**

@@ -56,6 +56,8 @@ const MIGRATIONS = [
   "20260928013218_pr_event",
   "20260928015348_memo",
   "20260928021302_memo_thread",
+  "20260928093232_work_goal",
+  "20260928093233_review_reason",
 ];
 
 describe.skipIf(!HAS_POSTGRES)("PostgreSQL 통합", () => {
@@ -106,7 +108,9 @@ describe.skipIf(!HAS_POSTGRES)("PostgreSQL 통합", () => {
       expect(out).toContain("적용함 20260928013218_pr_event.sql"); // 뒤에 온 마이그레이션도 함께 얹힌다
       expect(out).toContain("적용함 20260928015348_memo.sql");
       expect(out).toContain("적용함 20260928021302_memo_thread.sql");
-      expect(out).toContain("새로 적용 5개");
+      expect(out).toContain("적용함 20260928093232_work_goal.sql");
+      expect(out).toContain("적용함 20260928093233_review_reason.sql");
+      expect(out).toContain(`새로 적용 ${MIGRATIONS.length - 1}개`);
       // PR 이벤트 표는 비어서 시작한다 — 이 표가 생기기 전의 변화는 없다
       expect((await client.query("select count(*)::int as n from pr_event")).rows[0]).toEqual({ n: 0 });
       expect((await client.query("select count(*)::int as n from memo")).rows[0]).toEqual({ n: 0 }); // 메모 표도 비어서 시작한다
@@ -129,7 +133,7 @@ describe.skipIf(!HAS_POSTGRES)("PostgreSQL 통합", () => {
       await client.query("drop schema public cascade");
       await client.query("create schema public");
       await client.query("create table schema_migrations (name text primary key, applied_at timestamptz not null default now())");
-      for (const name of MIGRATIONS.slice(0, -1)) {
+      for (const name of MIGRATIONS.slice(0, MIGRATIONS.indexOf("20260928021302_memo_thread"))) {
         await client.query(readFileSync(`db/migrations/${name}.sql`, "utf8"));
         await client.query("insert into schema_migrations (name) values ($1)", [name]);
       }
@@ -139,7 +143,7 @@ describe.skipIf(!HAS_POSTGRES)("PostgreSQL 통합", () => {
 
       const out = runMigrate(TEST_DATABASE_URL, "test");
       expect(out).toContain("적용함 20260928021302_memo_thread.sql");
-      expect(out).toContain("새로 적용 1개");
+      expect(out).toContain("새로 적용 3개"); // 스레드 + 그 뒤의 목표 · 검토 이유
       expect((await client.query("select id, body, is_reply, thread_memo_id from memo order by id")).rows).toEqual([
         { id: "m1", body: "이미 쓴 메모", is_reply: false, thread_memo_id: null },
         { id: "m2", body: "다른 업무 메모", is_reply: false, thread_memo_id: null },
@@ -161,6 +165,42 @@ describe.skipIf(!HAS_POSTGRES)("PostgreSQL 통합", () => {
       // 답글이 달린 메모를 지워도(행은 남는다) 답글은 그대로다
       await client.query("update memo set body = '', deleted_at = now() where id = 'm1'");
       expect((await client.query("select id from memo where is_reply order by id")).rows).toEqual([{ id: "r1" }, { id: "r2" }]);
+      expect(runMigrate(TEST_DATABASE_URL, "test")).toContain("새로 적용 0개");
+    } finally {
+      await client.end();
+    }
+  });
+
+  it("목표 · 검토 이유 마이그레이션은 이미 쓰던 업무와 결정을 그대로 두고(빈 목표 · 이유 없음), 새 칸의 모양을 표의 제약으로 막는다", async () => {
+    // 스레드까지만 있던 데이터베이스(= 결정 18 전의 로컬 데이터베이스)를 흉내 낸다
+    await recreateSchema(TEST_DATABASE_URL);
+    const client = new pg.Client({ connectionString: TEST_DATABASE_URL });
+    await client.connect();
+    try {
+      await client.query("drop schema public cascade");
+      await client.query("create schema public");
+      await client.query("create table schema_migrations (name text primary key, applied_at timestamptz not null default now())");
+      for (const name of MIGRATIONS.slice(0, MIGRATIONS.indexOf("20260928093232_work_goal"))) {
+        await client.query(readFileSync(`db/migrations/${name}.sql`, "utf8"));
+        await client.query("insert into schema_migrations (name) values ($1)", [name]);
+      }
+      await client.query("insert into project (id, name, repo_ids) values ('p', 'p', '{1}')");
+      await client.query("insert into work (id, project_id, title, status, created_at) values ('w1', 'p', '업무', 'in_progress', now())");
+      await client.query(
+        "insert into review_decision (id, work_id, repo_id, number, commit_sha, verdict, decided_at) values ('r1', 'w1', 1, 12, 'abcdef1', 'changes_requested', now())",
+      );
+
+      const out = runMigrate(TEST_DATABASE_URL, "test");
+      expect(out).toContain("새로 적용 2개");
+      expect((await client.query("select goal from work")).rows).toEqual([{ goal: "" }]);
+      expect((await client.query("select reason, done_when from review_decision")).rows).toEqual([{ reason: null, done_when: null }]);
+      await expect(client.query(`update work set goal = '${"x".repeat(501)}'`)).rejects.toMatchObject({ code: "23514" });
+      await expect(client.query("update review_decision set reason = ''")).rejects.toMatchObject({ code: "23514" });
+      await expect(
+        client.query(
+          "insert into review_decision (id, work_id, repo_id, number, commit_sha, verdict, decided_at, done_when) values ('r2', 'w1', 1, 12, 'abcdef1', 'internal_review_done', now(), '기준')",
+        ),
+      ).rejects.toMatchObject({ constraint: "review_done_when_only_for_changes" });
       expect(runMigrate(TEST_DATABASE_URL, "test")).toContain("새로 적용 0개");
     } finally {
       await client.end();

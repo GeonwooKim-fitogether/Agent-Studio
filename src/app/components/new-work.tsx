@@ -1,9 +1,11 @@
 import Link from "next/link";
 import type { NewWorkProblem } from "../../application/new-work";
 import type { Project, Work } from "../../domain/model";
+import { MAX_WORK_GOAL_LENGTH } from "../../domain/work-goal";
 import { markerFor } from "../../domain/work-marker";
 import { newEmptyWorkAction } from "../actions";
 import { CopyButton } from "./copy-button";
+import { Icon } from "./glyph";
 import { NEW_WORK_DONE_NOTE, NEW_WORK_FORM_NOTE, NEW_WORK_PROBLEM } from "./labels";
 import { StatusBadge } from "./work-status";
 
@@ -12,6 +14,7 @@ export function NewWorkButton({ hasProjects }: { hasProjects: boolean }) {
   if (hasProjects) {
     return (
       <Link href="/?newWork=1" className="btn primary">
+        <Icon name="plus" />
         New Work
       </Link>
     );
@@ -28,7 +31,7 @@ export function NewWorkButton({ hasProjects }: { hasProjects: boolean }) {
   );
 }
 
-/** 빈 업무 만들기 폼 (feature-plan F5, 시안 v2). 자바스크립트 없이도 서버 액션으로 제출된다 */
+/** 빈 업무 만들기 폼 (feature-plan F5, 결정 18 — 제목과 목표를 받는다). 자바스크립트 없이도 서버 액션으로 제출된다 */
 export function NewWorkForm({
   projects,
   problem,
@@ -47,27 +50,41 @@ export function NewWorkForm({
           업무를 만들지 않았다 — {NEW_WORK_PROBLEM[problem]}
         </p>
       )}
-      <form action={newEmptyWorkAction} className="form-row">
+      <form action={newEmptyWorkAction} className="form-grid">
+        <div className="form-row">
+          <label className="field">
+            Project
+            <select name="projectId" defaultValue={preset} required>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field grow">
+            Title
+            <input name="title" required autoFocus placeholder="예: 관리자 목록 검색 필터" autoComplete="off" />
+          </label>
+        </div>
         <label className="field">
-          Project
-          <select name="projectId" defaultValue={preset} required>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+          Goal
+          <textarea
+            name="goal"
+            required
+            rows={2}
+            maxLength={MAX_WORK_GOAL_LENGTH}
+            placeholder="이 업무가 끝나면 무엇이 달라지나 — 예: 관리자가 이름 두 글자로 사용자를 3초 안에 찾는다"
+          />
         </label>
-        <label className="field grow">
-          Title
-          <input name="title" required autoFocus placeholder="예: 관리자 목록 검색 필터" autoComplete="off" />
-        </label>
-        <button type="submit" className="btn primary">
-          Create
-        </button>
-        <Link href="/" className="btn">
-          Cancel
-        </Link>
+        <div className="form-actions">
+          <Link href="/" className="btn">
+            Cancel
+          </Link>
+          <button type="submit" className="btn primary">
+            Create
+          </button>
+        </div>
       </form>
       <p className="muted newwork-note">{NEW_WORK_FORM_NOTE}</p>
     </section>
@@ -82,6 +99,9 @@ export function NewWorkCreated({ work, projectName }: { work: Work; projectName:
       <p className="eyebrow">업무를 만들었다 · {projectName}</p>
       <p className="newwork-title">
         <span data-testid="new-work-title">{work.title}</span> <StatusBadge status={work.status} />
+      </p>
+      <p className="newwork-goal" data-testid="new-work-goal">
+        {work.goal}
       </p>
       <div className="marker">
         <code id="new-work-marker" data-testid="new-work-marker">

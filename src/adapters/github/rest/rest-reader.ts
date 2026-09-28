@@ -117,10 +117,30 @@ export function createGitHubRestReader(options: RestReaderOptions): GitHubReader
     source: "github",
     limitNote: `저장소마다 최근 수정된 PR ${PULLS_PER_REPO}개까지 읽는다.`,
     startRun,
+    readPullRequestHead: (repository, number) =>
+      readHead(
+        createGuardedGet({ token: options.token, fetch: options.fetch, meter: createRequestMeter(HEAD_READ_REQUESTS), halt: { halted: false } }),
+        repository,
+        number,
+      ),
     // 실행 없이 바로 부르면 그때마다 새 실행으로 읽는다(동기화는 startRun 을 쓴다)
     listRepositories: () => startRun().listRepositories(),
     listPullRequests: (repository) => startRun().listPullRequests(repository),
   };
+}
+
+/** PR 하나의 최신 커밋을 읽을 때 쓰는 요청 상한 (GET 하나에 리디렉션 · 401 재시도 · 토큰 교환이 붙을 수 있다) */
+export const HEAD_READ_REQUESTS = 5;
+
+/**
+ * PR 하나의 지금 최신 커밋 SHA (GET /repos/{owner}/{name}/pulls/{number}, 결정 18). 내부 검토 결정을 저장하기 직전에만 쓴다.
+ * 리디렉션은 같은 PR 경로로만 따라가고, 응답 PR 의 base.repo.id 가 요청한 저장소가 아니면 받아들이지 않는다.
+ */
+export async function readHead(get: ReturnType<typeof createGuardedGet>, repository: Repository, number: number): Promise<string> {
+  const path = `/repos/${repoPath(repository.fullName)}/pulls/${number}`;
+  const page = await get.page(`${GITHUB_API_ORIGIN}${path}`, { allowRedirect: (target) => target.pathname.endsWith(`/pulls/${number}`) });
+  if (baseRepoId(page.json) !== repository.id) throw new GitHubReadError(`${repository.fullName}#${number} 의 응답이 요청한 저장소의 PR 이 아니다`);
+  return parsePull(page.json).headSha;
 }
 
 /** 리더 실행의 일 하나. 실패하면(응답 모양 오류 포함) 이 출처의 나머지 요청을 보내지 않게 표시하고 그대로 던진다 */

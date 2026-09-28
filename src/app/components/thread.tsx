@@ -32,7 +32,7 @@ export function ThreadPanel({
   const rootAnchor = root.type === "memo" ? `memo-${root.memo.id}` : cardAnchor(root.pr.repoId, root.pr.number, root.commitSha);
   const title = root.type === "memo" ? "메모" : `${root.pr.repoName}#${root.pr.number} · ${shortSha(root.commitSha)}`;
   return (
-    <aside className="thread" id="thread" aria-label="Thread" data-testid="thread">
+    <aside className="side-panel thread" id="thread" aria-label="Thread" data-testid="thread">
       <div className="thread-head">
         <div>
           <h2>Thread</h2>

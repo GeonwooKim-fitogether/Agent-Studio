@@ -29,10 +29,15 @@ export default async function InboxPage({ searchParams }: { searchParams: Search
   const source = container.deps.reader.source;
 
   return (
-    <div className="page-inner">
-      <div className="page-head">
-        <h1>Inbox</h1>
-        <p className="muted">표식이 없거나 모호한 PR 이다. 같은 프로젝트의 업무에 연결하거나, 그 PR 로 새 업무를 만든다.</p>
+    <div className="content">
+      <div className="pageheading">
+        <div>
+          <h1>Inbox</h1>
+          <p>표식이 없거나 모호한 PR 이다. 같은 프로젝트의 업무에 연결하거나, 그 PR 로 새 업무를 만든다.</p>
+        </div>
+        <span className="pill" data-testid="inbox-total">
+          {view.total} unresolved
+        </span>
       </div>
 
       <Notice searchParams={await searchParams} />
@@ -58,12 +63,14 @@ export default async function InboxPage({ searchParams }: { searchParams: Search
 
       {view.groups.map(({ project, candidates, items }) => (
         <section key={project.id} className="project" data-testid={`inbox-project-${project.id}`}>
-          <header className="section-header">
-            <h2>{project.name}</h2>
-            <small>{items.length}개</small>
-          </header>
+          <div className="section-head">
+            <h2>
+              {project.name} <small className="counter">{items.length}</small>
+            </h2>
+          </div>
           {items.map(({ pr, reason, markedWorkIds, markedProjectName, unlinkedFromWorkTitle }) => (
             <article key={pr.key} className="inbox-item" data-testid={`inbox-${pr.repoId}-${pr.number}`}>
+              <p className="eyebrow">Unassigned PR</p>
               <PrCard pr={pr} source={source} />
               <p className="reason" data-testid="inbox-reason">
                 {inboxReasonText(reason, markedWorkIds, markedProjectName, unlinkedFromWorkTitle)}

@@ -121,6 +121,22 @@ export function createMultiReader(sources: readonly ReaderSource[], options: Mul
     source: "github_combined",
     limitNote: `${sources.map((s) => `${s.label}: ${s.reader.limitNote ?? "상한 없음"}`).join(" / ")} 두 출처를 합쳐 한 번의 Sync 에 요청은 ${maxRequests}번까지.`,
     startRun,
+    /**
+     * PR 하나의 최신 커밋 (결정 18). 어느 출처가 그 저장소를 맡는지는 Sync 의 실행 안에만 있으므로, 앞 출처부터 차례로 물어
+     * 처음 답한 것을 쓴다(동기화와 같은 "앞 출처 우선"). 모두 실패하면 마지막 실패를 던진다.
+     */
+    async readPullRequestHead(repository, number) {
+      let last: unknown = new GitHubReadError("PR 하나를 읽을 출처가 없다");
+      for (const { reader } of sources) {
+        if (reader.readPullRequestHead === undefined) continue;
+        try {
+          return await reader.readPullRequestHead(repository, number);
+        } catch (error) {
+          last = error;
+        }
+      }
+      throw last;
+    },
     listRepositories: () => startRun().listRepositories(),
     listPullRequests: (repository) => startRun().listPullRequests(repository),
   };

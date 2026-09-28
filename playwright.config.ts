@@ -7,6 +7,12 @@ const PORT = 3100;
 export const PREVIEW_PORT = 3101;
 const PREVIEW_ROOT = join(tmpdir(), "agent-studio-e2e-preview");
 const PREVIEW_REPOS = join(PREVIEW_ROOT, "repos");
+/**
+ * 고정 데이터 모드에서 "GitHub 에 새 커밋이 올라왔다" 를 흉내 내는 파일 (STUDIO_FIXTURE_HEADS_FILE, 결정 18).
+ * 서버를 켜기 전에 지운다 — 앞 실행이 남긴 커밋이 처음 상태를 바꾸지 않게.
+ */
+export const PREVIEW_HEADS_FILE = join(PREVIEW_ROOT, "heads.json");
+const CLEAR_HEADS = `node -e "require('fs').rmSync(process.argv[1], { force: true })" ${JSON.stringify(PREVIEW_HEADS_FILE)}`;
 
 /**
  * 저장 종류. 기본은 메모리이고, E2E_STORAGE=postgres 이면 TEST_DATABASE_URL 의 PostgreSQL 로 돈다(`npm run test:e2e:postgres`).
@@ -61,7 +67,7 @@ export default defineConfig({
     },
     {
       // 미리보기 기기를 연결한 서버. 시연 저장소(admin-console#12 의 커밋)를 만든 뒤 켠다. 저장은 늘 메모리다.
-      command: `node scripts/preview-demo-repo.mjs ${JSON.stringify(PREVIEW_REPOS)} && npm run start -- --port ${PREVIEW_PORT} --hostname 127.0.0.1`,
+      command: `${CLEAR_HEADS} && node scripts/preview-demo-repo.mjs ${JSON.stringify(PREVIEW_REPOS)} && npm run start -- --port ${PREVIEW_PORT} --hostname 127.0.0.1`,
       url: `http://127.0.0.1:${PREVIEW_PORT}`,
       reuseExistingServer: false,
       timeout: 60_000,
@@ -80,6 +86,7 @@ export default defineConfig({
         PREVIEW_LOCAL_REPOS_DIR: PREVIEW_REPOS,
         PREVIEW_BIND_HOST: "127.0.0.1",
         PREVIEW_PUBLIC_HOST: "",
+        STUDIO_FIXTURE_HEADS_FILE: PREVIEW_HEADS_FILE,
       },
     },
   ],

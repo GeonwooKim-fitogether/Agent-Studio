@@ -8,7 +8,11 @@ import type { AttentionItem, AttentionKind } from "../../application/attention";
 import type { MemoProblem } from "../../application/memo";
 import type { NewWorkProblem } from "../../application/new-work";
 import type { StatusChangeView } from "../../application/queries";
-import type { ReviewBlock } from "../../application/review";
+import type { DecisionBlock } from "../../application/review";
+import type { SetGoalProblem } from "../../application/work-goal";
+import type { ReviewNoteProblem } from "../../domain/review-note";
+import { MAX_REVIEW_NOTE_LENGTH } from "../../domain/review-note";
+import { MAX_WORK_GOAL_LENGTH } from "../../domain/work-goal";
 import type { InboxReason } from "../../domain/auto-link";
 import type { ChecksState, GitHubReviewState, MarkerPlace, PrState, ReviewVerdict, WorkStatus } from "../../domain/model";
 import type { PreviewBlock, PreviewPhase } from "../../domain/preview";
@@ -46,9 +50,9 @@ function ruleReason(rule: StatusRule, to: WorkStatus): string {
         ? "최신 커밋의 검사가 끝났고 아직 판단하지 않았다"
         : "최신 커밋의 검사가 아직 진행 중이거나 실패했다 — 판단할 차례가 아니다";
     case "R3":
-      return "최신 커밋에 Request Changes 를 남겼다";
+      return "최신 커밋에 Request changes 를 남겼다";
     case "R3b":
-      return "최신 커밋에 Approve(내부 검토 완료)를 남겼다 — GitHub 병합을 기다린다";
+      return "최신 커밋에 Approve in Studio(내부 검토 완료)를 남겼다 — GitHub 병합을 기다린다";
     case "R4":
       return to === "done_candidate" ? "열린 PR 이 없고 병합된 PR 이 있다" : "연결된 PR 이 모두 병합 없이 닫혔다";
     case "R5":
@@ -78,7 +82,8 @@ export function statusCauseText(change: StatusChangeView, pinned = false): strin
     .join(" · ");
 }
 
-export const PR_STATE: Record<PrState, string> = { open: "Open", merged: "Merged", closed: "Closed" };
+/** GitHub 의 PR 상태. 출처를 글자에 붙여 Studio 의 결정과 섞이지 않게 한다 (결정 18, Q12) */
+export const PR_STATE: Record<PrState, string> = { open: "GitHub: Open", merged: "Merged on GitHub", closed: "Closed on GitHub" };
 
 export const CHECKS: Record<ChecksState, string> = {
   passing: "Checks passing",
@@ -87,10 +92,16 @@ export const CHECKS: Record<ChecksState, string> = {
   none: "No checks",
 };
 
+/** 이미 "GitHub" 이라고 적힌 줄(속성 표)에서 쓰는 짧은 표기 — 같은 줄에 출처를 두 번 쓰지 않는다 */
+export const PR_STATE_SHORT: Record<PrState, string> = { open: "Open", merged: "Merged", closed: "Closed" };
+export const GITHUB_REVIEW_SHORT: Record<GitHubReviewState, string> = { approved: "Approved", changes_requested: "Changes requested", none: "No review" };
+export const githubLine = (g: { readonly state: PrState; readonly checks: ChecksState; readonly review: GitHubReviewState }) =>
+  `${PR_STATE_SHORT[g.state]} · ${CHECKS[g.checks]} · ${GITHUB_REVIEW_SHORT[g.review]}`;
+
 export const GITHUB_REVIEW: Record<GitHubReviewState, string> = {
-  approved: "Approved",
-  changes_requested: "Changes requested",
-  none: "No review",
+  approved: "GitHub: Approved",
+  changes_requested: "GitHub: Changes requested",
+  none: "GitHub: No review",
 };
 
 export const VERDICT: Record<ReviewVerdict, string> = {
@@ -106,13 +117,59 @@ export const VERDICT_MEANING: Record<ReviewVerdict, string> = {
   internal_review_done: "내부 검토 완료",
 };
 
-/** Approve 옆의 작은 설명 — GitHub 의 승인 · 병합과 헷갈리지 않게 한다 (feature-plan F2, 계약 §5) */
+/** Approve in Studio 옆의 작은 설명 — GitHub 의 승인 · 병합과 헷갈리지 않게 한다 (feature-plan F2, 계약 §5) */
 export const APPROVE_NOTE = "내부 검토 완료 — GitHub 병합이 아니다";
 
-/** 내부 검토 결정을 남길 수 없는 PR 쪽 이유 */
-export const REVIEW_BLOCK: Record<ReviewBlock, string> = {
+/** Review 패널 아래의 한 줄 (결정 18, Q8) */
+export const REVIEW_PANEL_NOTE = "Studio 에만 기록된다. GitHub 리뷰 · 병합은 GitHub 에서 한다.";
+
+/** 내부 검토 결정을 남길 수 없는 이유 */
+export const REVIEW_BLOCK: Record<DecisionBlock, string> = {
   merged: "GitHub 에서 이미 병합된 PR 이라 내부 검토 결정을 새로 남기지 않는다.",
   closed: "GitHub 에서 닫힌 PR 이라 내부 검토 결정을 새로 남기지 않는다.",
+  outdated_preview:
+    "지금 돌고 있는 미리보기가 이전 커밋이다. 오래된 화면을 보고 최신 커밋을 판단하지 않도록 결정을 막았다 — Open Preview 로 최신 커밋을 다시 연다.",
+};
+
+/** 미리보기 기기가 꺼져 있을 때 Review 패널 · Next action 에 보이는 한 줄 (Q10) — 검토는 막지 않는다 */
+export const PREVIEW_HOST_OFFLINE = "Preview host offline — 미리보기 없이 GitHub 에서 확인한다.";
+
+/** Review 패널이 결정을 남기지 않은 이유 (?problem=). stale 은 새 커밋 SHA 를 받아 문장을 만든다 */
+export type ReviewProblem = ReviewNoteProblem | "stale" | "outdated_preview" | "refused";
+export function reviewProblemText(problem: ReviewProblem, headSha: string): string {
+  switch (problem) {
+    case "stale":
+      return `새 커밋 ${shortSha(headSha)} 이 도착해 저장하지 않았다. 최신 커밋을 확인한 뒤 다시 판단한다.`;
+    case "reason_missing":
+      return "Request changes 에는 Reason(무엇이 왜 문제인가)이 필요하다.";
+    case "done_when_missing":
+      return "Request changes 에는 Done when(무엇이 되면 수정이 끝나나)이 필요하다.";
+    case "too_long":
+      return `글이 ${MAX_REVIEW_NOTE_LENGTH}자를 넘는다. 줄여서 적는다.`;
+    case "control_char":
+      return "글에 보이지 않는 제어 문자(탭 등)가 들어 있다. 줄바꿈은 된다.";
+    case "outdated_preview":
+      return REVIEW_BLOCK.outdated_preview;
+    case "refused":
+      return "결정을 남기지 않았다 — 화면이 오래됐을 수 있다(그사이 PR 이 병합 · 닫히거나 연결이 풀렸을 수 있다). 지금 상태를 확인한다.";
+  }
+}
+export const REVIEW_PROBLEMS: readonly ReviewProblem[] = [
+  "stale",
+  "reason_missing",
+  "done_when_missing",
+  "too_long",
+  "control_char",
+  "outdated_preview",
+  "refused",
+];
+
+/** 목표를 적지 않은 이유 */
+export const GOAL_PROBLEM: Record<SetGoalProblem, string> = {
+  empty: "목표가 비어 있다. 이 업무가 끝나면 무엇이 달라지는지 한두 문장으로 적는다.",
+  too_long: `목표가 ${MAX_WORK_GOAL_LENGTH}자를 넘는다. 한두 문장으로 줄인다.`,
+  control_char: "목표에 보이지 않는 제어 문자(탭 등)가 들어 있다. 줄바꿈은 된다.",
+  no_work: "이 업무를 찾지 못했다.",
 };
 
 /** 카드가 있는 화면마다 한 줄로 보여 주는 범례 */
@@ -245,6 +302,9 @@ export const NEW_WORK_PROBLEM: Record<NewWorkProblem, string> = {
   too_long: `제목이 ${MAX_WORK_TITLE_LENGTH}자를 넘는다. 목록 한 줄에 보일 이름으로 줄인다.`,
   control_char: "제목에 줄바꿈이나 보이지 않는 제어 문자가 들어 있다. 한 줄의 보이는 글자로 적는다.",
   no_project: "고른 프로젝트를 찾지 못했다. 목록에서 다시 고른다.",
+  goal_empty: "목표가 비어 있다. 이 업무가 끝나면 무엇이 달라지는지 한두 문장으로 적는다.",
+  goal_too_long: `목표가 ${MAX_WORK_GOAL_LENGTH}자를 넘는다. 한두 문장으로 줄인다.`,
+  goal_control_char: "목표에 보이지 않는 제어 문자(탭 등)가 들어 있다. 줄바꿈은 된다.",
 };
 
 /** New Work 폼 아래의 안내 (시안 v2) */
@@ -301,7 +361,7 @@ export function prEventText(event: PrEvent): string {
 
 /** 내부 검토 결정 한 줄 */
 export function reviewEventText(verdict: ReviewVerdict, commitSha: string): string {
-  const button = verdict === "internal_review_done" ? "Approve" : "Request Changes";
+  const button = verdict === "internal_review_done" ? "Approve in Studio" : "Request changes";
   return `커밋 ${shortSha(commitSha)} 에 ${button} — ${VERDICT[verdict]} (${VERDICT_MEANING[verdict]})`;
 }
 

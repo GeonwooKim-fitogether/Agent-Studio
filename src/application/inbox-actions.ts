@@ -70,6 +70,7 @@ export async function createWorkFromPr(deps: AppDeps, ref: PrRef): Promise<Work>
     id: await newUniqueWorkId(deps),
     projectId: project.id,
     title: pr.title.trim() === "" ? `PR #${pr.number}` : pr.title.trim(),
+    goal: "", // PR 로 만든 업무는 목표가 비어 있다 — 업무 화면의 Set goal 로 적는다 (결정 18)
     status: "draft",
     createdAt,
   };

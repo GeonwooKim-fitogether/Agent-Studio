@@ -225,7 +225,14 @@ describe("scenario-4 새 커밋이 오면 커밋에 고정된 기록은 이전 �
       },
     });
     await syncAll(deps);
-    await recordReviewDecision(deps, { ...ref(DEMO_REPO.adminConsole, 12), workId: "d0e1f2", verdict: "changes_requested" });
+    await recordReviewDecision(deps, {
+      ...ref(DEMO_REPO.adminConsole, 12),
+      workId: "d0e1f2",
+      verdict: "changes_requested",
+      viewedSha: DEMO_SHA.admin12Head,
+      reason: "2단계 인증 코드 입력칸이 모바일에서 잘린다",
+      doneWhen: "390px 폭에서 입력칸 6개가 한 줄에 보인다",
+    });
 
     const card = async (): Promise<PrCardView | undefined> =>
       (await getWorkDetail(deps, "d0e1f2"))?.prs.find((p) => p.key === prKey(ref(DEMO_REPO.adminConsole, 12)));
@@ -271,7 +278,7 @@ describe("scenario-5 내부 검토 완료는 GitHub 상태를 바꾸지 않는�
     const snapshotsBefore = structuredClone(await deps.store.listSnapshots());
     const callsBefore = readerCalls.length;
 
-    const decision = await recordReviewDecision(deps, { ...target, workId: "a1b2c3", verdict: "internal_review_done" });
+    const decision = await recordReviewDecision(deps, { ...target, workId: "a1b2c3", verdict: "internal_review_done", viewedSha: DEMO_SHA.payments12Head });
 
     // 재동기화하기 전에 확인한다. 재동기화는 fixture 의 값으로 스냅샷을 덮어써 변화를 가려 버린다.
     expect(decision.commitSha).toBe(DEMO_SHA.payments12Head); // 어느 커밋에 대한 결정인지 함께 남는다
@@ -289,10 +296,10 @@ describe("scenario-5 내부 검토 완료는 GitHub 상태를 바꾸지 않는�
     const { deps } = setup();
     await syncAll(deps);
     await expect(
-      recordReviewDecision(deps, { ...ref(DEMO_REPO.coachWeb, 12), workId: "b4c5d6", verdict: "internal_review_done" }),
+      recordReviewDecision(deps, { ...ref(DEMO_REPO.coachWeb, 12), workId: "b4c5d6", verdict: "internal_review_done", viewedSha: "0".repeat(40) }),
     ).rejects.toMatchObject({ code: "not_linked" });
     await expect(
-      recordReviewDecision(deps, { ...ref(DEMO_REPO.payments, 12), workId: "d0e1f2", verdict: "internal_review_done" }),
+      recordReviewDecision(deps, { ...ref(DEMO_REPO.payments, 12), workId: "d0e1f2", verdict: "internal_review_done", viewedSha: DEMO_SHA.payments12Head }),
     ).rejects.toMatchObject({ code: "not_linked" });
   });
 });

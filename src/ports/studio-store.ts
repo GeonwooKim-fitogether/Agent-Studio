@@ -23,15 +23,26 @@ import type { Memo } from "../domain/memo";
 import type { PrEvent } from "../domain/pr-event";
 import type { PrFingerprint, StatusChange } from "../domain/work-status";
 
+/** 처음 상태에 심는 업무. 목표 칸이 생기기 전에 만든 시연 데이터 · 시험 데이터도 그대로 받는다 */
+export type WorkSeed = Omit<Work, "goal"> & { readonly goal?: string };
+/** 처음 상태에 심는 검토 결정. 이유 · 수정 기준 칸이 생기기 전의 기록도 그대로 받는다 */
+export type ReviewSeed = Omit<ReviewDecision, "reason" | "doneWhen"> & { readonly reason?: string | null; readonly doneWhen?: string | null };
+
+/** 심는 값을 저장 모양으로 맞춘다 (빠진 칸을 채운다) */
+export const workFromSeed = (w: WorkSeed): Work => ({ ...w, goal: w.goal ?? "" });
+export const reviewFromSeed = (r: ReviewSeed): ReviewDecision => ({ ...r, reason: r.reason ?? null, doneWhen: r.doneWhen ?? null });
+
 /**
  * 서버가 처음 켜질 때 저장소에 심는 처음 상태(시연 데이터 등).
  * GitHub 에서 받아 적는 것(저장소, PR 스냅샷)은 넣지 않는다 — 동기화가 채운다.
  */
 export interface StudioSeed {
   readonly projects?: readonly Project[];
-  readonly works?: readonly Work[];
+  /** 목표 칸(결정 18)이 없으면 빈 목표로 심는다 */
+  readonly works?: readonly WorkSeed[];
   readonly links?: readonly PrLink[];
-  readonly reviews?: readonly ReviewDecision[];
+  /** 이유 · 수정 기준 칸(결정 18)이 없으면 null 로 심는다 */
+  readonly reviews?: readonly ReviewSeed[];
   readonly previews?: readonly PreviewRecord[];
   readonly unlinks?: readonly UnlinkRecord[];
   /** PR 이벤트 (feature-plan F7). 시연 데이터는 넣지 않는다 — 기록은 Studio 가 실제로 읽은 변화에서만 시작한다 */
@@ -69,9 +80,15 @@ export interface StudioStore {
   createWorkWithLink(work: Work, link: PrLink): Promise<void>;
   /**
    * PR 없이 빈 업무 하나를 만든다 (New Work, feature-plan F5). 표식이 든 PR 이 나중에 Sync 로 붙는다.
-   * 확인 순서: 업무 ID 형식 → invalid_input, 없는 프로젝트 → not_found, 같은 ID 의 업무 → invalid_input. 걸리면 아무것도 쓰지 않는다.
+   * 확인 순서: 업무 ID 형식 · 목표가 규칙 밖(isAcceptedWorkGoal) → invalid_input, 없는 프로젝트 → not_found, 같은 ID 의 업무 → invalid_input.
+   * 걸리면 아무것도 쓰지 않는다.
    */
   createWork(work: Work): Promise<void>;
+  /**
+   * 업무의 목표를 적거나 고친다 (결정 18). 확인 순서: 목표가 규칙 밖(isAcceptedWorkGoal 이 아니거나 빈 글) → invalid_input,
+   * 없는 업무 → not_found. 목표를 비우는 것은 받지 않는다 — 한 번 적은 목표는 고칠 수만 있다.
+   */
+  setWorkGoal(update: { readonly workId: string; readonly goal: string }): Promise<void>;
 
   listRepositories(): Promise<Repository[]>;
   saveRepository(repository: Repository): Promise<void>;
@@ -106,6 +123,10 @@ export interface StudioStore {
   listUnlinks(): Promise<UnlinkRecord[]>;
 
   listReviewDecisions(): Promise<ReviewDecision[]>;
+  /**
+   * 검토 결정을 더한다. 확인 순서: PR 값이 범위 밖이거나 이유 · 수정 기준이 규칙 밖(isAcceptedReviewNoteField) → invalid_input,
+   * 없는 업무 → not_found. "사람이 본 커밋이 최신인가" 와 "Request changes 에 두 칸이 다 있나" 는 유스케이스(application/review.ts)가 본다.
+   */
   addReviewDecision(decision: ReviewDecision): Promise<void>;
 
   /**

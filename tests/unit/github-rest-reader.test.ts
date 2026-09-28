@@ -237,8 +237,35 @@ describe("REST 읽기 어댑터", () => {
 
   it("어댑터에는 읽는 메서드만 있고, 읽기 범위의 상한을 화면용 문장으로 알린다", () => {
     const reader = createGitHubRestReader({ token: TOKEN, repos: [], fetch: fakeFetch({}).fetch });
-    expect(Object.keys(reader).sort()).toEqual(["limitNote", "listPullRequests", "listRepositories", "source", "startRun"]);
+    expect(Object.keys(reader).sort()).toEqual(["limitNote", "listPullRequests", "listRepositories", "readPullRequestHead", "source", "startRun"]);
     expect(reader.limitNote).toContain(String(PULLS_PER_REPO));
+  });
+
+  it("PR 하나의 최신 커밋은 GET 하나로 읽고(결정 18), 다른 저장소의 PR 이 오면 받아들이지 않는다", async () => {
+    const HEAD = "b".repeat(40);
+    const pull = (baseRepoId: number) => ({
+      number: 12,
+      title: "로그인",
+      body: "",
+      state: "open",
+      merged_at: null,
+      html_url: "https://github.com/demo-org/payments/pull/12",
+      updated_at: "2026-09-28T00:00:00Z",
+      user: { login: "dev" },
+      head: { ref: "feat/x", sha: HEAD, repo: { id: 710001 } },
+      base: { repo: { id: baseRepoId } },
+    });
+    const url = "https://api.github.com/repos/demo-org/payments/pulls/12";
+    const ok = fakeFetch({ [url]: json(pull(710001)) });
+    const reader = createGitHubRestReader({ token: TOKEN, repos: [], fetch: ok.fetch });
+    expect(await reader.readPullRequestHead?.({ id: 710001, fullName: "demo-org/payments" }, 12)).toBe(HEAD);
+    expect(ok.calls.map((c) => [c.method, c.url])).toEqual([["GET", url]]);
+
+    const foreign = fakeFetch({ [url]: json(pull(999)) });
+    const other = createGitHubRestReader({ token: TOKEN, repos: [], fetch: foreign.fetch });
+    const error = await caught(other.readPullRequestHead!({ id: 710001, fullName: "demo-org/payments" }, 12));
+    expect(error).toBeInstanceOf(GitHubReadError);
+    expectNoToken(error);
   });
 
   it("owner/name 형식이 아닌 저장소 이름은 요청하지 않는다", async () => {
