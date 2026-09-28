@@ -135,6 +135,10 @@ input:focus, textarea:focus, select:focus { outline: 2px solid #365be833; border
 .host-line { display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .sidebar-status .host-line .icon { display: none; }
 .host-line.offline { color: #8b6f5f; }
+.host-dot { flex-shrink: 0; width: 6px; height: 6px; border-radius: 50%; background: #3f6b3a; }
+.host-line.offline .host-dot { background: #a6ac9f; }
+.host-line.dot-only { display: none; }
+.attention-row-wrap.selected .status-icon.fail { color: var(--warn); background: #fff; border-color: #f1d6ca; }
 .shell { margin-left: var(--sidebar); min-width: 0; }
 /* 빵부스러기 줄은 위에 붙어 있다 — 업무 화면의 왼쪽 열(제 스크롤)과 오른쪽 패널은 그 아래에서 화면 높이를 나눈다 */
 .topbar { position: sticky; top: 0; z-index: 15; display: flex; align-items: center; justify-content: space-between; gap: 16px; height: var(--topbar); padding: 0 34px; border-bottom: 1px solid var(--line); background: var(--bg); }
@@ -189,6 +193,32 @@ input:focus, textarea:focus, select:focus { outline: 2px solid #365be833; border
 .new-tag, .old-tag { display: inline-block; margin-left: 6px; font-size: 10px; font-weight: 650; padding: 0 5px; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); }
 .new-tag { color: var(--accent); border-color: #dbe2ff; }
 
+/* GitHub 상태 아이콘 줄 (결정 19, 시안 v3) — 늘 네 칸 [PR 상태 · 검사 · 리뷰 · 미리보기]. 낱말은 title 과 sr-only 에만 있다 */
+.st-row { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; vertical-align: middle; }
+.st-group { display: contents; }
+.st { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 5px; color: #8b9186; }
+.st:hover { background: #f0f2ec; }
+.st .icon { width: 15px; height: 15px; stroke-width: 1.7; }
+.st.ink { color: var(--ink); }
+.st.ok { color: #3f6b3a; }
+.st.fail { color: var(--warn); }
+.st.merged { color: #5a4ba8; }
+.st.merged .icon circle { fill: currentColor; stroke: none; }
+.st.wait { color: var(--muted); }
+.st.off { color: #a6ac9f; }
+.st-sep { width: 1px; height: 12px; background: var(--line); margin: 0 3px; }
+.pr-no { font-family: var(--mono); font-size: 12px; letter-spacing: 0; color: #6f7669; }
+/* Studio 의 결정 — 아이콘 줄 옆 작은 알약 하나(결정이 있을 때만) */
+.decision-pill { display: inline-flex; align-items: center; margin-left: 6px; font-size: 10px; font-weight: 650; padding: 0 6px; border-radius: 4px; border: 1px solid var(--line); white-space: nowrap; vertical-align: middle; }
+.decision-pill.studio-internal_review_done { color: var(--accent); border-color: #dbe2ff; background: var(--tint); }
+.decision-pill.studio-changes_requested { color: #8a5a12; border-color: #f0dfbf; background: #fdf8ee; }
+.pr-list { display: grid; gap: 6px; }
+.pr-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.pr-line .pr-no { flex-shrink: 0; }
+.pr-line .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
+a.pr-line:hover .t { text-decoration: underline; }
+.property.stack { grid-template-columns: 1fr; gap: 6px; }
+
 .properties { display: grid; gap: 10px; margin: 0; font-size: 12px; }
 .property { display: grid; grid-template-columns: 92px 1fr; gap: 8px; align-items: baseline; }
 .property dt { color: #8a9183; }
@@ -214,6 +244,12 @@ input:focus, textarea:focus, select:focus { outline: 2px solid #365be833; border
 .attention-row-wrap.selected .attention-row.desk-only > .icon { color: var(--accent); }
 .status-icon { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%; background: #f0f2ec; border: 1px solid #e0e5d9; color: var(--muted); }
 .status-icon .icon { width: 14px; height: 14px; }
+.status-icon.fail { color: var(--warn); background: var(--warn-bg); border-color: #f1d6ca; }
+.status-icon.ready { color: var(--accent); background: var(--tint); border-color: #dbe2ff; }
+.row-pr { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; vertical-align: middle; }
+.row-pr .st { width: 18px; height: 18px; }
+.row-pr .st .icon { width: 13px; height: 13px; }
+.focus-body .sha-line { margin-bottom: 18px; }
 .attention-row-wrap.selected .status-icon { color: var(--accent); background: #fff; border-color: #d4ddff; }
 .row-title { display: block; font-size: 13px; font-weight: 650; line-height: 1.5; margin-bottom: 2px; }
 .row-meta { display: block; font-size: 11px; color: var(--muted); }
@@ -357,6 +393,8 @@ input:focus, textarea:focus, select:focus { outline: 2px solid #365be833; border
 .result-title { display: block; font-size: 15px; font-weight: 650; line-height: 1.45; }
 .result-meta { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
 .result-meta code { color: var(--muted); }
+.result-head > time { flex-shrink: 0; font-size: 10px; color: #a6ac9f; margin-top: 3px; }
+.result-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
 .chip-rows { display: grid; gap: 6px; margin: 0; }
 .chip-row { display: grid; grid-template-columns: 64px 1fr; gap: 8px; align-items: center; }
 .chip-row dt { font-size: 10px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; color: #8a9183; }
@@ -411,7 +449,10 @@ input:focus, textarea:focus, select:focus { outline: 2px solid #365be833; border
 .status-form select { border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; background: var(--paper); }
 .status-form small { display: block; width: 100%; font-size: 10.5px; line-height: 1.55; }
 .link-pr { border-top: 1px solid var(--line); padding-top: 12px; }
-.link-pr summary { cursor: pointer; font-size: 12px; font-weight: 650; margin-bottom: 8px; }
+.link-pr summary { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; font-weight: 650; margin-bottom: 8px; list-style: none; }
+.link-pr summary::-webkit-details-marker { display: none; }
+.link-pr summary .icon { width: 12px; height: 12px; transition: transform 0.15s; }
+.link-pr[open] summary .icon { transform: rotate(90deg); }
 .link-pr .why { font-size: 11px; margin-top: 8px; }
 .link-list { margin: 8px 0 0; padding-left: 16px; font-size: 11px; color: var(--muted); }
 
@@ -432,6 +473,13 @@ input:focus, textarea:focus, select:focus { outline: 2px solid #365be833; border
 .blocked { font-size: 12px; color: var(--warn); line-height: 1.6; }
 .hint { font-size: 10.5px; color: #8e9588; line-height: 1.7; }
 .link-section { padding-top: 12px; border-top: 1px solid var(--line); }
+.link-section > summary { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; font-weight: 650; list-style: none; }
+.link-section > summary::-webkit-details-marker { display: none; }
+.link-section > summary .icon { width: 12px; height: 12px; transition: transform 0.15s; }
+.link-section[open] > summary .icon { transform: rotate(90deg); }
+.link-section > p { margin-top: 10px; }
+.panel-state { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 4px; }
+.panel-head .grow { min-width: 0; }
 .unlink-form { display: grid; gap: 8px; margin-top: 8px; }
 .check-row { display: flex; gap: 8px; align-items: flex-start; font-size: 11px; color: var(--muted); line-height: 1.55; }
 .check-row input { accent-color: var(--accent); margin-top: 3px; }
@@ -531,6 +579,7 @@ input:focus, textarea:focus, select:focus { outline: 2px solid #365be833; border
   .mobile-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; height: 52px; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--bg); position: sticky; top: 0; z-index: 15; }
   .mobile-top .sync-summary { font-size: 11px; color: var(--muted); }
   .mobile-top .sync-line .icon { display: none; }
+  .mobile-top .host-line.dot-only { display: inline-flex; padding: 0 2px; }
   .mobile-top .sync-summary .btn { min-height: 34px; padding: 4px 10px; font-size: 12px; }
   .mobile-tabs { display: flex; position: fixed; left: 0; right: 0; bottom: 0; height: 64px; z-index: 25; justify-content: space-around; padding: 4px 6px max(6px, env(safe-area-inset-bottom)); background: #ffffffee; backdrop-filter: blur(10px); border-top: 1px solid var(--line); }
   .mobile-tabs .nav-item { flex-direction: column; justify-content: center; gap: 2px; min-width: 64px; min-height: 48px; padding: 4px 6px; font-size: 10px; color: #8c9386; background: none; box-shadow: none; position: relative; }
