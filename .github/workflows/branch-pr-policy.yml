@@ -1,0 +1,250 @@
+# 브랜치·PR 정책 — GitHub 쪽에서 이름을 검사하고, 머지된 브랜치를 지우고, 방치된 것을 보여 준다
+#
+# 왜 이 워크플로가 있나. 브랜치·PR 규칙(.claude/rules/branch-pr-naming.md)은 세션 안에서
+# 훅(branch-guard.py)이 지킨다. 그런데 훅이 닿지 않는 자리가 둘 있다.
+#   1. 클라우드(claude.ai/code) 세션은 플랫폼이 `claude/…` 브랜치를 만들어 훅이 볼 명령이 없다.
+#   2. 세션이 끝난 뒤 남는 것(머지된 브랜치, 방치된 PR)은 세션 안의 장치가 치울 수 없다.
+# 이 워크플로가 그 두 자리를 받는다. 창고 실측(2026-09-29): 브랜치 50개 중 24개가 머지된
+# 채 남아 있었고 열린 PR 3개가 한 달째 그대로였다.
+#
+# ── 세 가지 사건 ─────────────────────────────────────────────────────────────
+#   PR 열림·제목 수정    → 브랜치 이름과 제목 형식을 검사한다. 어기면 빨간 체크 + 코멘트.
+#   PR 머지됨           → head 브랜치를 지운다 (`claude/…` 포함). 저장소 설정의 자동 삭제가
+#                         켜져 있으면 이미 지워져 있으므로 조용히 지나간다.
+#   매주 월요일 + 수동   → main 에 머지된 채 남은 브랜치를 전부 지우고, 14일 이상 활동 없는
+#                         열린 PR 과 21일 이상 활동 없는 브랜치를 잡 요약에 나열한다.
+#                         열린 PR 은 지우지 않는다 — 닫는 것은 사람이다.
+#
+# ── API 키가 필요하지 않다 ──────────────────────────────────────────────────
+# 판단하지 않고 형식과 날짜만 본다. git 과 gh 만으로 돌고, 시크릿이 없어도 언제나 돈다.
+# 한 번 실행에 1분 안팎, 저장소당 월 30회 이하 (escalation 규칙 §2-5 의 비용 관문은
+# docs/system-layer/session-branch-pr-plan.md 의 승인으로 갈음).
+#
+# ── 이 파일은 동기화 봇이 내려보내지 않는다 ──────────────────────────────────
+# .github/workflows/ 는 저장소별 관리다. 기존 저장소에 쓰려면 직접 넣는다.
+# ("Use this template" 로 새로 만든 저장소는 함께 물려받는다.)
+
+name: 브랜치·PR 정책
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, closed]
+  schedule:
+    - cron: "30 0 * * 1" # 매주 월요일 00:30 UTC (동기화 봇 00:00 뒤)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write # 머지된 브랜치를 지운다
+  pull-requests: write # 형식 위반을 PR 코멘트로 남긴다
+
+concurrency:
+  group: branch-pr-policy-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── 1. PR 이 열리면 이름과 제목을 검사한다 ─────────────────────────────────
+  naming:
+    if: github.event_name == 'pull_request' && github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 브랜치 이름과 PR 제목 형식 검사
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.head_ref }}
+          TITLE: ${{ github.event.pull_request.title }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          KINDS='feat|fix|mig|refactor|docs|chore'
+          problems=()
+
+          # 브랜치 이름. 클라우드 세션의 claude/… 와 봇의 고정 브랜치는 이름 형식의 예외다.
+          if [[ "$BRANCH" =~ ^claude/ ]]; then
+            branch_note="클라우드 세션 브랜치(\`$BRANCH\`) — 이름 형식은 예외, 제목의 종류 접두어로 대신한다"
+          elif [[ "$BRANCH" =~ ^($KINDS)/[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+            branch_note="브랜치 이름 형식 통과"
+          else
+            problems+=("브랜치 이름 \`$BRANCH\` 이(가) \`<종류>/<영문-슬러그>\` 형식이 아닙니다. 종류는 $KINDS 중 하나, 슬러그는 영문 소문자·숫자·하이픈입니다 (예: \`feat/gen-task-order\`). **이 브랜치의 이름을 바꾸지 마세요** — 바꾸면 이 PR 이 닫힙니다. 다음 브랜치부터 형식을 지키면 됩니다.")
+          fi
+
+          # PR 제목. `<종류>: <한 문장>`, 종류 뒤에 콜론과 공백.
+          if [[ "$TITLE" =~ ^($KINDS):\ .+ ]]; then
+            title_note="PR 제목 형식 통과"
+          else
+            problems+=("PR 제목 \`$TITLE\` 이(가) \`<종류>: <무엇을 하는지 한 문장>\` 형식이 아닙니다 (예: \`feat: GEN 단계를 관문에서 서랍으로 바꾼다\`). 제목은 PR 화면에서 바로 고칠 수 있고, 고치면 이 검사가 다시 돕니다.")
+          fi
+
+          # 브랜치의 종류와 제목의 종류가 다르면 어느 쪽이 맞는지 읽는 사람이 판단해야 한다.
+          if [[ "$BRANCH" =~ ^($KINDS)/ && "$TITLE" =~ ^($KINDS): ]]; then
+            bk="${BRANCH%%/*}"; tk="${TITLE%%:*}"
+            if [ "$bk" != "$tk" ]; then
+              problems+=("브랜치의 종류(\`$bk\`)와 제목의 종류(\`$tk\`)가 다릅니다. 제목 쪽을 브랜치에 맞추세요.")
+            fi
+          fi
+
+          # 요지가 앞 40자 안에 — 종류 접두어를 뺀 본문이 40자를 넘으면 목록에서 잘린다. 경고만.
+          body="${TITLE#*: }"
+          if [ "${#body}" -gt 40 ]; then
+            long_note="제목 본문이 ${#body}자입니다. GitHub 목록은 40자 안팎에서 잘리므로 요지가 앞에 오는지 확인하세요 (막지는 않습니다)."
+          else
+            long_note=""
+          fi
+
+          {
+            echo "## 브랜치·PR 정책 — 이름과 제목"
+            echo ""
+            echo "- $branch_note"
+            echo "- $title_note"
+            [ -n "$long_note" ] && echo "- $long_note"
+            if [ "${#problems[@]}" -gt 0 ]; then
+              echo ""
+              echo "### 고칠 것"
+              for p in "${problems[@]}"; do echo "- $p"; done
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${#problems[@]}" -gt 0 ]; then
+            # 같은 내용의 코멘트가 이미 있으면 다시 달지 않는다 (제목을 고칠 때마다 쌓이지 않게).
+            marker="<!-- branch-pr-policy -->"
+            existing=$(gh api "repos/$REPO/issues/$PR/comments" --jq ".[] | select(.body | startswith(\"$marker\")) | .id" 2>/dev/null | head -1 || true)
+            {
+              echo "$marker"
+              echo "## 브랜치·PR 정책 — 형식이 맞지 않습니다"
+              echo ""
+              for p in "${problems[@]}"; do echo "- $p"; done
+              echo ""
+              echo "근거: \`.claude/rules/branch-pr-naming.md\`. 이 검사는 형식만 보며 내용은 판단하지 않습니다."
+              echo ""
+              echo "---"
+              echo "_Generated by [Claude Code](https://claude.ai/code)_"
+            } > /tmp/comment.md
+            if [ -n "$existing" ]; then
+              gh api -X PATCH "repos/$REPO/issues/comments/$existing" -F body=@/tmp/comment.md >/dev/null || true
+            else
+              gh pr comment "$PR" --body-file /tmp/comment.md || true
+            fi
+            echo "::error title=브랜치·PR 형식 위반::${problems[0]}"
+            exit 1
+          fi
+
+  # ── 2. 머지되면 head 브랜치를 지운다 ───────────────────────────────────────
+  delete-merged-head:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: head 브랜치 삭제
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          # 포크에서 온 PR 의 브랜치는 남의 것이라 지우지 않는다.
+          if [ "$HEAD_REPO" != "$REPO" ]; then
+            echo "포크(\`$HEAD_REPO\`)의 브랜치라 지우지 않습니다." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ "$BRANCH" = "main" ]; then exit 0; fi
+          if gh api -X DELETE "repos/$REPO/git/refs/heads/$BRANCH" >/dev/null 2>&1; then
+            echo "머지된 브랜치 \`$BRANCH\` 을(를) 지웠습니다." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "브랜치 \`$BRANCH\` 은(는) 이미 없거나(저장소 설정의 자동 삭제) 지울 수 없었습니다." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # ── 3. 매주: 머지된 채 남은 브랜치를 지우고, 방치된 것을 보여 준다 ────────────
+  weekly-cleanup:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 머지된 브랜치 삭제 + 방치 목록
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          STALE_PR_DAYS: "14"
+          STALE_BRANCH_DAYS: "21"
+          # 지우지 않는 브랜치. 봇이 매번 다시 쓰는 고정 브랜치는 여기에 적는다.
+          KEEP: |
+            main
+            chore/sync-warehouse
+        shell: bash
+        run: |
+          set -uo pipefail
+          git fetch origin --quiet --prune
+          printf '%s\n' "${KEEP:-}" | grep -v '^[[:space:]]*$' | sort -u > /tmp/keep.txt
+
+          # (a) main 에 머지된 채 남은 브랜치를 지운다.
+          deleted=(); failed=()
+          for ref in $(git for-each-ref --merged origin/main --format='%(refname:short)' refs/remotes/origin); do
+            b="${ref#origin/}"
+            [ "$b" = "HEAD" ] && continue
+            grep -qx "$b" /tmp/keep.txt && continue
+            # 열린 PR 이 걸려 있는 브랜치는 머지된 것처럼 보여도(내용이 main 과 같아도) 지우지 않는다.
+            open_pr=$(gh pr list --head "$b" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)
+            [ -n "$open_pr" ] && continue
+            if gh api -X DELETE "repos/$REPO/git/refs/heads/$b" >/dev/null 2>&1; then
+              deleted+=("$b")
+            else
+              failed+=("$b")
+            fi
+          done
+
+          # (b) 방치된 열린 PR — 지우지 않고 보여만 준다.
+          cutoff_pr=$(date -u -d "-${STALE_PR_DAYS} days" +%Y-%m-%dT%H:%M:%SZ)
+          gh pr list --state open --limit 100 --json number,title,headRefName,updatedAt,isDraft \
+            --jq ".[] | select(.updatedAt < \"$cutoff_pr\") | \"| #\(.number) | \(.headRefName) | \(if .isDraft then \"Draft\" else \"Ready\" end) | \(.updatedAt[0:10]) | \(.title) |\"" \
+            > /tmp/stale_prs.txt 2>/dev/null || true
+
+          # (c) 방치된 브랜치(머지 안 됨, 활동 없음) — 보여만 준다.
+          cutoff_br=$(( $(date -u +%s) - STALE_BRANCH_DAYS * 86400 ))
+          : > /tmp/stale_branches.txt
+          for ref in $(git for-each-ref --no-merged origin/main --format='%(refname:short)' refs/remotes/origin); do
+            b="${ref#origin/}"
+            [ "$b" = "HEAD" ] && continue
+            grep -qx "$b" /tmp/keep.txt && continue
+            ts=$(git log -1 --format=%ct "$ref" 2>/dev/null || echo 0)
+            if [ "${ts:-0}" -lt "$cutoff_br" ]; then
+              pr=$(gh pr list --head "$b" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)
+              echo "| $b | $(git log -1 --format=%cs "$ref") | ${pr:+#$pr} |" >> /tmp/stale_branches.txt
+            fi
+          done
+
+          total_branches=$(git for-each-ref --format='%(refname:short)' refs/remotes/origin | grep -v -e '^origin/HEAD$' -e '^origin/main$' | wc -l | tr -d ' ')
+          open_prs=$(gh pr list --state open --limit 100 --json number --jq 'length' 2>/dev/null || echo "?")
+
+          {
+            echo "## 브랜치·PR 정책 — 주간 정리"
+            echo ""
+            echo "지금 원격 브랜치 **${total_branches}개** (main 제외), 열린 PR **${open_prs}개**. 목표는 브랜치 수 − 열린 PR 수 ≤ 1 이다."
+            echo ""
+            echo "### 지운 브랜치 (main 에 머지된 채 남아 있던 것) — ${#deleted[@]}개"
+            if [ "${#deleted[@]}" -gt 0 ]; then printf -- '- `%s`\n' "${deleted[@]}"; else echo "없음"; fi
+            if [ "${#failed[@]}" -gt 0 ]; then
+              echo ""
+              echo "지우지 못한 것: $(printf '`%s` ' "${failed[@]}") — 보호 규칙이나 권한을 확인한다."
+            fi
+            echo ""
+            echo "### ${STALE_PR_DAYS}일 이상 활동 없는 열린 PR — 사람이 머지하거나 닫는다"
+            if [ -s /tmp/stale_prs.txt ]; then
+              echo ""; echo "| PR | 브랜치 | 상태 | 마지막 활동 | 제목 |"; echo "|---|---|---|---|---|"; cat /tmp/stale_prs.txt
+            else
+              echo "없음"
+            fi
+            echo ""
+            echo "### ${STALE_BRANCH_DAYS}일 이상 활동 없는 브랜치 (머지 안 됨) — 필요 없으면 지운다"
+            if [ -s /tmp/stale_branches.txt ]; then
+              echo ""; echo "| 브랜치 | 마지막 커밋 | 열린 PR |"; echo "|---|---|---|"; cat /tmp/stale_branches.txt
+            else
+              echo "없음"
+            fi
+            echo ""
+            echo "이 정리는 **머지된 브랜치만** 지운다. 열린 PR 과 머지되지 않은 브랜치는 보여만 주고 판단은 사람이 한다."
+          } >> "$GITHUB_STEP_SUMMARY"
