@@ -25,9 +25,12 @@ async function inboxCount(page: Page): Promise<number> {
   return Number(await page.getByTestId("inbox-count").textContent());
 }
 
+/** GitHub 줄과 Studio 줄은 따로다 (계약 §5). Studio 줄은 결정이 있을 때만 있고, 있으면 Internal: 표기만 든다 */
 async function expectSeparateStateRows(card: Locator) {
   await expect(card.getByTestId("github-status")).toContainText("GitHub");
-  await expect(card.getByTestId("studio-status")).toContainText("Studio");
+  await expect(card.getByTestId("github-status")).not.toContainText("Internal:");
+  const studio = card.getByTestId("studio-status");
+  if ((await studio.count()) > 0) await expect(studio).toContainText("Internal:");
 }
 
 /**
@@ -103,14 +106,18 @@ test("Workspace 에서 Inbox 로 가서 PR 을 기존 업무에 연결하면, �
   await nav(page).getByRole("link", { name: "Inbox" }).click();
   await expect(page).toHaveURL(/\/inbox$/);
   await expectNoUnbuiltFeatures(page);
-  await expect(page.getByTestId("marker-hint")).toContainText("다음 Sync 에서 그 업무에 자동으로 연결된다");
+  // 표식으로 자동 연결되는 방법은 본문이 아니라 "?" 를 펼쳐야 보인다 (결정 18)
+  const hint = page.getByTestId("marker-hint");
+  await expect(hint.locator("p")).toBeHidden();
+  await hint.locator("summary").click();
+  await expect(hint).toContainText("다음 Sync 에서 그 업무에 자동으로 연결된다");
   // 연결 안 된 닫힌 PR(coach-web#7)은 목록에 없고 개수로만 보인다
-  await expect(page.getByTestId("closed-unlinked-count")).toContainText("닫히거나 병합된 연결 안 된 PR 1개");
+  await expect(page.getByTestId("closed-unlinked-count")).toContainText("닫히거나 병합된 PR 1개는 목록에 없다");
   await expect(page.getByTestId("inbox-710002-7")).toHaveCount(0);
-  await expect(page.getByTestId("state-legend")).toBeVisible();
   await expect(page.getByTestId("inbox-710003-12")).toContainText("다른 프로젝트('결제 서비스')");
   const item = page.getByTestId("inbox-710002-12");
-  await expect(item).toContainText("업무 표식이 없어");
+  await expect(item.getByTestId("inbox-reason")).toHaveCount(0); // 표식이 없어 온 보통의 PR 에는 사유를 적지 않는다
+  await expect(item).toContainText("coach-web · #12 · Checks pending");
   await expect(item.getByLabel("Work").locator("option")).toContainText(["코치 로그인 개편 · studio-work-b4c5d6"]);
   await shot(page, "01-inbox.png");
 
@@ -153,7 +160,7 @@ test("New Work 를 빠르게 두 번 눌러도 업무는 하나만 생기고, 50
   await expect(page).toHaveURL(/\/inbox$/);
 
   const item = page.getByTestId("inbox-710005-12");
-  await expect(item).toContainText("서로 다른 업무를 가리키는 표식이 2개");
+  await expect(item.getByTestId("inbox-reason")).toContainText("서로 다른 업무의 표식이 2개");
   await item.getByRole("button", { name: "New Work" }).dblclick();
 
   // 두 번째 요청이 늦게 끝나면 Inbox 의 사유 화면("이미 … 연결돼 있다" + Open work)에 선다. 어느 쪽이든 그 업무에 닿는다.
@@ -266,11 +273,11 @@ test("업무 화면에서 Unlink 하면 PR 이 Inbox 로 돌아가고, 표식이
   await expect(page).toHaveURL(/\/inbox\?notice=unlinked/);
   await expect(page.getByTestId("inbox-notice")).toContainText("demo-org/payments#12)의 연결을 풀었다");
   const item = page.getByTestId("inbox-710001-12");
-  await expect(item.getByTestId("inbox-reason")).toContainText("사람이 이 PR 의 연결을 풀었다('로그인 화면 만들기' 업무에서)");
+  await expect(item.getByTestId("inbox-reason")).toContainText("사람이 연결을 풀었다('로그인 화면 만들기' 업무에서)");
 
   // 표식이 본문에 그대로 있어도 Sync 가 다시 붙이지 않는다
   await sync(page);
-  await expect(page.getByTestId("inbox-710001-12").getByTestId("inbox-reason")).toContainText("사람이 이 PR 의 연결을 풀었다");
+  await expect(page.getByTestId("inbox-710001-12").getByTestId("inbox-reason")).toContainText("사람이 연결을 풀었다");
   await shot(page, "06-inbox-after-unlink.png");
 
   // 오래된 탭에서 같은 PR 을 다시 Unlink 하면 500 대신 사유 안내
@@ -299,7 +306,7 @@ test("복제본에서 온 PR 은 같은 프로젝트 업무의 표식이 있어�
   await nav(page).getByRole("link", { name: "Inbox" }).click();
   const fork = page.getByTestId("inbox-710001-18");
   await expect(fork).toContainText("외부 기여: 로그인 오류 문구 다듬기");
-  await expect(fork.getByTestId("inbox-reason")).toContainText("PR 의 브랜치가 다른 저장소(복제본)에 있다");
+  await expect(fork.getByTestId("inbox-reason")).toContainText("복제본(fork)에서 온 PR");
   await fork.scrollIntoViewIfNeeded();
   await shot(page, "07-inbox-fork-pr.png");
 });

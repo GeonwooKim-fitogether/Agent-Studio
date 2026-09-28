@@ -42,7 +42,8 @@ test.describe("클립보드를 쓸 수 있는 브라우저", () => {
     await expect(result.getByTestId("new-work-title")).toHaveText("코치 목록 검색 필터"); // 앞뒤 공백은 떼고 받는다
     await expect(result.getByTestId("status-badge")).toHaveText("Draft");
     await expect(result.getByTestId("new-work-goal")).toHaveText(GOAL);
-    await expect(result).toContainText("표식이 든 PR 은 다음 Sync 에서 이 업무에 붙고, 표식이 없는 PR 은 Inbox 로 간다.");
+    // 표식을 어디에 넣는지는 본문이 아니라 표식의 title 로만 있다 (결정 18)
+    await expect(result.getByTestId("new-work-marker")).toHaveAttribute("title", /다음 Sync 에서 이 업무에 자동으로 연결된다/);
     await expect(page.getByRole("link", { name: "New Work" })).toHaveCount(0); // 결과를 보는 동안에는 머리의 버튼을 숨긴다
     await page.screenshot({ fullPage: true });
 
@@ -65,7 +66,7 @@ test.describe("클립보드를 쓸 수 있는 브라우저", () => {
     // Workspace 의 업무 줄에도 표식이 보인다
     await nav(page).getByRole("link", { name: "Workspace" }).click();
     const row = page.getByTestId(`work-${marker.replace("studio-work-", "")}`);
-    await expect(row).toContainText(`코치 대시보드 · PR 없음 · ${marker}`);
+    await expect(row).toContainText("코치 대시보드 · PR 없음");
     await expect(page.getByRole("link", { name: "New Work" })).toBeVisible();
     expect(serverErrors).toEqual([]);
   });

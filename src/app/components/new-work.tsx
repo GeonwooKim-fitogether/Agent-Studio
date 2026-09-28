@@ -6,7 +6,7 @@ import { markerFor } from "../../domain/work-marker";
 import { newEmptyWorkAction } from "../actions";
 import { CopyButton } from "./copy-button";
 import { Icon } from "./glyph";
-import { NEW_WORK_DONE_NOTE, NEW_WORK_FORM_NOTE, NEW_WORK_PROBLEM } from "./labels";
+import { MARKER_HINT, NEW_WORK_PROBLEM } from "./labels";
 import { StatusBadge } from "./work-status";
 
 /** Workspace 머리의 New Work. 프로젝트가 하나도 없으면 누를 수 없고 그 이유를 옆에 보인다(결정 7) */
@@ -86,7 +86,6 @@ export function NewWorkForm({
           </button>
         </div>
       </form>
-      <p className="muted newwork-note">{NEW_WORK_FORM_NOTE}</p>
     </section>
   );
 }
@@ -104,7 +103,7 @@ export function NewWorkCreated({ work, projectName }: { work: Work; projectName:
         {work.goal}
       </p>
       <div className="marker">
-        <code id="new-work-marker" data-testid="new-work-marker">
+        <code id="new-work-marker" data-testid="new-work-marker" title={MARKER_HINT}>
           {marker}
         </code>
         <CopyButton text={marker} targetId="new-work-marker" />
@@ -115,7 +114,6 @@ export function NewWorkCreated({ work, projectName }: { work: Work; projectName:
           Close
         </Link>
       </div>
-      <p className="muted newwork-note">{NEW_WORK_DONE_NOTE}</p>
     </section>
   );
 }

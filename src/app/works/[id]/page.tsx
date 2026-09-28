@@ -122,7 +122,7 @@ export default async function WorkPage({
             {prs.length === 0 && (
               <p className="state-message tl-empty">
                 <Icon name="clock" />
-                아직 연결된 PR 이 없다. Inbox 에서 연결하거나, Link a PR 의 표식을 PR 에 넣는다.
+                아직 연결된 PR 이 없다.
               </p>
             )}
           </section>

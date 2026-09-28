@@ -23,7 +23,7 @@ export function StatusHistoryLine({ summary }: { summary: Pick<WorkSummaryView, 
 }
 
 /**
- * 업무 화면 Work details 의 상태 칸 — 이력 한 줄과, 사람이 상태를 손으로 고르는 선택(R6).
+ * 업무 화면 Work details 의 상태 칸 — 이력 한 줄과, 사람이 상태를 손으로 고르는 선택(R6). R6 의 약속은 버튼의 title 로만 보인다(결정 18).
  * 완료 후보의 Mark as Done 은 Next action 카드에 있다(할 일이 그것 하나일 때 주 버튼이 된다).
  * 모두 Studio 의 업무 상태만 바꾸고 GitHub 에는 아무것도 보내지 않는다.
  */
@@ -50,10 +50,9 @@ export function WorkStatusPanel({ summary }: { summary: WorkSummaryView }) {
             ))}
           </select>
         </label>
-        <button type="submit" className="btn small">
+        <button type="submit" className="btn small" title={MANUAL_STATUS_NOTE}>
           Set Status
         </button>
-        <small className="muted">{MANUAL_STATUS_NOTE}</small>
       </form>
     </section>
   );

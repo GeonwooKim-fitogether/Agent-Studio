@@ -9,19 +9,15 @@ import { cardAnchor } from "./chat";
 import { Icon } from "./glyph";
 import {
   APPROVE_NOTE,
-  CHECKS,
-  GITHUB_REVIEW,
+  githubChips,
   linkLabel,
   NO_INTERNAL_REVIEW,
-  PR_STATE,
   PREVIEW_HOST_OFFLINE,
   REVIEW_BLOCK,
-  REVIEW_PANEL_NOTE,
   type ReviewProblem,
   reviewProblemText,
   shortSha,
   VERDICT,
-  VERDICT_MEANING,
 } from "./labels";
 import { PreviewControls } from "./preview-controls";
 
@@ -109,8 +105,7 @@ export function ReviewPanel({
             <dd>
               <code data-testid="review-commit" title={pr.headSha}>
                 {shortSha(pr.headSha)}
-              </code>{" "}
-              <small className="muted">지금 보고 있는 커밋</small>
+              </code>
             </dd>
           </div>
         </dl>
@@ -124,9 +119,11 @@ export function ReviewPanel({
         <section className="panel-section" aria-label="GitHub" data-testid="github-status">
           <h4>GitHub</h4>
           <div className="chip-line">
-            <span className={`chip pr-${pr.github.state}`}>{PR_STATE[pr.github.state]}</span>
-            <span className={`chip checks-${pr.github.checks}`}>{CHECKS[pr.github.checks]}</span>
-            <span className="chip">{GITHUB_REVIEW[pr.github.review]}</span>
+            {githubChips(pr.github).map((c) => (
+              <span key={c.text} className={`chip ${c.className}`}>
+                {c.text}
+              </span>
+            ))}
           </div>
         </section>
 
@@ -137,8 +134,8 @@ export function ReviewPanel({
             {/* 커밋마다 마지막 결정 하나만 보인다. 이전 커밋에 대한 결정은 지우지 않고 그렇다고 표시한다 (계약 §6) */}
             {reviews.map((r) => (
               <span key={r.id} className={`chip ${r.freshness}`} data-testid="review-decision" data-freshness={r.freshness} data-verdict={r.verdict}>
-                {VERDICT[r.verdict]} · {VERDICT_MEANING[r.verdict]} · 커밋 {shortSha(r.commitSha)}
-                {r.freshness === "outdated" && " · 이전 커밋에 대한 결정"}
+                {VERDICT[r.verdict]} · 커밋 {shortSha(r.commitSha)}
+                {r.freshness === "outdated" && " · 이전 커밋"}
               </span>
             ))}
           </div>
@@ -182,7 +179,7 @@ export function ReviewPanel({
             {decide("changes_requested", "Request changes", false)}
           </div>
           <p className="hint" data-testid="approve-note">
-            {APPROVE_NOTE}. {REVIEW_PANEL_NOTE}
+            {APPROVE_NOTE}
           </p>
         </form>
 
@@ -199,8 +196,7 @@ export function ReviewPanel({
             <input type="hidden" name="number" value={pr.number} />
             <input type="hidden" name="workId" value={work.id} />
             <label className="check-row">
-              <input type="checkbox" name="confirm" value="yes" required /> 이 PR 을 업무에서 떼어 Inbox 로 돌려보낸다 (표식이 있어도 다시 자동으로 붙지
-              않는다)
+              <input type="checkbox" name="confirm" value="yes" required /> Inbox 로 돌려보낸다 · 자동으로 다시 붙지 않는다
             </label>
             <button type="submit" className="btn small">
               Unlink

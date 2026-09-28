@@ -7,16 +7,8 @@ import type { Work } from "../../domain/model";
 import { markDoneAction, setGoalAction } from "../actions";
 import { CopyButton } from "./copy-button";
 import { Icon } from "./glyph";
-import {
-  DONE_CANDIDATE_NOTE,
-  githubLine,
-  linkLabel,
-  NO_INTERNAL_REVIEW,
-  PREVIEW_HOST_OFFLINE,
-  shortSha,
-  VERDICT,
-} from "./labels";
-import { PreviewStatus } from "./preview-status";
+import { DONE_CANDIDATE_NOTE, githubLine, linkLabel, MARKER_HINT, NO_INTERNAL_REVIEW, PREVIEW_HOST_OFFLINE, shortSha, VERDICT } from "./labels";
+import { PreviewStatus, previewSummary } from "./preview-status";
 import { WorkStatusPanel } from "./work-status";
 
 /**
@@ -73,7 +65,7 @@ export function GoalCard({ work, editing, problem }: { work: Work; editing: bool
       </div>
       {work.goal === "" ? (
         <p className="goal-empty" data-testid="goal-text">
-          아직 목표가 없다. 이 업무가 끝나면 무엇이 달라지는지 적어 두면, 대화와 PR 결과를 그 기준으로 읽는다.
+          아직 목표가 없다.
         </p>
       ) : (
         <p data-testid="goal-text">{work.goal}</p>
@@ -82,7 +74,7 @@ export function GoalCard({ work, editing, problem }: { work: Work; editing: bool
   );
 }
 
-/** Next action 카드 (Q6). 상황마다 제목 · 한 줄 · 주 버튼 하나 */
+/** Next action 카드 (Q6). 상황마다 제목 · 한 구절(없을 수도 있다) · 주 버튼 하나. 규칙 설명은 두지 않는다(결정 18) */
 export function NextActionCard({
   action,
   work,
@@ -103,14 +95,13 @@ export function NextActionCard({
       <Icon name="arrow" />
     </a>
   );
-  const prName = (pr: PrCardView) => `${pr.repoName}#${pr.number}`;
+  const prLine = (pr: PrCardView) => `${pr.repoName}#${pr.number} · 커밋 ${shortSha(pr.headSha)}`;
   let title: string;
-  let text: ReactNode;
+  let text: ReactNode = null;
   let primary: ReactNode = null;
   switch (action.kind) {
     case "done":
       title = "완료된 업무다";
-      text = "사람이 Mark as Done 으로 끝냈다. 새 PR 이 연결되거나 PR 이 다시 열리면 다시 진행 중이 된다.";
       break;
     case "mark_done":
       title = "끝났는지 확인한다";
@@ -127,51 +118,50 @@ export function NextActionCard({
       break;
     case "review":
       title = "결과를 확인한다";
-      text = `${prName(action.pr)} 의 최신 커밋 ${shortSha(action.pr.headSha)} 의 검사가 끝났다. 아직 판단하지 않았다.`;
+      text = `${prLine(action.pr)} · 검사 끝남, 판단 전`;
       primary = button(reviewHref(work.id, action.pr), "Open review");
       break;
     case "outdated_preview":
       title = "미리보기를 최신 커밋으로 다시 연다";
-      text = `미리보기가 이전 커밋 ${shortSha(action.previewCommitSha)} 을 보여 준다. 최신은 ${shortSha(action.pr.headSha)} 이다. 그동안 결정 버튼은 막혀 있다.`;
+      text = `미리보기는 커밋 ${shortSha(action.previewCommitSha)}, 최신은 ${shortSha(action.pr.headSha)}`;
       primary = button(reviewHref(work.id, action.pr), "Open review");
       break;
     case "checks_failing":
       title = "검사 실패 — 작성자가 고칠 차례";
-      text = `${prName(action.pr)} 의 최신 커밋 ${shortSha(action.pr.headSha)} 의 검사가 실패했다. 업무 상태는 그대로 두고, 필요하면 Request changes 로 고칠 기준을 남긴다.`;
+      text = prLine(action.pr);
       primary = button(reviewHref(work.id, action.pr), "Open review");
       break;
     case "set_goal":
       title = "목표를 적는다";
-      text = "이 업무는 목표 없이 만들어졌다. 끝나면 무엇이 달라지는지 적어 두면 PR 결과를 그 기준으로 판단한다.";
       primary = button(`${path}?goal=edit#goal`, "Set goal");
       break;
     case "link_pr":
       title = "PR 을 연결한다";
       text = (
         <>
-          Claude 에게 일을 맡길 때 표식 <code>{marker}</code> 을 지시에 붙이면, 그 PR 이 다음 Sync 에서 이 업무에 붙는다.
+          표식 <code title={MARKER_HINT}>{marker}</code> 을 PR 본문이나 브랜치 이름에 넣는다
         </>
       );
       primary = button("#link-pr", "Show marker");
       break;
     case "changes_requested":
       title = "수정을 기다린다";
-      text = `${prName(action.pr)} 의 최신 커밋에 Request changes 를 남겼다. 새 커밋이 오면 다시 검토한다.`;
+      text = `${prLine(action.pr)} · Request changes 남김`;
       primary = button(reviewHref(work.id, action.pr), "View decision");
       break;
     case "await_merge":
       title = "GitHub 병합을 기다린다";
-      text = `Studio 에서 승인했다(${shortSha(action.pr.headSha)}). 병합은 GitHub 에서 한다 — Studio 의 승인은 GitHub 병합이 아니다.`;
+      text = `${prLine(action.pr)} · Studio 승인`;
       primary = button(reviewHref(work.id, action.pr), "View decision");
       break;
     case "checks_pending":
       title = "검사가 끝나길 기다린다";
-      text = `${prName(action.pr)} 의 최신 커밋 ${shortSha(action.pr.headSha)} 의 검사가 진행 중이다. 끝나면 판단할 차례가 된다.`;
+      text = prLine(action.pr);
       primary = button(reviewHref(work.id, action.pr), "Open review");
       break;
     case "open_review":
       title = "결과를 본다";
-      text = `${prName(action.pr)} · 커밋 ${shortSha(action.pr.headSha)}`;
+      text = prLine(action.pr);
       primary = button(reviewHref(work.id, action.pr), "Open review");
       break;
   }
@@ -181,7 +171,7 @@ export function NextActionCard({
     <section className="next-action" aria-label="Next action" data-testid="next-action" data-kind={action.kind}>
       <p className="eyebrow">Next action</p>
       <h3>{title}</h3>
-      <p className="next-text">{text}</p>
+      {text !== null && <p className="next-text">{text}</p>}
       {reviewing && !hostOnline && (
         <p className="host-offline" data-testid="host-offline-note">
           <Icon name="off" />
@@ -252,12 +242,14 @@ export function WorkDetails({
               <dt>Studio</dt>
               <dd>{decision === null ? NO_INTERNAL_REVIEW : `${VERDICT[decision.verdict]} · ${shortSha(decision.commitSha)}`}</dd>
             </div>
-            <div className="property">
-              <dt>Preview</dt>
-              <dd>
-                <PreviewStatus view={previews.get(primary.key)} />
-              </dd>
-            </div>
+            {previews.get(primary.key) !== undefined && previewSummary(previews.get(primary.key)).tone !== "quiet" && (
+              <div className="property">
+                <dt>Preview</dt>
+                <dd>
+                  <PreviewStatus view={previews.get(primary.key)} />
+                </dd>
+              </div>
+            )}
           </>
         )}
       </dl>
@@ -265,12 +257,11 @@ export function WorkDetails({
       <details className="link-pr" id="link-pr" open={prs.length === 0}>
         <summary>Link a PR</summary>
         <div className="marker">
-          <code id="work-marker" data-testid="work-marker">
+          <code id="work-marker" data-testid="work-marker" title={MARKER_HINT}>
             {marker}
           </code>
           <CopyButton text={marker} targetId="work-marker" />
         </div>
-        <p className="why">PR 본문이나 브랜치 이름에 이 표식을 넣으면 다음 Sync 때 이 업무에 자동으로 연결된다. 표식 앞뒤는 띄어 쓴다. 표식이 없는 PR 은 Inbox 에서 연결한다.</p>
         {prs.length > 0 && (
           <ul className="link-list">
             {prs.map((p) => (
