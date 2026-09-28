@@ -23,7 +23,7 @@ import {
   withoutNul,
   type Work,
 } from "../../../domain/model";
-import { isAcceptedMemoBody, type Memo } from "../../../domain/memo";
+import { isAcceptedMemoBody, isValidThreadTarget, type Memo } from "../../../domain/memo";
 import { isPrEventKind, type PrEvent } from "../../../domain/pr-event";
 import { isValidWorkId } from "../../../domain/work-marker";
 import { isWorkStatus, type PrFingerprint, type StatusChange } from "../../../domain/work-status";
@@ -197,12 +197,25 @@ export function createMemoryStore(seed: StudioSeed = {}): StudioStore {
     },
 
     async addMemo(memo) {
-      // 확인 순서는 PostgreSQL 구현과 같다: 값 → 없는 업무 → 같은 ID
-      if (!isAcceptedMemoBody(memo.body) || memo.author === "" || memo.editedAt !== null || memo.deletedAt !== null) {
+      // 확인 순서는 PostgreSQL 구현과 같다: 값 → 없는 업무 → 같은 ID → 답글의 대상
+      if (
+        !isAcceptedMemoBody(memo.body) ||
+        memo.author === "" ||
+        memo.editedAt !== null ||
+        memo.deletedAt !== null ||
+        (memo.thread !== null && !isValidThreadTarget(memo.thread))
+      ) {
         throw new StudioError("invalid_input", "메모 값이 올바르지 않다.");
       }
       if (!works.has(memo.workId)) throw new StudioError("not_found", "메모를 남길 업무가 없다.");
       if (memos.some((m) => m.id === memo.id)) throw new StudioError("invalid_input", "같은 ID 의 메모가 이미 있다.");
+      if (memo.thread?.kind === "memo") {
+        const { memoId } = memo.thread;
+        // 스레드는 한 단계만: 답글의 대상은 같은 업무의 최상위 메모여야 한다
+        if (!memos.some((m) => m.id === memoId && m.workId === memo.workId && m.thread === null)) {
+          throw new StudioError("invalid_input", "답글은 같은 업무의 최상위 메모에만 단다.");
+        }
+      }
       memos.push(copy(memo));
     },
     async listMemos(workId) {

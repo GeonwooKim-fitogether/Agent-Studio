@@ -8,7 +8,7 @@ import pg from "pg";
 import { beforeAll, describe, expect, it } from "vitest";
 import { DEMO_REPO } from "../../src/adapters/github/fixture/demo-scenario";
 import { createWorkFromPr, linkPrToWork, unlinkPr } from "../../src/application/inbox-actions";
-import { writeMemo } from "../../src/application/memo";
+import { writeMemo, writeReply } from "../../src/application/memo";
 import { getInbox, getWorkDetail, getWorkspace } from "../../src/application/queries";
 import { createContainer } from "../../src/server/container";
 import { HAS_POSTGRES, recreateSchema, runMigrate, TEST_DATABASE_URL } from "./postgres-harness";
@@ -55,6 +55,7 @@ const MIGRATIONS = [
   "20260927232653_status_rule_r1b",
   "20260928013218_pr_event",
   "20260928015348_memo",
+  "20260928021302_memo_thread",
 ];
 
 describe.skipIf(!HAS_POSTGRES)("PostgreSQL 통합", () => {
@@ -104,7 +105,8 @@ describe.skipIf(!HAS_POSTGRES)("PostgreSQL 통합", () => {
       expect(out).toContain("적용함 20260927232653_status_rule_r1b.sql");
       expect(out).toContain("적용함 20260928013218_pr_event.sql"); // 뒤에 온 마이그레이션도 함께 얹힌다
       expect(out).toContain("적용함 20260928015348_memo.sql");
-      expect(out).toContain("새로 적용 4개");
+      expect(out).toContain("적용함 20260928021302_memo_thread.sql");
+      expect(out).toContain("새로 적용 5개");
       // PR 이벤트 표는 비어서 시작한다 — 이 표가 생기기 전의 변화는 없다
       expect((await client.query("select count(*)::int as n from pr_event")).rows[0]).toEqual({ n: 0 });
       expect((await client.query("select count(*)::int as n from memo")).rows[0]).toEqual({ n: 0 }); // 메모 표도 비어서 시작한다
@@ -112,6 +114,53 @@ describe.skipIf(!HAS_POSTGRES)("PostgreSQL 통합", () => {
       expect(row).toEqual({ status: "needs_review", status_pin: null });
       await client.query("update work set status = 'done_candidate'");
       await expect(client.query("update work set status = 'finished'")).rejects.toThrow();
+      expect(runMigrate(TEST_DATABASE_URL, "test")).toContain("새로 적용 0개");
+    } finally {
+      await client.end();
+    }
+  });
+
+  it("스레드 마이그레이션은 이미 쓴 메모를 최상위 메모로 두고, 표의 제약으로 답글에 답글 · 다른 업무의 메모 · 대상 두 개를 막는다", async () => {
+    // 메모 표까지만 있던 데이터베이스(= 2.5-B 의 로컬 데이터베이스)를 흉내 낸다
+    await recreateSchema(TEST_DATABASE_URL);
+    const client = new pg.Client({ connectionString: TEST_DATABASE_URL });
+    await client.connect();
+    try {
+      await client.query("drop schema public cascade");
+      await client.query("create schema public");
+      await client.query("create table schema_migrations (name text primary key, applied_at timestamptz not null default now())");
+      for (const name of MIGRATIONS.slice(0, -1)) {
+        await client.query(readFileSync(`db/migrations/${name}.sql`, "utf8"));
+        await client.query("insert into schema_migrations (name) values ($1)", [name]);
+      }
+      await client.query("insert into project (id, name, repo_ids) values ('p', 'p', '{1}')");
+      await client.query("insert into work (id, project_id, title, status, created_at) values ('w1', 'p', '업무', 'in_progress', now()), ('w2', 'p', '다른 업무', 'draft', now())");
+      await client.query("insert into memo (id, work_id, author, body, created_at) values ('m1', 'w1', 'me', '이미 쓴 메모', now()), ('m2', 'w2', 'me', '다른 업무 메모', now())");
+
+      const out = runMigrate(TEST_DATABASE_URL, "test");
+      expect(out).toContain("적용함 20260928021302_memo_thread.sql");
+      expect(out).toContain("새로 적용 1개");
+      expect((await client.query("select id, body, is_reply, thread_memo_id from memo order by id")).rows).toEqual([
+        { id: "m1", body: "이미 쓴 메모", is_reply: false, thread_memo_id: null },
+        { id: "m2", body: "다른 업무 메모", is_reply: false, thread_memo_id: null },
+      ]);
+
+      const insert = (id: string, work: string, cols: string, vals: string) =>
+        client.query(`insert into memo (id, work_id, author, body, created_at, ${cols}) values ('${id}', '${work}', 'me', '답', now(), ${vals})`);
+      await insert("r1", "w1", "thread_memo_id", "'m1'");
+      await insert("r2", "w1", "thread_repo_id, thread_number, thread_commit_sha", "1, 12, 'abcdef1'");
+      await expect(insert("r3", "w1", "thread_memo_id", "'r1'")).rejects.toMatchObject({ constraint: "memo_thread_top" }); // 답글에 답글
+      await expect(insert("r4", "w1", "thread_memo_id", "'m2'")).rejects.toMatchObject({ constraint: "memo_thread_top" }); // 다른 업무의 메모
+      await expect(insert("r5", "w1", "thread_memo_id", "'nope'")).rejects.toMatchObject({ constraint: "memo_thread_top" });
+      await expect(insert("r6", "w1", "thread_memo_id, thread_repo_id, thread_number, thread_commit_sha", "'m1', 1, 12, 'abcdef1'")).rejects.toMatchObject({
+        constraint: "memo_thread_shape",
+      });
+      await expect(insert("r7", "w1", "thread_repo_id, thread_number", "1, 12")).rejects.toMatchObject({ constraint: "memo_thread_shape" });
+      await expect(insert("r8", "w1", "thread_repo_id, thread_number, thread_commit_sha", "1, 12, 'ABCDEF1'")).rejects.toMatchObject({ code: "23514" });
+      await expect(insert("r9", "w1", "thread_memo_id, thread_parent_is_reply", "'m1', true")).rejects.toMatchObject({ code: "23514" });
+      // 답글이 달린 메모를 지워도(행은 남는다) 답글은 그대로다
+      await client.query("update memo set body = '', deleted_at = now() where id = 'm1'");
+      expect((await client.query("select id from memo where is_reply order by id")).rows).toEqual([{ id: "r1" }, { id: "r2" }]);
       expect(runMigrate(TEST_DATABASE_URL, "test")).toContain("새로 적용 0개");
     } finally {
       await client.end();
@@ -143,6 +192,8 @@ describe.skipIf(!HAS_POSTGRES)("PostgreSQL 통합", () => {
       await unlinkPr(first.deps, { repoId: DEMO_REPO.payments, number: 12, workId: "a1b2c3" });
       const memo = await writeMemo(first.deps, { workId: "b4c5d6", body: "다시 켜도 남아야 한다\n둘째 줄" });
       if (!memo.ok) throw new Error(memo.problem);
+      const reply = await writeReply(first.deps, { workId: "b4c5d6", thread: { kind: "memo", memoId: memo.memo.id }, body: "답글도 남아야 한다" });
+      if (!reply.ok) throw new Error(reply.problem);
       const worksBefore = (await first.deps.store.listWorks()).length;
       await first.close(); // 서버를 끈다
 
@@ -154,7 +205,7 @@ describe.skipIf(!HAS_POSTGRES)("PostgreSQL 통합", () => {
       expect((await getWorkDetail(second.deps, created.id))?.prs.map((p) => p.key)).toEqual([`${DEMO_REPO.docsSite}#12`]);
       const unlinked = (await getInbox(second.deps)).groups.flatMap((g) => g.items).find((i) => i.pr.key === `${DEMO_REPO.payments}#12`);
       expect(unlinked?.reason).toBe("unlinked_by_user"); // 다시 켠 뒤의 동기화에서도 자동으로 붙지 않았다
-      expect(await second.deps.store.listMemos("b4c5d6")).toEqual([memo.memo]); // 메모도 그대로 (F8)
+      expect(await second.deps.store.listMemos("b4c5d6")).toEqual([memo.memo, reply.memo]); // 메모와 답글도 그대로 (F8 · F9)
       expect(await second.deps.store.listWorks()).toHaveLength(worksBefore); // 시연 업무가 두 번 심기지 않았다
       expect((await getWorkspace(second.deps)).projects).toHaveLength(5);
       await second.close();

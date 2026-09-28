@@ -198,6 +198,7 @@ describe("메모 (feature-plan F8)", () => {
     createdAt,
     editedAt: null,
     deletedAt: null,
+    thread: null,
     ...fields,
   });
 

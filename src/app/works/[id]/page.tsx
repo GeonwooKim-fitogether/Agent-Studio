@@ -7,6 +7,8 @@ import { Channels, Timeline } from "../../components/chat";
 import { CopyButton } from "../../components/copy-button";
 import { kstDay, MEMO_PROBLEM } from "../../components/labels";
 import { MemoComposer } from "../../components/memo";
+import { ThreadPanel } from "../../components/thread";
+import { parseThreadKey } from "../../../domain/memo";
 import { StateLegend } from "../../components/pr-card";
 import { PreviewControls } from "../../components/preview-controls";
 import { RememberWork } from "../../components/remember-work";
@@ -23,7 +25,8 @@ export const dynamic = "force-dynamic";
  * 휴대전화 폭에서는 채널 목록과 타임라인 중 하나만 보인다. `‹ Channels` 는 ?channels=1 로 같은 화면을 다시 그려
  * 채널 목록을 연다 — 자바스크립트 없이도 동작한다.
  * 타임라인 아래에 메모 입력칸(F8)이 있다. 메모의 Edit 은 ?edit=<메모 ID> 로 같은 화면을 다시 그려 고치기 칸을 연다(자바스크립트 없이도 동작한다).
- * 스레드(F9)는 다음 단위다. 동작하지 않는 칸을 미리 두지 않는다(결정 7).
+ * 메모와 PR 카드의 Reply · "답글 N"(F9)은 ?thread=<스레드 이름> 으로 같은 화면을 다시 그려 오른쪽에 스레드 칸을 연다. Close 는 파라미터 없는
+ * 주소로 돌아간다 — 둘 다 자바스크립트 없이도 동작한다. 휴대전화 폭에서는 스레드 칸이 화면 전체를 덮는다.
  */
 export default async function WorkPage({
   params,
@@ -40,9 +43,11 @@ export default async function WorkPage({
   const showChannels = query["channels"] === "1";
   const memoProblem = typeof query["memo"] === "string" && Object.hasOwn(MEMO_PROBLEM, query["memo"]) ? MEMO_PROBLEM[query["memo"] as keyof typeof MEMO_PROBLEM] : null;
   const editingMemoId = typeof query["edit"] === "string" ? query["edit"] : null;
+  const wantedThread = typeof query["thread"] === "string" ? parseThreadKey(query["thread"]) : null;
+  const replyProblem = typeof query["reply"] === "string" && Object.hasOwn(MEMO_PROBLEM, query["reply"]) ? MEMO_PROBLEM[query["reply"] as keyof typeof MEMO_PROBLEM] : null;
   const container = getContainer();
   await container.ensureSynced();
-  const chat = await getWorkChat(container.deps, id, { now: container.deps.now().toISOString(), dayOf: kstDay });
+  const chat = await getWorkChat(container.deps, id, { now: container.deps.now().toISOString(), dayOf: kstDay, thread: wantedThread });
   if (chat === undefined) notFound();
   const { work, project, marker, prs } = chat;
   const previews = await getPreviewCards(container.deps, container.preview, prs);
@@ -70,7 +75,7 @@ export default async function WorkPage({
   );
 
   return (
-    <div className={showChannels ? "chat show-channels" : "chat"} data-testid="chat">
+    <div className={["chat", showChannels ? "show-channels" : "", chat.thread !== null ? "thread-open" : ""].filter(Boolean).join(" ")} data-testid="chat">
       <RememberWork id={work.id} />
       <Channels groups={chat.channels} currentId={work.id} />
       <section className="tl-col" aria-label="Timeline">
@@ -116,6 +121,7 @@ export default async function WorkPage({
         {/* 고치기에서 걸린 이유는 그 메모 옆이 아니라 여기 한 곳에 보인다 — 입력칸은 늘 화면 아래에 있다 */}
         <MemoComposer workId={work.id} problem={memoProblem} />
       </section>
+      {chat.thread !== null && <ThreadPanel thread={chat.thread} workId={work.id} editingMemoId={editingMemoId} problem={replyProblem} />}
     </div>
   );
 }

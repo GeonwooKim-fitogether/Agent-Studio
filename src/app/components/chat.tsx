@@ -21,14 +21,16 @@ import {
   VERDICT_MEANING,
   WORK_STATUS,
 } from "./labels";
-import { MemoEvent } from "./memo";
+import { MemoEvent, ReplyFoot } from "./memo";
+import { threadKey } from "../../domain/memo";
 import { PrCard } from "./pr-card";
 
 /**
  * 업무 Chat 의 조각들 (feature-plan F7, 시안 v2 의 renderChat · renderEvent). 무엇을 어떤 순서로 보일지는
  * application/timeline.ts 가 정하고, 여기서는 받은 목록을 그리기만 한다.
  *
- * 메모(F8)는 memo.tsx 가 그린다. Reply(F9 스레드)는 아직 그리지 않는다 — 동작하지 않는 칸을 두지 않는다(결정 7).
+ * 메모(F8)는 memo.tsx 가 그린다. 메모와 PR 카드 아래의 Reply · "답글 N"(F9)은 ReplyFoot 이 그리고, 열린 스레드 칸은 thread.tsx 가 그린다.
+ * 이전 커밋 카드에는 Reply 를 반복하지 않는다(결정 16-5). 그 카드에 남은 답글이 있으면 "답글 N" 으로 열어 읽는다.
  */
 
 /** 왼쪽 채널 목록 — 프로젝트 > 업무. 채널 하나가 업무 하나다 */
@@ -57,6 +59,9 @@ export function Channels({ groups, currentId }: { groups: readonly ChannelGroupV
     </nav>
   );
 }
+
+/** 타임라인 속 커밋 카드의 자리 (스레드를 닫거나 열 때 돌아오는 곳) */
+export const cardAnchor = (repoId: number, number: number, commitSha: string) => `card-${repoId}-${number}-${shortSha(commitSha)}`;
 
 const Tag = ({ owner }: { owner: "github" | "studio" }) => (
   <span className={`src ${owner === "github" ? "gh" : "studio"}`} data-testid="event-owner">
@@ -157,12 +162,13 @@ export function Timeline({
             return (
               <div key={e.key} className="ev" id={`memo-${e.memo.id}`} data-testid="event" data-kind="memo">
                 <Time at={e.at} />
-                <MemoEvent memo={e.memo} workId={workId} editing={e.memo.id === editingMemoId} />
+                <MemoEvent memo={e.memo} workId={workId} editing={e.memo.id === editingMemoId} replies={e.replies} />
               </div>
             );
-          case "card":
+          case "card": {
+            const anchor = cardAnchor(e.pr.repoId, e.pr.number, e.commitSha);
             return (
-              <div key={e.key} className="ev ev-card">
+              <div key={e.key} className="ev ev-card" id={anchor}>
                 {e.at === null ? <time /> : <Time at={e.at} />}
                 <div>
                   {e.latest ? (
@@ -175,9 +181,19 @@ export function Timeline({
                   ) : (
                     <OldPrCard pr={e.pr} commitSha={e.commitSha} recordedChecks={e.recordedChecks} />
                   )}
+                  <div className="ev-foot card-foot" data-testid={`card-foot-${e.pr.repoId}-${e.pr.number}-${shortSha(e.commitSha)}`}>
+                    <ReplyFoot
+                      workId={workId}
+                      thread={threadKey({ kind: "card", repoId: e.pr.repoId, number: e.pr.number, commitSha: e.commitSha })}
+                      anchor={anchor}
+                      replies={e.replies}
+                      canReply={e.latest}
+                    />
+                  </div>
                 </div>
               </div>
             );
+          }
         }
       })}
     </div>

@@ -214,7 +214,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .copy-status:empty { display: none; }
 .empty-note code { font-size: 11px; background: var(--accent-soft); border-radius: 5px; padding: 1px 5px; }
 
-/* 업무 Chat (feature-plan F7, 시안 v2 의 2.5단계). 채널 목록 · 타임라인 두 칸. 스레드 칸(F9)은 다음 단위다 */
+/* 업무 Chat (feature-plan F7, 시안 v2 의 2.5단계). 채널 목록 · 타임라인 두 칸, 스레드를 열면(F9) 오른쪽에 세 번째 칸 */
 .page:has(> .chat) { padding: 0; }
 .chat { display: grid; grid-template-columns: 236px minmax(0, 1fr); min-height: calc(100vh - 120px); }
 .channels { border-right: 1px solid var(--line); background: #f3f4f6; padding: 14px 8px 24px; align-self: stretch; }
@@ -271,6 +271,27 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .composer textarea, .memo-edit textarea { flex: 1; min-height: 40px; max-height: 240px; resize: vertical; border: 1px solid #d5d9de; border-radius: 9px; padding: 9px 11px; background: #fff; font: inherit; font-size: 13px; color: var(--ink); }
 .composer .note { font-size: 11px; color: var(--muted); margin: 6px 0 0; }
 
+/* 스레드 (feature-plan F9, 시안 v2 의 .thread). 넓은 화면은 오른쪽 칸(화면 위에 붙어 따라온다), 좁으면 오른쪽에 덮이고, 휴대전화 폭은 전체 화면 */
+.chat.thread-open { grid-template-columns: 236px minmax(0, 1fr) 330px; }
+.replies { font-size: 11px; font-weight: 700; color: #343d48; text-underline-offset: 3px; }
+.card-foot:empty { display: none; }
+.thread { border-left: 1px solid var(--line); background: var(--surface); display: flex; flex-direction: column; position: sticky; top: 0; align-self: start; max-height: 100vh; min-height: 0; }
+.thread-head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.thread-head h2 { font-size: 14px; margin: 0; }
+.thread-head small { display: block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--muted); font-weight: 500; }
+.thread-body { flex: 1; overflow: auto; padding: 12px 16px; min-height: 0; }
+.thread-root { border-bottom: 1px solid var(--line); padding-bottom: 12px; margin-bottom: 10px; font-size: 12px; color: #343d48; line-height: 1.5; }
+.thread-why { margin: 6px 0 0; }
+.thread-old { margin-left: 6px; }
+.reply { display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 8px; padding: 6px 0; }
+.reply time { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: #8b939d; padding-top: 2px; }
+.thread-composer { position: static; padding: 10px 16px 12px; }
+@media (max-width: 1040px) {
+  .chat.thread-open { grid-template-columns: 236px minmax(0, 1fr); }
+  /* 격자 안의 고정 위치 칸도 align-self 를 따르므로 start 를 풀어 위아래로 늘인다 */
+  .chat.thread-open .thread { position: fixed; right: 0; top: 0; bottom: 0; align-self: stretch; max-height: none; width: min(340px, 100%); z-index: 20; box-shadow: -12px 0 32px rgba(0, 0, 0, 0.12); }
+}
+
 @media (max-width: 720px) {
   .chat { grid-template-columns: minmax(0, 1fr); min-height: 0; }
   .channels { display: none; border-right: 0; }
@@ -285,4 +306,6 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
   .ev { grid-template-columns: 36px minmax(0, 1fr); gap: 8px; }
   .ev.ev-card { grid-template-columns: minmax(0, 1fr); }
   .ev.ev-card > time { display: none; }
+  .chat.thread-open { grid-template-columns: minmax(0, 1fr); }
+  .chat.thread-open .thread { inset: 0; width: auto; border-left: 0; box-shadow: none; }
 }

@@ -12,10 +12,14 @@
  * 지금 커밋의 카드가 최신 카드이고, 버튼(Open Preview · Approve · Request Changes · Unlink)은 그 카드에만 둔다. 나머지는 이전 커밋의 기록이다.
  *
  * 기록이 생기기 전의 변화는 없다. 그런 카드가 하나라도 있으면 맨 위에 "이 업무의 기록은 언제부터 남는다" 는 줄을 둔다.
+ *
+ * 스레드(F9): 답글은 메인 타임라인에 놓지 않는다(Slack 방식, 결정 2). 최상위 항목(메모 · PR 카드)마다 지우지 않은 답글의 개수만 붙인다.
+ * PR 카드의 답글은 그 커밋의 카드에만 센다 — 새 커밋 카드는 0 에서 시작하고, 옛 답글은 옛 카드에 남는다.
+ * 스레드 칸에 보일 것(대상 + 답글 시간순)은 buildThread 가 같은 타임라인에서 조립한다.
  */
 import type { ChecksState, PrRef, ReviewDecision, ReviewVerdict, Work } from "../domain/model";
 import { samePr } from "../domain/model";
-import type { Memo } from "../domain/memo";
+import { isReply, type Memo, resolveThread, sameThread, type ThreadTarget } from "../domain/memo";
 import { eventOwner, type PrEvent } from "../domain/pr-event";
 import type { PrCardView, StatusChangeView } from "./queries";
 
@@ -37,7 +41,15 @@ export type TimelineEntry =
       readonly verdict: ReviewVerdict;
     }
   | { readonly type: "status"; readonly key: string; readonly at: string; readonly owner: "studio"; readonly change: StatusChangeView }
-  | { readonly type: "memo"; readonly key: string; readonly at: string; readonly owner: "studio"; readonly memo: Memo }
+  | {
+      readonly type: "memo";
+      readonly key: string;
+      readonly at: string;
+      readonly owner: "studio";
+      readonly memo: Memo;
+      /** 이 메모의 스레드에 달린, 지우지 않은 답글 수 */
+      readonly replies: number;
+    }
   | {
       readonly type: "card";
       readonly key: string;
@@ -51,6 +63,8 @@ export type TimelineEntry =
       readonly several: boolean;
       /** 이전 커밋 카드일 때, 그 커밋에 대해 마지막으로 기록된 검사 결과. 없으면 null */
       readonly recordedChecks: ChecksState | null;
+      /** 이 커밋 카드의 스레드에 달린, 지우지 않은 답글 수 */
+      readonly replies: number;
     };
 
 export interface TimelineInput {
@@ -63,7 +77,7 @@ export interface TimelineInput {
   readonly statusChanges: readonly StatusChangeView[];
   /** 이 업무의 내부 검토 결정 */
   readonly reviews: readonly ReviewDecision[];
-  /** 이 업무의 메모 (쌓인 순서, 지운 메모 포함) */
+  /** 이 업무의 메모 (쌓인 순서, 지운 메모 포함). 최상위 메모와 답글이 섞여 있다 — 답글은 개수로만 쓰인다 */
   readonly memos: readonly Memo[];
   readonly repoName: (repoId: number) => string;
   /** 화면을 그리는 지금 시각 — 기록이 아직 하나도 없을 때 "지금부터" 의 기준 */
@@ -100,7 +114,13 @@ export function buildTimeline(input: TimelineInput): TimelineEntry[] {
     push(entry, r.decidedAt);
   }
   input.statusChanges.forEach((change, i) => push({ type: "status", key: `st-${i}`, at: change.at, owner: "studio", change }, change.at));
-  for (const memo of input.memos) push({ type: "memo", key: `memo-${memo.id}`, at: memo.createdAt, owner: "studio", memo }, memo.createdAt);
+  const replies = input.memos.filter(isReply);
+  const replyCount = (t: ThreadTarget) => replies.filter((r) => r.deletedAt === null && sameThread(r.thread!, t)).length;
+  for (const memo of input.memos) {
+    if (isReply(memo)) continue;
+    const entry = { type: "memo", key: `memo-${memo.id}`, at: memo.createdAt, owner: "studio", memo, replies: replyCount({ kind: "memo", memoId: memo.id }) } as const;
+    push(entry, memo.createdAt);
+  }
 
   let unrecorded = false;
   for (const pr of input.cards) {
@@ -117,6 +137,7 @@ export function buildTimeline(input: TimelineInput): TimelineEntry[] {
         latest,
         several: commits.length > 1,
         recordedChecks: latest ? null : lastChecks(input.events, pr, c.sha),
+        replies: replyCount({ kind: "card", repoId: pr.repoId, number: pr.number, commitSha: c.sha }),
       } as const;
       push(entry, c.at);
     }
@@ -172,4 +193,40 @@ function lastChecks(events: readonly PrEvent[], pr: PrRef, sha: string): ChecksS
   let checks: ChecksState | null = null;
   for (const e of events) if (e.kind === "checks" && samePr(e, pr) && e.commitSha === sha) checks = e.checks;
   return checks;
+}
+
+/** 스레드 칸 (F9, 시안 v2 의 thread 패널) — 대상 항목과 그 답글들 */
+export interface ThreadView {
+  /** 스레드의 최상위 항목. 답글을 대상으로 골랐어도 그 답글이 달린 항목이다(한 단계만) */
+  readonly target: ThreadTarget;
+  /** 타임라인 속 대상 항목 그대로 (메모 또는 커밋 카드) */
+  readonly root: Extract<TimelineEntry, { type: "memo" } | { type: "card" }>;
+  /** 답글, 쓴 시각 순. 지운 답글도 "지워진 메모" 자리로 남는다 */
+  readonly replies: readonly Memo[];
+  /**
+   * 새 답글을 달 수 있는가. 지운 메모의 스레드와 이전 커밋 카드의 스레드는 읽기만 한다
+   * (버튼은 최신 카드에서만 누른다, 결정 16-5). 그 이유가 closed 에 있다.
+   */
+  readonly closed: null | "deleted_memo" | "old_card";
+}
+
+/**
+ * 타임라인(buildTimeline 의 결과)과 그 업무의 메모 전부에서 스레드 하나를 조립한다.
+ * 대상이 이 업무의 타임라인에 없으면(없는 메모, 연결이 풀린 PR 의 카드 등) null 이다.
+ */
+export function buildThread(timeline: readonly TimelineEntry[], memos: readonly Memo[], wanted: ThreadTarget): ThreadView | null {
+  const target = resolveThread(wanted, memos);
+  const root = timeline.find(
+    (e): e is Extract<TimelineEntry, { type: "memo" } | { type: "card" }> =>
+      (e.type === "memo" && target.kind === "memo" && e.memo.id === target.memoId) ||
+      (e.type === "card" && target.kind === "card" && e.pr.repoId === target.repoId && e.pr.number === target.number && e.commitSha === target.commitSha),
+  );
+  if (root === undefined) return null;
+  const replies = memos
+    .filter((m) => m.thread !== null && sameThread(m.thread, target))
+    .map((m, seq) => ({ m, seq }))
+    .sort((a, b) => a.m.createdAt.localeCompare(b.m.createdAt) || a.seq - b.seq)
+    .map(({ m }) => m);
+  const closed = root.type === "memo" ? (root.memo.deletedAt !== null ? "deleted_memo" : null) : root.latest ? null : "old_card";
+  return { target, root, replies, closed };
 }

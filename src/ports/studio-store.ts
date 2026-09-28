@@ -128,12 +128,16 @@ export interface StudioStore {
   listPrEvents(workId: string): Promise<PrEvent[]>;
 
   /**
-   * 메모를 더한다 (feature-plan F8, src/domain/memo.ts). 하나라도 걸리면 아무것도 쓰지 않는다.
-   * 확인 순서: 본문이 규칙 밖(isAcceptedMemoBody)이거나 작성자가 비었거나 고침 · 지움 시각이 차 있음 → invalid_input,
-   *   없는 업무 → not_found, 같은 ID 의 메모 → invalid_input.
+   * 메모를 더한다 (feature-plan F8, src/domain/memo.ts). 답글(F9)도 이것으로 더한다 — thread 칸이 달린 항목을 가리킨다.
+   * 하나라도 걸리면 아무것도 쓰지 않는다.
+   * 확인 순서: 본문이 규칙 밖(isAcceptedMemoBody)이거나 작성자가 비었거나 고침 · 지움 시각이 차 있거나
+   *   thread 가 모양 밖(isValidThreadTarget) → invalid_input, 없는 업무 → not_found, 같은 ID 의 메모 → invalid_input,
+   *   thread 가 메모를 가리키는데 그것이 **같은 업무의 최상위 메모**가 아님(없음 · 다른 업무 · 그 자신이 답글) → invalid_input.
+   *   (스레드는 한 단계만이다. PostgreSQL 은 이것을 표의 제약으로도 막는다.)
+   * PR 카드 대상은 모양만 본다. 그 카드가 이 업무의 최신 카드인지는 유스케이스(application/memo.ts writeReply)가 본다.
    */
   addMemo(memo: Memo): Promise<void>;
-  /** 한 업무의 메모. 쌓인 순서(오래된 것부터)다. 지운 메모도 자리를 지키려고 함께 돌아온다(본문은 비어 있다) */
+  /** 한 업무의 메모 — 최상위 메모와 답글 모두. 쌓인 순서(오래된 것부터)다. 지운 메모도 자리를 지키려고 함께 돌아온다(본문은 비어 있다) */
   listMemos(workId: string): Promise<Memo[]>;
   /**
    * 메모 본문을 고치고 고친 시각을 남긴다. 그 업무에 그 메모가 없으면 not_found, 본문이 규칙 밖이거나 이미 지운 메모면 invalid_input.
@@ -141,7 +145,7 @@ export interface StudioStore {
    */
   editMemo(edit: { readonly workId: string; readonly id: string; readonly body: string; readonly editedAt: string }): Promise<void>;
   /**
-   * 메모를 지운다 — 본문을 비우고 지운 시각을 남긴다. 그 업무에 그 메모가 없으면 not_found.
+   * 메모를 지운다 — 본문을 비우고 지운 시각을 남긴다. 그 업무에 그 메모가 없으면 not_found. 행은 남으므로 달린 답글도 그대로 남는다.
    * 이미 지운 메모면 아무것도 바꾸지 않는다(두 번 눌러도 처음 지운 시각이 남는다).
    */
   deleteMemo(target: { readonly workId: string; readonly id: string; readonly deletedAt: string }): Promise<void>;

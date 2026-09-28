@@ -27,7 +27,7 @@ test("메모를 쓰면 타임라인에 '나' 와 시각과 함께 쌓이고, 새
   const composer = page.getByTestId("memo-composer");
   await expect(composer.getByRole("textbox", { name: "Memo" })).toHaveAttribute("placeholder", "판단의 이유를 메모로 남긴다");
   await expect(composer).toContainText("메모는 AI 에게 전달되지 않는다. 첫 버전은 나 혼자 보는 기록이다.");
-  await expect(page.getByRole("button", { name: "Reply" })).toHaveCount(0); // 스레드(F9)는 다음 단위
+  // 메모의 Reply · 스레드(F9)는 thread.spec 이 본다
 
   // Send 버튼으로 두 줄짜리 메모를 남긴다 (Shift+Enter 는 줄바꿈)
   const box = composer.getByRole("textbox", { name: "Memo" });
