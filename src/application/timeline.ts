@@ -39,6 +39,9 @@ export type TimelineEntry =
       readonly number: number;
       readonly commitSha: string;
       readonly verdict: ReviewVerdict;
+      /** 결정에 남긴 이유 · 수정 기준 (결정 18). 없으면 null */
+      readonly reason: string | null;
+      readonly doneWhen: string | null;
     }
   | { readonly type: "status"; readonly key: string; readonly at: string; readonly owner: "studio"; readonly change: StatusChangeView }
   | {
@@ -110,6 +113,8 @@ export function buildTimeline(input: TimelineInput): TimelineEntry[] {
       number: r.number,
       commitSha: r.commitSha,
       verdict: r.verdict,
+      reason: r.reason,
+      doneWhen: r.doneWhen,
     } as const;
     push(entry, r.decidedAt);
   }

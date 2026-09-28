@@ -5,7 +5,8 @@
  * (<TEST_DATABASE_URL 의 이름>_restart, tests/e2e/prepare-db.mjs 가 비워 둔다)를 쓴다.
  */
 import { type ChildProcess, spawn } from "node:child_process";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { filterProject, nav, openConnections, openWork, sync, unlinkFromPanel, visibleWorks } from "./helpers";
 
 const POSTGRES = process.env.E2E_STORAGE === "postgres";
 const PORT = 3102; // 3101 은 미리보기 기기를 연결한 서버(playwright.config.ts 의 PREVIEW_PORT)가 쓴다
@@ -41,7 +42,6 @@ async function stopServer(child: ChildProcess): Promise<void> {
   await exited;
 }
 
-const nav = (page: Page) => page.getByRole("navigation", { name: "Main" });
 
 test.describe("서버 재시작", () => {
   test.skip(!POSTGRES, "PostgreSQL 모드(E2E_STORAGE=postgres)에서만 돈다");
@@ -51,6 +51,7 @@ test.describe("서버 재시작", () => {
     let server = await startServer();
     try {
       await page.goto(BASE);
+      await openConnections(page);
       await expect(page.getByTestId("storage-kind")).toHaveText("Stored in PostgreSQL");
       // 사람이 연결: coach-web#12 → 코치 로그인 개편
       await nav(page).getByRole("link", { name: "Inbox" }).click();
@@ -81,10 +82,8 @@ test.describe("서버 재시작", () => {
       const newWorkUrl = page.url().replace(BASE, "");
       // 연결 해제: payments#12 를 로그인 화면 만들기에서
       await nav(page).getByRole("link", { name: "Workspace" }).click();
-      await page.getByTestId("work-a1b2c3").getByRole("link", { name: "로그인 화면 만들기" }).click();
-      const card = page.getByTestId("pr-card-710001-12");
-      await card.getByRole("checkbox").check();
-      await card.getByRole("button", { name: "Unlink" }).click();
+      await openWork(page, "a1b2c3");
+      await unlinkFromPanel(page, 710001, 12);
       await expect(page).toHaveURL(/notice=unlinked/);
 
       await stopServer(server); // 서버를 끈다
@@ -92,17 +91,19 @@ test.describe("서버 재시작", () => {
       server = await startServer(); // 다시 켠다
 
       await page.goto(BASE);
-      await expect(page.getByTestId("work-b4c5d6").getByTestId("pr-card-710002-12")).toBeVisible();
-      await expect(page.getByTestId("project-docs").getByTestId("pr-card-710005-12")).toBeVisible();
-      await expect(page.getByTestId("project-docs").locator('[data-testid^="work-"]')).toHaveCount(1); // 시연 데이터를 다시 심지 않았다
-      await expect(page.getByTestId("work-a1b2c3").getByTestId("pr-card-710001-12")).toHaveCount(0);
+      await expect(page.getByTestId("work-b4c5d6")).toContainText("demo-org/coach-web#12");
+      await filterProject(page, "docs");
+      await expect(visibleWorks(page)).toHaveCount(1); // 시연 데이터를 다시 심지 않았다
+      await expect(visibleWorks(page).first()).toContainText("로그인 안내 문서");
+      await openWork(page, "a1b2c3");
+      await expect(page.getByTestId("pr-card-710001-12")).toHaveCount(0);
       await nav(page).getByRole("link", { name: "Inbox" }).click();
       await expect(page.getByTestId("inbox-710001-12").getByTestId("inbox-reason")).toContainText("사람이 이 PR 의 연결을 풀었다");
-      await page.getByRole("button", { name: "Sync" }).click(); // 다시 켠 뒤 Sync 해도 자동으로 붙지 않는다
+      await sync(page); // 다시 켠 뒤 Sync 해도 자동으로 붙지 않는다
       await expect(page.getByTestId("inbox-710001-12")).toBeVisible();
       // 메모가 고친 모습 · 지운 자리 그대로 남았다
       await nav(page).getByRole("link", { name: "Workspace" }).click();
-      await page.getByTestId("work-b4c5d6").getByRole("link", { name: "코치 로그인 개편" }).click();
+      await openWork(page, "b4c5d6");
       const memosAfter = page.getByTestId("timeline").locator('[data-kind="memo"]');
       await expect(memosAfter).toHaveCount(2);
       await expect(memosAfter.first().getByTestId("memo-body")).toHaveText("다시 켜도 남아야 할 메모 (고침)");

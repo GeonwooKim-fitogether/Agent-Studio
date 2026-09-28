@@ -18,8 +18,8 @@ export default async function ChatPage() {
   const workId = await pickChatWork(container.deps, remembered);
   if (workId !== null) redirect(`/works/${encodeURIComponent(workId)}`);
   return (
-    <div className="page-inner">
-      <div className="page-head">
+    <div className="content">
+      <div className="pageheading">
         <h1>Chat</h1>
       </div>
       <p className="empty-note" data-testid="chat-empty">

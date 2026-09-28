@@ -16,6 +16,7 @@
 | 2단계 Needs your attention · New Work | 구현됨(단위 2-D, 로컬 확인). Workspace 맨 위에 검토 필요 업무 · 검사 실패 PR · 이전 버전 미리보기 · Inbox 에서 기다리는 PR 개수가 모이고, 줄을 누르면 그 업무나 Inbox 로 갑니다. `New Work` 로 빈 업무를 만들면 표식(`studio-work-…`)과 `Copy` 가 보이고, 그 표식을 넣은 PR 은 다음 Sync 에서 그 업무에 붙습니다. [`feature-plan`](docs/product/feature-plan.md) F4 · F5 |
 | 2.5단계 Chat 뼈대 | 구현됨(단위 2.5-A, 로컬 확인). 업무 화면이 같은 주소에서 Chat 이 됩니다 — 왼쪽 채널 목록, 가운데 시간순 타임라인(연결 · 새 커밋 · 검사 · 병합 · 닫힘 · Unlink · 내부 검토 · 상태 변화). PR 카드는 커밋마다 쌓이고 버튼은 최신 카드에만 있습니다. 위쪽 메뉴에 `Chat` 이 생겼습니다. 기록은 이 기능이 생긴 뒤부터 남습니다. 메모와 스레드는 아래 2.5-B · 2.5-C 행에 있습니다. PR 이벤트 표는 로컬 · 시험 데이터베이스에만 적용했습니다(실환경 없음). [`feature-plan`](docs/product/feature-plan.md) F7 |
 | 2.5단계 메모 | 구현됨(단위 2.5-B, 로컬 확인). 업무 Chat 아래 입력칸에 메모를 적고 `Send`(또는 Enter, Shift+Enter 는 줄바꿈)를 누르면 타임라인에 "나" 와 시각과 함께 쌓이고, 다시 열어도 남습니다. 메모마다 `Edit` 으로 고치면 "고침" 이 붙고, 고치기 칸의 `Delete` 로 지우면 "지워진 메모" 자리만 남습니다. 메모는 AI 에게 가지 않습니다. 메모 표는 로컬 · 시험 데이터베이스에만 적용했습니다(실환경 없음). [`feature-plan`](docs/product/feature-plan.md) F8 |
+| 2.5단계 Focus 화면 개편 | 작업완료(결정 18, 로컬 확인). 화면 기준을 Focus 시안([`docs/product/agent-studio-focus.html`](docs/product/agent-studio-focus.html))으로 바꿨습니다. 왼쪽 사이드바(휴대전화는 아래쪽 탭), Workspace 는 Needs your attention(업무 하나에 한 줄) · Other work · Up next, 업무 화면은 목표 → 타임라인 → 메모 입력칸과 오른쪽 Next action · Work details 입니다. 결정은 `Open review` 로 여는 Review 패널에서 **사람이 본 커밋**으로 남기고, 저장 순간 PR 의 최신 커밋이 다르면 거절합니다. `Request changes` 에는 Reason 과 Done when 이 필요합니다. 업무에 목표(Goal)가 생겼습니다. 기술 정보(출처 · 마지막 Sync · 저장 방식 · 미리보기 기기)는 `Connections` 화면으로 옮겼고, AI 모델은 "Not connected" 로 보입니다(Flow · Agents 는 3단계 전이라 없음). 목표 · 검토 이유 칸의 마이그레이션 둘은 로컬 · 시험 데이터베이스에만 적용했습니다(실환경 없음). |
 | 2.5단계 스레드 | 구현됨(단위 2.5-C, 로컬 확인). 업무 Chat 의 메모와 PR 카드 아래 `Reply` 를 누르면 오른쪽에 그 항목의 스레드가 열리고(휴대전화에서는 화면 전체), 답글을 달고 `Close` 로 닫습니다. 답글은 메인 타임라인에 놓이지 않고 항목 아래에 "답글 N" 으로 개수만 보입니다. 스레드는 한 단계만이고, PR 카드의 스레드는 그 커밋의 카드에 붙어 새 커밋이 오면 새 카드에서 새로 시작합니다(이전 커밋 카드의 답글은 "답글 N" 으로 열어 읽기만 합니다). 답글도 AI 에게 가지 않습니다. 메모 표의 새 칸은 로컬 · 시험 데이터베이스에만 적용했습니다(실환경 없음). [`feature-plan`](docs/product/feature-plan.md) F9 |
 
 ## 실행하기
@@ -32,9 +33,9 @@ npm run test:e2e     # 첫 화면에서 출발하는 브라우저 테스트
 
 진짜 저장소를 읽으려면 GitHub App 을 만들어 설치하고 세 값을 `.env.local` 에 적습니다 — [`docs/setup/github-app.md`](docs/setup/github-app.md). Owner 가 아닌 조직의 저장소는 내 읽기 전용 토큰으로 함께 읽습니다 — [`docs/setup/org-token.md`](docs/setup/org-token.md).
 
-GitHub App 변수와 `GITHUB_TOKEN` 을 모두 설정하지 않으면 고정 시연 데이터로 돌고, 화면 상단에 "Fixture data" 로 표시됩니다. 변수의 뜻은 [`.env.example`](.env.example) 에 있습니다.
+GitHub App 변수와 `GITHUB_TOKEN` 을 모두 설정하지 않으면 고정 시연 데이터로 돌고, 사이드바 아래(휴대전화는 위쪽 줄)에 "Fixture data" 로 표시됩니다. 변수의 뜻은 [`.env.example`](.env.example) 에 있습니다.
 
-`DATABASE_URL` 이 없으면 저장은 서버 메모리라서 서버를 다시 켜면 처음 상태로 돌아갑니다(상단에 "Stored in memory"). 서버를 다시 켜도 업무와 연결이 남게 하려면 로컬 PostgreSQL 을 씁니다(Docker 필요, 상단에 "Stored in PostgreSQL"):
+`DATABASE_URL` 이 없으면 저장은 서버 메모리라서 서버를 다시 켜면 처음 상태로 돌아갑니다(`Connections` 화면에 "Stored in memory"). 서버를 다시 켜도 업무와 연결이 남게 하려면 로컬 PostgreSQL 을 씁니다(Docker 필요, `Connections` 화면에 "Stored in PostgreSQL"):
 
 ```bash
 cp .env.example .env.local                                                    # 로컬 예시값 그대로 (APP_ENV=local)
@@ -48,7 +49,7 @@ PR 하나의 커밋을 이 컴퓨터에서 실행해 미리보기로 열려면 `
 ```bash
 npm run preview:demo-repo -- /tmp/studio-repos                               # demo-org/admin-console#12 의 커밋이 든 로컬 저장소
 PREVIEW_WORKDIR=/tmp/studio-previews PREVIEW_LOCAL_REPOS_DIR=/tmp/studio-repos npm run dev
-# Workspace → "관리자 로그인 보안 점검" → PR 카드의 Open Preview
+# Workspace → "관리자 로그인 보안 점검" → PR 카드의 Open review → Review 패널의 Open Preview
 ```
 
 e2e 는 평소에 보고용 스크린샷(`docs/plan/screenshots/`)을 덮어쓰지 않습니다. 화면을 바꿔 스크린샷을 새로 찍을 때만 `UPDATE_SCREENSHOTS=1 npm run test:e2e` 로 돌립니다.
@@ -70,7 +71,7 @@ PostgreSQL 시험은 스키마를 지웠다 다시 만들므로 개발용 데이
 |---|---|
 | 왜 만드는가, 사용자는 어떻게 일하는가 (비전공자용 요약) | [`docs/product/ceo-brief.md`](docs/product/ceo-brief.md) |
 | 누가 · 어디에서 · 무엇을 · 왜, 버튼이 실제로 할 일, 개발 순서 | [`docs/product/user-workflow-plan.html`](docs/product/user-workflow-plan.html) |
-| 화면 시안 v2 (브라우저에서 클릭 가능, 2 · 2.5단계) | [`docs/product/agent-studio-prototype.html`](docs/product/agent-studio-prototype.html) |
+| 화면 기준 — Focus 시안 (브라우저에서 클릭 가능, 결정 18) | [`docs/product/agent-studio-focus.html`](docs/product/agent-studio-focus.html) · 옛 시안 v2 는 [`archive/`](docs/product/archive/agent-studio-prototype-v2.html) |
 | 무엇을 정했고 무엇이 열려 있나 | [`decisions.md`](decisions.md) |
 | 지금 만드는 단위의 범위와 통과 기준 | [`docs/plan/01-pr-collection.md`](docs/plan/01-pr-collection.md) · [`docs/plan/02-persistence-and-unlink.md`](docs/plan/02-persistence-and-unlink.md) · [`docs/plan/03-github-app.md`](docs/plan/03-github-app.md) · [`docs/plan/04-remote-preview.md`](docs/plan/04-remote-preview.md) |
 | 세션이 이 저장소에서 일할 때 지킬 것 | [`CLAUDE.md`](CLAUDE.md) |

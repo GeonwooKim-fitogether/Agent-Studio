@@ -30,7 +30,7 @@ import {
   MAX_REQUESTS_PER_SYNC,
   type TokenProvider,
 } from "../rest/guarded-get";
-import { asArray, createTurns, halting, isNumber, isObject, repoPath, snapshotsOf } from "../rest/rest-reader";
+import { asArray, createTurns, HEAD_READ_REQUESTS, halting, isNumber, isObject, readHead, repoPath, snapshotsOf } from "../rest/rest-reader";
 
 export const CLOSED_PER_REPO = 30;
 export const PAGE_SIZE = 100;
@@ -113,6 +113,12 @@ export function createGitHubAppReader(options: AppReaderOptions): GitHubReader {
     source: "github_app",
     limitNote: `열린 PR 은 전부, 닫히거나 병합된 PR 은 저장소마다 최근 ${CLOSED_PER_REPO}개까지 읽는다. 한 번의 Sync 에 요청은 ${maxRequests}번까지.`,
     startRun,
+    readPullRequestHead: (repository, number) =>
+      readHead(
+        createGuardedGet({ tokens: options.tokens, fetch: options.fetch, meter: createRequestMeter(HEAD_READ_REQUESTS), halt: { halted: false } }),
+        repository,
+        number,
+      ),
     // 실행 없이 바로 부르면 그때마다 새 실행으로 읽는다(동기화는 startRun 을 쓴다)
     listRepositories: () => startRun().listRepositories(),
     listPullRequests: (repository) => startRun().listPullRequests(repository),

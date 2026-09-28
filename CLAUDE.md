@@ -13,7 +13,7 @@ Agent Studio 는 여러 프로젝트를 Claude 클라우드 · 로컬 · 동료�
 | 왜 만드는가, 사용자는 어떻게 일하는가 (비전공자용) | [`docs/product/ceo-brief.md`](docs/product/ceo-brief.md) |
 | 누가 · 어디에서 · 무엇을 · 왜, 화면 버튼이 실제로 할 일, 개발 순서 | [`docs/product/user-workflow-plan.html`](docs/product/user-workflow-plan.html) |
 | 시안의 기능을 언제 만드나, 기능별 사용자 이야기 · 통과 기준 (2 · 2.5 · 3단계 기획) | [`docs/product/feature-plan.md`](docs/product/feature-plan.md) |
-| 화면의 모습 (클릭 시안 v2, 2 · 2.5단계) | [`docs/product/agent-studio-prototype.html`](docs/product/agent-studio-prototype.html) |
+| 화면의 모습 (Focus 시안, 결정 18 — UX 기준) | [`docs/product/agent-studio-focus.html`](docs/product/agent-studio-focus.html) (옛 시안 v2 는 `docs/product/archive/`) |
 | 무엇을 하기로 정했나, 무엇이 아직 열려 있나 | [`decisions.md`](decisions.md) |
 | 업무와 PR 이 이어지는 규칙 (0단계 계약) | [`docs/plan/00-domain-contract.md`](docs/plan/00-domain-contract.md) |
 | 지금 만드는 단위의 범위 · 구조 · 통과 기준 (1단계 PR 모으기) | [`docs/plan/01-pr-collection.md`](docs/plan/01-pr-collection.md) |
@@ -32,7 +32,9 @@ Agent Studio 는 여러 프로젝트를 Claude 클라우드 · 로컬 · 동료�
 | **Project** | GitHub 저장소를 하나 이상 연결한 프로젝트 |
 | **Work (업무)** | 목표 하나를 가진 작업 단위. 시안의 `flow`. 대화 · 흐름도 · PR 연결 · 내부 검토 결정이 여기에 모인다 |
 | **Workspace** | 여러 업무의 현재 단계와 결정할 일을 보는 첫 화면 |
-| **Chat** | 업무 하나의 대화. 채널 하나가 업무 하나다. 결과 메시지에는 PR 카드가 붙는다 |
+| **Chat** | 업무 하나의 대화. 업무 화면이 곧 그 업무의 Chat 이다. 목표가 대화 위에 고정되고, 결과에는 최신 커밋의 PR 카드가 붙는다 |
+| **Review 패널** | PR 카드의 `Open review` 로 여는 오른쪽 칸. 사람이 본 커밋으로 Studio 내부 결정(`Approve in Studio` · `Request changes`)을 남긴다 |
+| **Connections** | 기술 연결 상태(GitHub 출처 · Sync · 저장 방식 · 미리보기 기기 · AI 모델)를 한 곳에 모은 화면 |
 | **Flow** | 업무 하나의 단계 흐름도. Agent · Skill · Review · Output 노드를 배치한다 |
 | **Agents** | Agent 를 만들고 편집하는 화면. 소개(사람용) 와 지시문(AI 용 프롬프트) 를 구분한다 |
 | **Inbox** | 승인 요청과, 어느 업무의 것인지 판단할 수 없는 PR 이 모이는 곳 |

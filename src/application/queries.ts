@@ -43,6 +43,8 @@ export interface CommitRecordView {
 
 export interface ReviewView extends CommitRecordView {
   readonly verdict: ReviewVerdict;
+  readonly reason: string | null;
+  readonly doneWhen: string | null;
 }
 
 export interface PrCardView {
@@ -187,6 +189,24 @@ export async function pickChatWork(deps: Pick<AppDeps, "store">, remembered: str
     if (first !== undefined) return first.id;
   }
   return null;
+}
+
+/** 모든 화면의 왼쪽 사이드바 (Q1) — 프로젝트마다 끝나지 않은 업무 수, 그리고 Inbox 에서 기다리는 PR 수 */
+export interface SidebarView {
+  readonly projects: readonly { readonly id: string; readonly name: string; readonly openWorks: number }[];
+  readonly inboxCount: number;
+}
+
+export async function getSidebar(deps: Pick<AppDeps, "store">): Promise<SidebarView> {
+  const view = await getWorkspace(deps);
+  return {
+    projects: view.projects.map((p) => ({
+      id: p.project.id,
+      name: p.project.name,
+      openWorks: p.works.filter((w) => w.work.status !== "done").length,
+    })),
+    inboxCount: view.inboxCount,
+  };
 }
 
 export async function getWorkspace(deps: Pick<AppDeps, "store">): Promise<WorkspaceView> {
@@ -382,6 +402,8 @@ function toCard(s: Loaded, snapshot: PrSnapshot): PrCardView {
         .map((r) => ({
           id: r.id,
           verdict: r.verdict,
+          reason: r.reason,
+          doneWhen: r.doneWhen,
           commitSha: r.commitSha,
           at: r.decidedAt,
           freshness: freshnessOf(r, snapshot.headSha),

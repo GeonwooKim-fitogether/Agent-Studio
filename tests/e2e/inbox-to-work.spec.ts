@@ -7,6 +7,7 @@
  *   1 coach-web#12 · 2 docs-site#12 · 3 player-app#9 · 4 player-app#12 · 5 남은 것 전부
  */
 import { type Browser, expect, type Locator, type Page, test } from "@playwright/test";
+import { filterProject, nav, openConnections, openReview, openWork, sync, unlinkFromPanel, visibleWorks, watchServerErrors } from "./helpers";
 
 const SHOTS = "docs/plan/screenshots";
 const POSTGRES = process.env.E2E_STORAGE === "postgres";
@@ -18,16 +19,6 @@ const POSTGRES = process.env.E2E_STORAGE === "postgres";
 async function shot(page: Page, name: string): Promise<void> {
   if (process.env.UPDATE_SCREENSHOTS === "1") await page.screenshot({ path: `${SHOTS}/${name}`, fullPage: true });
   else await page.screenshot({ fullPage: true });
-}
-const nav = (page: Page) => page.getByRole("navigation", { name: "Main" });
-
-/** 이 페이지에서 500 이상의 응답이 오면 모아 둔다. 시험 끝에 비어 있어야 한다. */
-function watchServerErrors(page: Page): string[] {
-  const errors: string[] = [];
-  page.on("response", (response) => {
-    if (response.status() >= 500) errors.push(`${response.status()} ${response.url()}`);
-  });
-  return errors;
 }
 
 async function inboxCount(page: Page): Promise<number> {
@@ -52,56 +43,61 @@ async function expectNoUnbuiltFeatures(page: Page) {
   for (const button of await previewButtons.all()) await expect(button).toBeDisabled();
   await expect(page.getByRole("link", { name: unbuilt })).toHaveCount(0);
   await expect(page.getByText(unbuilt)).toHaveCount(0);
-  await expect(nav(page).getByRole("link")).toHaveText(["Workspace", "Chat", "Inbox"]);
+  await expect(nav(page).getByRole("link")).toHaveText(["Workspace", "Chat", /^Inbox/]);
 }
 
-test("Workspace 에서 Inbox 로 가서 PR 을 기존 업무에 연결하면, 업무 화면과 Workspace 에 PR 카드가 나타난다", async ({ page }) => {
+test("Workspace 에서 Inbox 로 가서 PR 을 기존 업무에 연결하면, 업무 화면에 PR 카드가 나타나고 Workspace 의 업무 줄에 그 PR 이 보인다", async ({ page }) => {
   const serverErrors = watchServerErrors(page);
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1, name: "Workspace" })).toBeVisible();
   await expectNoUnbuiltFeatures(page);
+  // 고정 데이터로 돌면 사이드바에 늘 "Fixture data" 가 보인다 (Q2)
+  await expect(page.getByTestId("fixture-badge").first()).toHaveText("Fixture data");
 
-  // 데이터 출처, "다시 켜면 처음 상태", 한국 시간이 보인다
+  // 기술 정보는 Connections 한 곳에 있다 — 데이터 출처, "다시 켜면 처음 상태", 한국 시간
+  await openConnections(page);
   const source = page.getByTestId("data-source");
   await expect(page.getByTestId("source-kind")).toHaveText("Fixture data");
   await expect(page.getByTestId("last-sync-result")).toContainText("저장소 5 · PR 9");
   if (POSTGRES) {
     await expect(page.getByTestId("storage-kind")).toHaveText("Stored in PostgreSQL");
-    await expect(source).not.toContainText("서버를 다시 켜면 처음 상태로 돌아간다");
+    await expect(page.getByTestId("storage-note")).not.toContainText("서버를 다시 켜면 처음 상태로 돌아간다");
   } else {
     await expect(page.getByTestId("storage-kind")).toHaveText("Stored in memory");
-    await expect(source).toContainText("서버를 다시 켜면 처음 상태로 돌아간다");
+    await expect(page.getByTestId("storage-note")).toContainText("서버를 다시 켜면 처음 상태로 돌아간다");
   }
+  await expect(source).toContainText("demo-org/payments");
   await expect(page.getByTestId("last-sync")).toHaveText(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} KST$/);
-  await expect(page.getByTestId("state-legend")).toContainText("GitHub 에 반영되지 않는다");
+  await expectNoUnbuiltFeatures(page);
 
-  // 표식으로 붙은 PR: 표식을 찾은 자리가 보이고, 이전 커밋에 대한 결정은 이전 버전이다
-  const payments = page.getByTestId("work-a1b2c3").getByTestId("pr-card-710001-12");
+  // 표식으로 붙은 PR: 표식을 찾은 자리가 보이고, 이전 커밋에 대한 결정은 이전 버전이다 (Review 패널)
+  await nav(page).getByRole("link", { name: "Workspace" }).click();
+  await openWork(page, "a1b2c3");
+  const payments = await openReview(page, 710001, 12);
   await expectSeparateStateRows(payments);
   await expect(payments.getByTestId("link-origin")).toHaveText("Linked by marker (body)");
-  await expect(page.getByTestId("work-a1b2c3").getByTestId("pr-card-710001-15").getByTestId("link-origin")).toHaveText(
-    "Linked by marker (branch)",
-  );
   await expect(payments.getByTestId("review-decision")).toHaveAttribute("data-freshness", "outdated");
   await expect(payments.getByTestId("review-decision")).toContainText("Internal: changes requested");
   // GitHub 리뷰와 Studio 결정의 글자가 다르다
   await expect(payments.getByTestId("github-status")).toContainText("Changes requested");
   await expect(payments.getByTestId("github-status")).not.toContainText("Internal:");
+  await payments.getByTestId("review-close").click();
+  await expect((await openReview(page, 710001, 15)).getByTestId("link-origin")).toHaveText("Linked by marker (branch)");
 
   // 내부 검토 완료여도 GitHub 쪽은 Open 이다 — 두 상태가 다른 줄에 있다
-  const admin = page.getByTestId("work-d0e1f2").getByTestId("pr-card-710004-12");
+  await nav(page).getByRole("link", { name: "Workspace" }).click();
+  await expect(page.getByTestId("work-d0e1f2")).toContainText("In progress");
+  // 업무 제목은 hover 가 없는 휴대전화에서도 링크로 보이도록 늘 밑줄이 있다
+  await expect(page.getByTestId("work-d0e1f2").locator(".work-title")).toHaveCSS("text-decoration-line", "underline");
+  await openWork(page, "d0e1f2");
+  const admin = await openReview(page, 710004, 12);
   await expect(admin.getByTestId("studio-status")).toContainText("Internal: review done");
   await expect(admin.getByTestId("github-status")).toContainText("Open");
   await expect(admin.getByTestId("github-status")).not.toContainText("Internal:");
-  await expect(page.getByTestId("work-d0e1f2")).toContainText("In progress");
-  // 업무 제목은 hover 가 없는 휴대전화에서도 링크로 보이도록 늘 밑줄이 있다
-  await expect(page.getByTestId("work-a1b2c3").getByRole("link", { name: "로그인 화면 만들기" })).toHaveCSS(
-    "text-decoration-line",
-    "underline",
-  );
 
+  await nav(page).getByRole("link", { name: "Workspace" }).click();
   const before = await inboxCount(page);
-  await expect(page.getByTestId("pr-card-710002-12")).toHaveCount(0); // 아직 어느 업무에도 없다
+  await expect(page.getByTestId("work-b4c5d6")).toContainText("PR 없음"); // 아직 어느 업무에도 없다
 
   // 1. 클릭으로 Inbox 에 간다
   await nav(page).getByRole("link", { name: "Inbox" }).click();
@@ -127,22 +123,21 @@ test("Workspace 에서 Inbox 로 가서 PR 을 기존 업무에 연결하면, �
   await expectNoUnbuiltFeatures(page);
   await expect(page.getByRole("heading", { level: 1, name: "코치 로그인 개편" })).toBeVisible();
   await expect(page.getByTestId("work-marker")).toHaveText("studio-work-b4c5d6");
-  await expect(page.getByTestId("state-legend")).toBeVisible();
   const linked = page.getByTestId("pr-card-710002-12");
-  await expect(linked.getByTestId("link-origin")).toHaveText("Linked manually");
   await expectSeparateStateRows(linked);
+  await expect((await openReview(page, 710002, 12)).getByTestId("link-origin")).toHaveText("Linked manually");
   await shot(page, "02-work-after-link.png");
 
-  // 4. 클릭으로 Workspace 에 돌아오면 그 업무 아래에 카드가 있고, Inbox 수는 하나 줄었다
+  // 4. 클릭으로 Workspace 에 돌아오면 그 업무 줄에 PR 이 보이고, Inbox 수는 하나 줄었다
   await nav(page).getByRole("link", { name: "Workspace" }).click();
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByTestId("work-b4c5d6").getByTestId("pr-card-710002-12")).toBeVisible();
+  await expect(page.getByTestId("work-b4c5d6")).toContainText("demo-org/coach-web#12");
   expect(await inboxCount(page)).toBe(before - 1);
   await shot(page, "03-workspace-after-link.png");
 
   // 5. Sync 로 다시 읽어도 사람이 만든 연결은 그대로다
-  await page.getByRole("button", { name: "Sync" }).click();
-  await expect(page.getByTestId("work-b4c5d6").getByTestId("pr-card-710002-12")).toBeVisible();
+  await sync(page);
+  await expect(page.getByTestId("work-b4c5d6")).toContainText("demo-org/coach-web#12");
   expect(await inboxCount(page)).toBe(before - 1);
 
   // 6. Inbox 에서는 사라졌다
@@ -168,10 +163,8 @@ test("New Work 를 빠르게 두 번 눌러도 업무는 하나만 생기고, 50
   await expect(page.getByTestId("work-marker")).toHaveText(/^studio-work-[a-z0-9]+$/);
   await expect(page.getByTestId("pr-card-710005-12")).toBeVisible();
 
-  await nav(page).getByRole("link", { name: "Workspace" }).click();
-  const docs = page.getByTestId("project-docs");
-  await expect(docs.getByTestId("pr-card-710005-12")).toBeVisible();
-  await expect(docs.locator('[data-testid^="work-"]')).toHaveCount(1); // 빈 업무가 남지 않았다
+  await filterProject(page, "docs");
+  await expect(visibleWorks(page)).toHaveCount(1); // 빈 업무가 남지 않았다
   expect(serverErrors).toEqual([]);
 });
 
@@ -231,8 +224,8 @@ test.describe("자바스크립트를 끈 브라우저", () => {
     await expect(stale.getByTestId("inbox-notice")).toContainText("이미 '로그인 화면 문구 수정' 업무에 연결돼 있어");
 
     // 선수 앱 프로젝트에는 원래 업무 하나 + 새 업무 하나뿐이다
-    await nav(stale).getByRole("link", { name: "Workspace" }).click();
-    await expect(stale.getByTestId("project-player").locator('[data-testid^="work-"]')).toHaveCount(2);
+    await filterProject(stale, "player");
+    await expect(visibleWorks(stale)).toHaveCount(2);
     expect(serverErrors.flat()).toEqual([]);
     await context.close();
   });
@@ -245,22 +238,22 @@ test("업무 화면에서 Unlink 하면 PR 이 Inbox 로 돌아가고, 표식이
   const serverErrors = watchServerErrors(page);
   await page.goto("/");
   // 클릭으로 업무 화면에 간다
-  await page.getByTestId("work-a1b2c3").getByRole("link", { name: "로그인 화면 만들기" }).click();
-  await expect(page).toHaveURL(/\/works\/a1b2c3$/);
-  const stalePage = await context.newPage(); // 같은 업무 화면을 연 다른 탭 (나중에 오래된 화면이 된다)
+  await openWork(page, "a1b2c3");
+  const stalePage = await context.newPage(); // 같은 업무의 Review 패널을 연 다른 탭 (나중에 오래된 화면이 된다)
   await stalePage.goto("/");
-  await stalePage.getByTestId("work-a1b2c3").getByRole("link", { name: "로그인 화면 만들기" }).click();
+  await openWork(stalePage, "a1b2c3");
+  await openReview(stalePage, 710001, 12);
 
-  const card = page.getByTestId("pr-card-710001-12");
-  await expect(card.getByTestId("link-origin")).toHaveText("Linked by marker (body)");
+  const panel = await openReview(page, 710001, 12);
+  await expect(panel.getByTestId("link-origin")).toHaveText("Linked by marker (body)");
   // 확인 체크 없이 누르면 브라우저가 제출을 막는다
-  await card.getByRole("button", { name: "Unlink" }).click();
-  await expect(page).toHaveURL(/\/works\/a1b2c3$/);
+  await panel.getByRole("button", { name: "Unlink" }).click();
+  await expect(page).toHaveURL(/\/works\/a1b2c3\?review=710001:12/);
   await expect(page.getByTestId("pr-card-710001-12")).toBeVisible();
 
   // 브라우저의 required 를 걷어내고 체크 없이 보내면(= 서버 액션을 직접 부르는 것과 같다) 서버가 거절한다
-  await card.getByRole("checkbox").evaluate((el) => (el as HTMLInputElement).removeAttribute("required"));
-  await card.getByRole("button", { name: "Unlink" }).click();
+  await panel.getByRole("checkbox").evaluate((el) => (el as HTMLInputElement).removeAttribute("required"));
+  await panel.getByRole("button", { name: "Unlink" }).click();
   await expect(page).toHaveURL(/\/inbox\?notice=invalid_input/);
   await expect(page.getByTestId("inbox-710001-12")).toHaveCount(0); // 연결은 그대로다 — Inbox 에 없다
   await page.goBack();
@@ -268,23 +261,23 @@ test("업무 화면에서 Unlink 하면 PR 이 Inbox 로 돌아가고, 표식이
   await expect(page.getByTestId("pr-card-710001-12")).toBeVisible();
 
   // 체크하고 Unlink
-  await card.getByRole("checkbox").check();
-  await card.getByRole("button", { name: "Unlink" }).click();
+  await panel.getByRole("checkbox").check();
+  await panel.getByRole("button", { name: "Unlink" }).click();
   await expect(page).toHaveURL(/\/inbox\?notice=unlinked/);
   await expect(page.getByTestId("inbox-notice")).toContainText("demo-org/payments#12)의 연결을 풀었다");
   const item = page.getByTestId("inbox-710001-12");
   await expect(item.getByTestId("inbox-reason")).toContainText("사람이 이 PR 의 연결을 풀었다('로그인 화면 만들기' 업무에서)");
 
   // 표식이 본문에 그대로 있어도 Sync 가 다시 붙이지 않는다
-  await page.getByRole("button", { name: "Sync" }).click();
+  await sync(page);
   await expect(page.getByTestId("inbox-710001-12").getByTestId("inbox-reason")).toContainText("사람이 이 PR 의 연결을 풀었다");
   await shot(page, "06-inbox-after-unlink.png");
 
   // 오래된 탭에서 같은 PR 을 다시 Unlink 하면 500 대신 사유 안내
   const staleErrors = watchServerErrors(stalePage);
-  const staleCard = stalePage.getByTestId("pr-card-710001-12");
-  await staleCard.getByRole("checkbox").check();
-  await staleCard.getByRole("button", { name: "Unlink" }).click();
+  const stalePanel = stalePage.getByTestId("review-panel");
+  await stalePanel.getByRole("checkbox").check();
+  await stalePanel.getByRole("button", { name: "Unlink" }).click();
   await expect(stalePage).toHaveURL(/\/inbox\?notice=not_linked/);
   await expect(stalePage.getByTestId("inbox-notice")).toContainText("그 업무에 연결돼 있지 않아 처리하지 않았다");
 
@@ -294,13 +287,15 @@ test("업무 화면에서 Unlink 하면 PR 이 Inbox 로 돌아가고, 표식이
   await again.getByLabel("Work").selectOption({ label: "로그인 화면 만들기 · studio-work-a1b2c3" });
   await again.getByRole("button", { name: "Link to Work" }).click();
   await expect(page).toHaveURL(/\/works\/a1b2c3$/);
-  await expect(page.getByTestId("pr-card-710001-12").getByTestId("link-origin")).toHaveText("Linked manually");
+  await expect((await openReview(page, 710001, 12)).getByTestId("link-origin")).toHaveText("Linked manually");
   expect([...serverErrors, ...staleErrors]).toEqual([]);
 });
 
 test("복제본에서 온 PR 은 같은 프로젝트 업무의 표식이 있어도 Inbox 에 이유와 함께 있다", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByTestId("work-a1b2c3").getByTestId("pr-card-710001-18")).toHaveCount(0);
+  await openWork(page, "a1b2c3");
+  await expect(page.getByTestId("pr-card-710001-12")).toBeVisible();
+  await expect(page.getByTestId("pr-card-710001-18")).toHaveCount(0);
   await nav(page).getByRole("link", { name: "Inbox" }).click();
   const fork = page.getByTestId("inbox-710001-18");
   await expect(fork).toContainText("외부 기여: 로그인 오류 문구 다듬기");
@@ -350,7 +345,8 @@ test("범위를 넘는 PR 번호(2^31 이상)가 주소나 폼으로 들어와�
   // 폼으로 들어온 값: 업무 화면의 Unlink 폼을 고쳐 범위 밖 번호를 보내면 invalid_input 안내가 뜬다
   // (앞 시험이 Inbox 를 비웠을 수 있으므로, 늘 카드가 있는 업무 화면의 폼을 쓴다)
   await page.goto("/");
-  await page.getByTestId("work-d0e1f2").getByRole("link", { name: "관리자 로그인 보안 점검" }).click();
+  await openWork(page, "d0e1f2");
+  await openReview(page, 710004, 12);
   const form = page.getByTestId("unlink-form").first();
   await form.locator('input[name="number"]').evaluate((el) => ((el as HTMLInputElement).value = "3000000000"));
   await form.getByRole("checkbox").check();

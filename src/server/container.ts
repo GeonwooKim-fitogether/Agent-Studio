@@ -311,8 +311,31 @@ function isConfigError(source: GitHubSource): source is Extract<GitHubSource, { 
   return source.kind === "app_config_error" || source.kind === "token_config_error";
 }
 
-function createReaderFor(sources: readonly GitHubSource[], tokensFor: (source: GitHubSource) => TokenProvider | null): GitHubReader {
-  if (sources.length === 0) return createFixtureReader(demoFixtureData());
+/**
+ * 고정 데이터 모드에서 "새 커밋이 올라왔다" 를 흉내 내는 파일 (e2e 전용, STUDIO_FIXTURE_HEADS_FILE).
+ * 내용은 {"<저장소 숫자 ID>#<PR 번호>": "<40자 커밋 SHA>"} 이다. 파일이 없거나 모양이 틀리면 아무것도 덮지 않는다.
+ * 진짜 GitHub 출처가 하나라도 있으면 이 파일은 읽지 않는다(createReaderFor 가 고정 데이터일 때만 넘긴다).
+ */
+export function readHeadOverrides(path: string, readFile: (path: string) => string = (p) => readFileSync(p, "utf8")): Record<string, string> {
+  try {
+    const parsed: unknown = JSON.parse(readFile(path));
+    if (typeof parsed !== "object" || parsed === null) return {};
+    return Object.fromEntries(
+      Object.entries(parsed).filter(([key, sha]) => /^\d+#\d+$/.test(key) && typeof sha === "string" && /^[0-9a-f]{40}$/.test(sha)),
+    ) as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+function createReaderFor(
+  sources: readonly GitHubSource[],
+  tokensFor: (source: GitHubSource) => TokenProvider | null,
+  fixtureHeadsFile = "",
+): GitHubReader {
+  if (sources.length === 0) {
+    return createFixtureReader(demoFixtureData(), fixtureHeadsFile === "" ? {} : { headOverrides: () => readHeadOverrides(fixtureHeadsFile) });
+  }
   const [only] = sources;
   if (sources.length === 1 && only !== undefined) return createReader(only, tokensFor);
   return createMultiReader(sources.map((source) => ({ label: sourceLabel(source), reader: createReader(source, tokensFor) })));
@@ -447,7 +470,7 @@ export function createContainer(
   const seed = github ? {} : demoStudioSeed();
   const tokensFor = tokenProviders(githubSources);
   const deps: AppDeps = {
-    reader: createReaderFor(githubSources, tokensFor),
+    reader: createReaderFor(githubSources, tokensFor, env["STUDIO_FIXTURE_HEADS_FILE"]?.trim() ?? ""),
     store: pool === null ? createMemoryStore(seed) : createPostgresStore(pool),
     now: () => new Date(),
     newId: () => randomBytes(3).toString("hex"),

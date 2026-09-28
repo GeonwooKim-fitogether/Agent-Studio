@@ -1,6 +1,6 @@
 /**
- * Review 버튼(feature-plan F2)이 부르는 규칙 — 결정은 저장된 최신 커밋에 대해, 병합 · 닫힌 PR 은 거절,
- * 같은 커밋에 다시 누르면 마지막 결정이 보이고, 새 커밋이 오면 앞선 결정은 "이전 커밋" 이 된다.
+ * Review 버튼(feature-plan F2, 결정 18 의 Review 패널)이 부르는 규칙 — 결정은 사람이 본 커밋으로 남되 그것이 저장된 최신 커밋일 때만,
+ * 병합 · 닫힌 PR 은 거절, 같은 커밋에 다시 누르면 마지막 결정이 보이고, 새 커밋이 오면 앞선 결정은 "이전 커밋" 이 된다.
  */
 import { describe, expect, it } from "vitest";
 import { DEMO_REPO, DEMO_SHA } from "../../src/adapters/github/fixture/demo-scenario";
@@ -19,12 +19,15 @@ async function shownReviews(deps: Parameters<typeof getWorkDetail>[0]) {
 }
 
 describe("Review 버튼의 규칙", () => {
-  it("결정은 저장된 PR 스냅샷의 최신 커밋에 대해 남는다 — 요청에 다른 SHA 가 섞여 와도 쓰지 않는다", async () => {
+  it("결정은 본 커밋이 저장된 PR 스냅샷의 최신 커밋일 때만 그 커밋으로 남는다 — 다른 SHA 가 오면 stale_commit 으로 거절하고 아무것도 쓰지 않는다", async () => {
     const { deps, readerCalls } = setup();
     await syncAll(deps);
     const calls = readerCalls.length;
-    const forged = { ...payments12, workId: "a1b2c3", verdict: "internal_review_done" as const, commitSha: "0".repeat(40) };
-    const decision = await recordReviewDecision(deps, forged);
+    const before = (await deps.store.listReviewDecisions()).length;
+    const forged = { ...payments12, workId: "a1b2c3", verdict: "internal_review_done" as const, viewedSha: "0".repeat(40) };
+    await expect(recordReviewDecision(deps, forged)).rejects.toMatchObject({ code: "stale_commit" });
+    expect(await deps.store.listReviewDecisions()).toHaveLength(before);
+    const decision = await recordReviewDecision(deps, { ...forged, viewedSha: DEMO_SHA.payments12Head });
     expect(decision.commitSha).toBe(DEMO_SHA.payments12Head);
     expect(readerCalls.length).toBe(calls); // GitHub 쪽으로 아무것도 묻거나 보내지 않았다
   });
@@ -37,7 +40,7 @@ describe("Review 버튼의 규칙", () => {
     const before = (await deps.store.listReviewDecisions()).length;
     for (const number of [12, 15]) {
       await expect(
-        recordReviewDecision(deps, { repoId: DEMO_REPO.payments, number, workId: "a1b2c3", verdict: "internal_review_done" }),
+        recordReviewDecision(deps, { repoId: DEMO_REPO.payments, number, workId: "a1b2c3", verdict: "internal_review_done", viewedSha: DEMO_SHA.payments12Head }),
       ).rejects.toMatchObject({ code: "invalid_input" });
     }
     expect(await deps.store.listReviewDecisions()).toHaveLength(before);
@@ -49,10 +52,11 @@ describe("Review 버튼의 규칙", () => {
   it("형식이 틀린 업무 ID · 결정 값 · PR 값은 저장소에 닿기 전에 거절한다", async () => {
     const { deps } = setup();
     await syncAll(deps);
-    const base = { ...payments12, workId: "a1b2c3", verdict: "internal_review_done" as ReviewVerdict };
+    const base = { ...payments12, workId: "a1b2c3", verdict: "internal_review_done" as ReviewVerdict, viewedSha: DEMO_SHA.payments12Head };
     await expect(recordReviewDecision(deps, { ...base, workId: "../a1b2c3" })).rejects.toMatchObject({ code: "invalid_input" });
     await expect(recordReviewDecision(deps, { ...base, verdict: "approved" as ReviewVerdict })).rejects.toMatchObject({ code: "invalid_input" });
     await expect(recordReviewDecision(deps, { ...base, number: 2 ** 31 })).rejects.toMatchObject({ code: "invalid_input" });
+    await expect(recordReviewDecision(deps, { ...base, viewedSha: "" })).rejects.toMatchObject({ code: "invalid_input" });
     expect(isReviewVerdict("internal_review_done")).toBe(true);
     expect(isReviewVerdict("changes_requested")).toBe(true);
     expect(isReviewVerdict("approved")).toBe(false);
@@ -62,9 +66,9 @@ describe("Review 버튼의 규칙", () => {
   it("같은 커밋에 다시 누르면 기록은 쌓이지만 카드에는 그 커밋의 마지막 결정만 보이고, 이전 커밋의 결정은 이전 커밋으로 남는다", async () => {
     const { deps } = setup();
     await syncAll(deps);
-    const target = { ...payments12, workId: "a1b2c3" };
+    const target = { ...payments12, workId: "a1b2c3", viewedSha: DEMO_SHA.payments12Head };
     await recordReviewDecision(deps, { ...target, verdict: "internal_review_done" });
-    await recordReviewDecision(deps, { ...target, verdict: "changes_requested" });
+    await recordReviewDecision(deps, { ...target, verdict: "changes_requested", reason: "오류 문구가 겹친다", doneWhen: "오류 문구가 하나만 보인다" });
 
     expect(await shownReviews(deps)).toEqual([
       ["changes_requested", "outdated", DEMO_SHA.payments12Reviewed], // 시연 데이터의 이전 커밋 결정
@@ -77,7 +81,7 @@ describe("Review 버튼의 규칙", () => {
   it("누른 뒤 PR 에 새 커밋이 오면, 방금 남긴 결정은 이전 커밋에 대한 결정으로 보이고 새 커밋에는 결정이 없다", async () => {
     const { data, deps } = setup();
     await syncAll(deps);
-    await recordReviewDecision(deps, { ...payments12, workId: "a1b2c3", verdict: "internal_review_done" });
+    await recordReviewDecision(deps, { ...payments12, workId: "a1b2c3", verdict: "internal_review_done", viewedSha: DEMO_SHA.payments12Head });
 
     data.pullRequests = data.pullRequests.map((p) => (p.repoId === DEMO_REPO.payments && p.number === 12 ? { ...p, headSha: NEW_HEAD } : p));
     await syncAll(deps);
@@ -86,8 +90,8 @@ describe("Review 버튼의 규칙", () => {
       ["changes_requested", "outdated", DEMO_SHA.payments12Reviewed],
       ["internal_review_done", "outdated", DEMO_SHA.payments12Head],
     ]);
-    // 새 커밋에 다시 누르면 새 커밋의 결정이 생긴다
-    await recordReviewDecision(deps, { ...payments12, workId: "a1b2c3", verdict: "internal_review_done" });
+    // 새 커밋을 본 뒤 다시 누르면 새 커밋의 결정이 생긴다
+    await recordReviewDecision(deps, { ...payments12, workId: "a1b2c3", verdict: "internal_review_done", viewedSha: NEW_HEAD });
     expect((await shownReviews(deps)).at(-1)).toEqual(["internal_review_done", "current", NEW_HEAD]);
   });
 });

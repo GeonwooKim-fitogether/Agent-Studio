@@ -9,17 +9,10 @@
  * "표식을 넣은 PR 이 다음 Sync 에서 붙는다" 는 고정 데이터로 PR 을 새로 만들 수 없어 단위 시험(tests/unit/new-work.test.ts)이 확인한다.
  */
 import { expect, type Page, test } from "@playwright/test";
+import { nav, watchServerErrors } from "./helpers";
 
-const nav = (page: Page) => page.getByRole("navigation", { name: "Main" });
 const MARKER = /^studio-work-[a-z0-9]+$/;
-
-function watchServerErrors(page: Page): string[] {
-  const errors: string[] = [];
-  page.on("response", (r) => {
-    if (r.status() >= 500) errors.push(`${r.status()} ${r.url()}`);
-  });
-  return errors;
-}
+const GOAL = "코치가 선수 이름 두 글자로 3초 안에 찾는다";
 
 /** Workspace 에서 New Work 폼을 열고 코치 대시보드에 업무를 만든다. 결과 칸의 표식을 돌려준다 */
 async function createCoachWork(page: Page, title: string): Promise<string> {
@@ -29,6 +22,7 @@ async function createCoachWork(page: Page, title: string): Promise<string> {
   await expect(form).toBeVisible();
   await form.getByLabel("Project").selectOption({ label: "코치 대시보드" });
   await form.getByLabel("Title").fill(title);
+  await form.getByLabel("Goal").fill(GOAL);
   await form.getByRole("button", { name: "Create" }).click();
   const result = page.getByTestId("new-work-result");
   await expect(result).toBeVisible();
@@ -47,6 +41,7 @@ test.describe("클립보드를 쓸 수 있는 브라우저", () => {
     await expect(result).toContainText("업무를 만들었다 · 코치 대시보드");
     await expect(result.getByTestId("new-work-title")).toHaveText("코치 목록 검색 필터"); // 앞뒤 공백은 떼고 받는다
     await expect(result.getByTestId("status-badge")).toHaveText("Draft");
+    await expect(result.getByTestId("new-work-goal")).toHaveText(GOAL);
     await expect(result).toContainText("표식이 든 PR 은 다음 Sync 에서 이 업무에 붙고, 표식이 없는 PR 은 Inbox 로 간다.");
     await expect(page.getByRole("link", { name: "New Work" })).toHaveCount(0); // 결과를 보는 동안에는 머리의 버튼을 숨긴다
     await page.screenshot({ fullPage: true });
@@ -61,11 +56,16 @@ test.describe("클립보드를 쓸 수 있는 브라우저", () => {
     await expect(page.getByTestId("work-marker")).toHaveText(marker);
     await expect(page.locator(".work-head").getByTestId("status-badge")).toHaveText("Draft");
     await expect(page.getByText("아직 연결된 PR 이 없다.")).toBeVisible();
+    // 목표는 대화 위에 고정되고, 할 일은 PR 을 연결하는 것이다
+    await expect(page.getByTestId("goal-text")).toHaveText(GOAL);
+    await expect(page.getByTestId("goal-edit")).toHaveText("Edit goal");
+    await expect(page.getByTestId("next-action")).toHaveAttribute("data-kind", "link_pr");
+    await expect(page.getByTestId("next-action")).toContainText(marker);
 
     // Workspace 의 업무 줄에도 표식이 보인다
     await nav(page).getByRole("link", { name: "Workspace" }).click();
-    const row = page.getByTestId("project-coach").getByTestId(`work-${marker.replace("studio-work-", "")}`);
-    await expect(row).toContainText(`연결된 PR 없음 · 표식 ${marker} 을 PR 에 넣으면 붙는다`);
+    const row = page.getByTestId(`work-${marker.replace("studio-work-", "")}`);
+    await expect(row).toContainText(`코치 대시보드 · PR 없음 · ${marker}`);
     await expect(page.getByRole("link", { name: "New Work" })).toBeVisible();
     expect(serverErrors).toEqual([]);
   });
@@ -87,18 +87,29 @@ test("클립보드가 막힌 브라우저에서는 미리 그렇게 적고, Copy
 test("제목이 공백뿐이면 업무를 만들지 않고, 폼을 다시 열어 이유를 보인다. Cancel 로 닫는다", async ({ page }) => {
   const serverErrors = watchServerErrors(page);
   await page.goto("/");
-  const coachWorks = page.getByTestId("project-coach").locator("article.work-row");
+  const coachWorks = page.locator('[data-project="coach"]');
   const before = await coachWorks.count();
   await page.getByRole("link", { name: "New Work" }).click();
   const form = page.getByTestId("new-work-form");
   await form.getByLabel("Project").selectOption({ label: "코치 대시보드" });
   await form.getByLabel("Title").fill("   "); // 브라우저의 required 는 공백을 막지 않는다 — 서버가 거절한다
+  await form.getByLabel("Goal").fill(GOAL);
   await form.getByRole("button", { name: "Create" }).click();
   await expect(page.getByTestId("new-work-problem")).toHaveText("업무를 만들지 않았다 — 제목이 비어 있다. 업무의 목표를 한 줄로 적는다.");
   await expect(form.getByLabel("Project")).toHaveValue("coach"); // 고른 프로젝트는 남는다
+
+  // 목표도 반드시 받는다 (결정 18) — 공백뿐이면 서버가 거절한다
+  await form.getByLabel("Title").fill("코치 목록 정렬");
+  await form.getByLabel("Goal").fill("   ");
+  await form.getByRole("button", { name: "Create" }).click();
+  await expect(page.getByTestId("new-work-problem")).toHaveText(
+    "업무를 만들지 않았다 — 목표가 비어 있다. 이 업무가 끝나면 무엇이 달라지는지 한두 문장으로 적는다.",
+  );
+  await page.goto("/");
   await expect(coachWorks).toHaveCount(before);
 
-  await form.getByRole("link", { name: "Cancel" }).click();
+  await page.getByRole("link", { name: "New Work" }).click();
+  await page.getByTestId("new-work-form").getByRole("link", { name: "Cancel" }).click();
   await expect(page.getByTestId("new-work-form")).toHaveCount(0);
   await expect(page.getByRole("link", { name: "New Work" })).toBeVisible();
   expect(serverErrors).toEqual([]);

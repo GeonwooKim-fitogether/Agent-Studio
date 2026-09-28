@@ -60,9 +60,9 @@ describe("업무 표식", () => {
 
 describe("자동 연결 판정", () => {
   const works: Work[] = [
-    { id: "aaa111", projectId: "p1", title: "업무 A", status: "draft", createdAt: "2026-09-01T00:00:00Z" },
-    { id: "bbb222", projectId: "p1", title: "업무 B", status: "draft", createdAt: "2026-09-01T00:00:00Z" },
-    { id: "ccc333", projectId: "p2", title: "다른 프로젝트 업무", status: "draft", createdAt: "2026-09-01T00:00:00Z" },
+    { id: "aaa111", projectId: "p1", title: "업무 A", goal: "", status: "draft", createdAt: "2026-09-01T00:00:00Z" },
+    { id: "bbb222", projectId: "p1", title: "업무 B", goal: "", status: "draft", createdAt: "2026-09-01T00:00:00Z" },
+    { id: "ccc333", projectId: "p2", title: "다른 프로젝트 업무", goal: "", status: "draft", createdAt: "2026-09-01T00:00:00Z" },
   ];
   const own = { repoId: 1, headRepoId: 1 }; // 브랜치가 그 저장소 자신에 있는 PR
   const fresh = { unlinkedByUser: false };

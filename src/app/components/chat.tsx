@@ -1,17 +1,20 @@
-import Link from "next/link";
 import type { ReactNode } from "react";
-import type { ChannelGroupView, PrCardView } from "../../application/queries";
+import type { PreviewCardView } from "../../application/preview";
+import type { PrCardView } from "../../application/queries";
 import { visibleReviews } from "../../application/review";
 import type { TimelineEntry } from "../../application/timeline";
-import type { DataSource } from "../../ports/github-reader";
+import { threadKey } from "../../domain/memo";
+import { Icon } from "./glyph";
 import {
-  CHANNELS_FOOT,
   CHECKS,
   dayLabel,
   formatKst,
   formatKstTime,
+  GITHUB_REVIEW,
+  NO_INTERNAL_REVIEW,
   oldCardNote,
   OWNER_TAG,
+  PR_STATE,
   prEventText,
   recordStartText,
   reviewEventText,
@@ -22,43 +25,18 @@ import {
   WORK_STATUS,
 } from "./labels";
 import { MemoEvent, ReplyFoot } from "./memo";
-import { threadKey } from "../../domain/memo";
-import { PrCard } from "./pr-card";
+import { PreviewStatus } from "./preview-status";
 
 /**
- * 업무 Chat 의 조각들 (feature-plan F7, 시안 v2 의 renderChat · renderEvent). 무엇을 어떤 순서로 보일지는
- * application/timeline.ts 가 정하고, 여기서는 받은 목록을 그리기만 한다.
+ * 업무 화면의 타임라인 (feature-plan F7, 결정 18 의 Q7). 무엇을 어떤 순서로 보일지는 application/timeline.ts 가 정하고,
+ * 여기서는 받은 목록을 그리기만 한다.
  *
- * 메모(F8)는 memo.tsx 가 그린다. 메모와 PR 카드 아래의 Reply · "답글 N"(F9)은 ReplyFoot 이 그리고, 열린 스레드 칸은 thread.tsx 가 그린다.
- * 이전 커밋 카드에는 Reply 를 반복하지 않는다(결정 16-5). 그 카드에 남은 답글이 있으면 "답글 N" 으로 열어 읽는다.
+ *   - GitHub · Studio 의 시스템 사건(연결 · 새 커밋 · 검사 · 병합 · 상태 변화)은 **작은 한 줄**이다. 주인(GitHub · Studio)이 앞에 붙는다.
+ *   - 내부 검토 결정은 한 줄에 더해 Reason · Done when · 본 커밋("Reviewed abc1234")을 함께 보인다 — 다음 사람이 무엇을 고치면 되는지 읽는다.
+ *   - PR 결과는 **최신 커밋 카드 하나**만 크게 보인다(제목 · PR · 커밋 · GitHub 칩 · Studio 칩 · 미리보기 한 줄 · Open review).
+ *     이전 커밋 카드는 한 줄로 접힌다(펼치면 그 커밋의 기록이 보이고, 버튼은 없다 — 결정 16-5). 답글 개수는 그대로 붙는다.
+ *   - 메모(F8)는 memo.tsx 가, 스레드 칸(F9)은 thread.tsx 가 그린다.
  */
-
-/** 왼쪽 채널 목록 — 프로젝트 > 업무. 채널 하나가 업무 하나다 */
-export function Channels({ groups, currentId }: { groups: readonly ChannelGroupView[]; currentId: string }) {
-  return (
-    <nav className="channels" aria-label="Channels" data-testid="channels">
-      {groups.map(({ project, works }) => (
-        <div key={project.id} className="ch-group">
-          <h2>{project.name}</h2>
-          {works.length === 0 && <p className="ch-empty">업무 없음</p>}
-          {works.map((w) => (
-            <Link
-              key={w.id}
-              href={`/works/${encodeURIComponent(w.id)}`}
-              className="ch"
-              aria-current={w.id === currentId ? "page" : undefined}
-              data-testid={`channel-${w.id}`}
-            >
-              <span className="t">{w.title}</span>
-              <span className={w.status === "needs_review" ? "s hot" : "s"}>{WORK_STATUS[w.status]}</span>
-            </Link>
-          ))}
-        </div>
-      ))}
-      <p className="ch-foot">{CHANNELS_FOOT}</p>
-    </nav>
-  );
-}
 
 /** 타임라인 속 커밋 카드의 자리 (스레드를 닫거나 열 때 돌아오는 곳) */
 export const cardAnchor = (repoId: number, number: number, commitSha: string) => `card-${repoId}-${number}-${shortSha(commitSha)}`;
@@ -75,25 +53,21 @@ const Time = ({ at }: { at: string }) => (
   </time>
 );
 
-/**
- * 타임라인. 최신 카드에는 actionsFor 가 주는 버튼(미리보기 · 검토 · Unlink)을 그대로 붙이고,
- * 이전 커밋 카드에는 버튼 없이 "버튼은 최신 카드에서만 누른다" 한 줄을 둔다(결정 16-5).
- */
 export function Timeline({
   entries,
   marker,
-  source,
-  actionsFor,
   workId,
   editingMemoId,
+  previewFor,
+  reviewHrefFor,
 }: {
   entries: readonly TimelineEntry[];
   marker: string;
-  source: DataSource;
-  actionsFor: (pr: PrCardView) => ReactNode;
   workId: string;
   /** 고치기 칸을 연 메모 (?edit=). 없으면 null */
   editingMemoId: string | null;
+  previewFor: (pr: PrCardView) => PreviewCardView | undefined;
+  reviewHrefFor: (pr: PrCardView) => string;
 }) {
   return (
     <div className="tl" data-testid="timeline">
@@ -107,90 +81,116 @@ export function Timeline({
             );
           case "day":
             return (
-              <div key={e.key} className="day" data-testid="day">
+              <div key={e.key} className="date-line" data-testid="day">
                 {dayLabel(e.day)}
               </div>
             );
           case "work_created":
             return (
-              <div key={e.key} className="ev" data-testid="event" data-kind="work_created">
-                <Time at={e.at} />
-                <div className="ev-sys">
-                  <Tag owner={e.owner} />
+              <div key={e.key} className="ev sys" data-testid="event" data-kind="work_created">
+                <Icon name="clock" />
+                <Tag owner={e.owner} />
+                <span className="sys-text">
                   업무를 만들었다 · 표식 <code>{marker}</code>
-                </div>
+                </span>
+                <Time at={e.at} />
               </div>
             );
           case "pr_event":
             return (
-              <div key={e.key} className="ev" data-testid="event" data-kind={e.event.kind}>
-                <Time at={e.at} />
-                <div className="ev-sys">
-                  <Tag owner={e.owner} />
+              <div key={e.key} className="ev sys" data-testid="event" data-kind={e.event.kind}>
+                <Icon name={e.owner === "github" ? "github" : "branch"} />
+                <Tag owner={e.owner} />
+                <span className="sys-text">
                   <b>
                     {e.repoName}#{e.event.number}
                   </b>{" "}
                   {prEventText(e.event)}
-                </div>
+                </span>
+                <Time at={e.at} />
               </div>
             );
           case "review":
             return (
-              <div key={e.key} className="ev" data-testid="event" data-kind="review">
-                <Time at={e.at} />
-                <div className="ev-sys">
+              <div key={e.key} className="ev decision" id={`decision-${e.key.replace(/^rev-/, "")}`} data-testid="event" data-kind="review" data-verdict={e.verdict}>
+                <div className="ev sys">
+                  <Icon name="review" />
                   <Tag owner={e.owner} />
-                  <b>
-                    {e.repoName}#{e.number}
-                  </b>{" "}
-                  {reviewEventText(e.verdict, e.commitSha)}
+                  <span className="sys-text">
+                    <b>
+                      {e.repoName}#{e.number}
+                    </b>{" "}
+                    {reviewEventText(e.verdict, e.commitSha)}
+                  </span>
+                  <Time at={e.at} />
                 </div>
+                {(e.reason !== null || e.doneWhen !== null) && (
+                  <dl className="decision-note" data-testid="decision-note">
+                    {e.reason !== null && (
+                      <div>
+                        <dt>{e.verdict === "changes_requested" ? "Reason" : "Note"}</dt>
+                        <dd data-testid="decision-reason">{e.reason}</dd>
+                      </div>
+                    )}
+                    {e.doneWhen !== null && (
+                      <div>
+                        <dt>Done when</dt>
+                        <dd data-testid="decision-done-when">{e.doneWhen}</dd>
+                      </div>
+                    )}
+                    <div>
+                      <dt>Reviewed</dt>
+                      <dd>
+                        <code data-testid="decision-commit">{shortSha(e.commitSha)}</code>
+                      </dd>
+                    </div>
+                  </dl>
+                )}
               </div>
             );
           case "status":
             return (
-              <div key={e.key} className="ev" data-testid="event" data-kind="status">
+              <div key={e.key} className="ev sys" data-testid="event" data-kind="status">
+                <Icon name="check" />
+                <Tag owner={e.owner} />
+                <span className="sys-text">
+                  업무 상태 {WORK_STATUS[e.change.from]} → <b>{WORK_STATUS[e.change.to]}</b> <span className="muted">· {statusCauseText(e.change)}</span>
+                </span>
                 <Time at={e.at} />
-                <div className="ev-state">
-                  <Tag owner={e.owner} />
-                  업무 상태 {WORK_STATUS[e.change.from]} → <b>{WORK_STATUS[e.change.to]}</b>{" "}
-                  <span className="muted">· {statusCauseText(e.change)}</span>
-                </div>
               </div>
             );
           case "memo":
             return (
-              <div key={e.key} className="ev" id={`memo-${e.memo.id}`} data-testid="event" data-kind="memo">
-                <Time at={e.at} />
-                <MemoEvent memo={e.memo} workId={workId} editing={e.memo.id === editingMemoId} replies={e.replies} />
+              <div key={e.key} className="ev msg" id={`memo-${e.memo.id}`} data-testid="event" data-kind="memo">
+                <span className="avatar" aria-hidden="true">
+                  나
+                </span>
+                <div className="msg-body">
+                  <Time at={e.at} />
+                  <MemoEvent memo={e.memo} workId={workId} editing={e.memo.id === editingMemoId} replies={e.replies} />
+                </div>
               </div>
             );
           case "card": {
             const anchor = cardAnchor(e.pr.repoId, e.pr.number, e.commitSha);
+            const foot = (
+              <div className="ev-foot card-foot" data-testid={`card-foot-${e.pr.repoId}-${e.pr.number}-${shortSha(e.commitSha)}`}>
+                <ReplyFoot
+                  workId={workId}
+                  thread={threadKey({ kind: "card", repoId: e.pr.repoId, number: e.pr.number, commitSha: e.commitSha })}
+                  anchor={anchor}
+                  replies={e.replies}
+                  canReply={e.latest}
+                />
+              </div>
+            );
             return (
-              <div key={e.key} className="ev ev-card" id={anchor}>
-                {e.at === null ? <time /> : <Time at={e.at} />}
-                <div>
-                  {e.latest ? (
-                    <PrCard
-                      pr={e.pr}
-                      source={source}
-                      tag={e.several ? <span className="new-tag">최신 커밋</span> : null}
-                      actions={actionsFor(e.pr)}
-                    />
-                  ) : (
-                    <OldPrCard pr={e.pr} commitSha={e.commitSha} recordedChecks={e.recordedChecks} />
-                  )}
-                  <div className="ev-foot card-foot" data-testid={`card-foot-${e.pr.repoId}-${e.pr.number}-${shortSha(e.commitSha)}`}>
-                    <ReplyFoot
-                      workId={workId}
-                      thread={threadKey({ kind: "card", repoId: e.pr.repoId, number: e.pr.number, commitSha: e.commitSha })}
-                      anchor={anchor}
-                      replies={e.replies}
-                      canReply={e.latest}
-                    />
-                  </div>
-                </div>
+              <div key={e.key} className={e.latest ? "ev card-ev" : "ev card-ev old"} id={anchor} data-testid="event" data-kind="card">
+                {e.latest ? (
+                  <ResultCard pr={e.pr} several={e.several} preview={previewFor(e.pr)} reviewHref={reviewHrefFor(e.pr)} at={e.at} foot={foot} />
+                ) : (
+                  <OldPrCard pr={e.pr} commitSha={e.commitSha} recordedChecks={e.recordedChecks} foot={foot} />
+                )}
               </div>
             );
           }
@@ -200,52 +200,142 @@ export function Timeline({
   );
 }
 
-/**
- * 이전 커밋의 카드 — 기록이다. GitHub 칸에는 그 커밋에 대해 기록된 검사 결과만, Studio 칸에는 그 커밋에 남은 검토 결정과 미리보기만 보인다.
- * PR 의 지금 상태(열림 · 병합 등)는 최신 카드에 있다. 이 카드에는 버튼이 없다.
- */
-export function OldPrCard({ pr, commitSha, recordedChecks }: { pr: PrCardView; commitSha: string; recordedChecks: PrCardView["github"]["checks"] | null }) {
-  const reviews = visibleReviews(pr.studio.reviews).filter((r) => r.commitSha === commitSha);
-  const previews = pr.studio.previews.filter((p) => p.commitSha === commitSha);
+/** 최신 커밋의 결과 카드 (Q7). GitHub 칩과 Studio 칩은 다른 줄이다 — 한 문장으로 합치지 않는다 (계약 §5) */
+export function ResultCard({
+  pr,
+  several,
+  preview,
+  reviewHref,
+  at,
+  foot,
+}: {
+  pr: PrCardView;
+  several: boolean;
+  preview: PreviewCardView | undefined;
+  reviewHref: string;
+  at: string | null;
+  foot: ReactNode;
+}) {
+  const current = visibleReviews(pr.studio.reviews).filter((r) => r.freshness === "current").at(-1);
   return (
-    <article className="pr-card old" data-testid={`pr-card-old-${pr.repoId}-${pr.number}-${shortSha(commitSha)}`}>
-      <header className="pr-head">
-        <strong className="pr-id">
-          {pr.repoName}#{pr.number}
-        </strong>
-        <span className="pr-title">{pr.title}</span>
-        <span className="old-tag">이전 커밋</span>
+    <article className="result-card" data-testid={`pr-card-${pr.repoId}-${pr.number}`}>
+      <header className="result-head">
+        <Icon name="branch" />
+        <div className="grow">
+          <b className="result-title">{pr.title}</b>
+          <small className="result-meta">
+            {pr.repoName}#{pr.number} · <code>{shortSha(pr.headSha)}</code>
+            {several && <span className="new-tag">최신 커밋</span>}
+            {at !== null && (
+              <>
+                {" "}
+                · <Time at={at} />
+              </>
+            )}
+          </small>
+        </div>
       </header>
-      <p className="pr-meta">
-        커밋 <code>{shortSha(commitSha)}</code>
-      </p>
-      <dl className="state-rows">
-        <div className="state-row">
+      <dl className="chip-rows">
+        <div className="chip-row" data-testid="github-status">
           <dt>GitHub</dt>
           <dd>
-            <span className="chip quiet">{recordedChecks === null ? "이 커밋의 검사 기록 없음" : `${CHECKS[recordedChecks]} (이 커밋의 마지막 기록)`}</span>
+            <span className={`chip pr-${pr.github.state}`}>{PR_STATE[pr.github.state]}</span>
+            <span className={`chip checks-${pr.github.checks}`}>{CHECKS[pr.github.checks]}</span>
+            <span className="chip">{GITHUB_REVIEW[pr.github.review]}</span>
           </dd>
         </div>
-        <div className="state-row">
+        <div className="chip-row" data-testid="studio-status">
           <dt>Studio</dt>
           <dd>
-            {reviews.length === 0 && previews.length === 0 && <span className="chip quiet">이 커밋의 기록 없음</span>}
-            {reviews.map((r) => (
-              <span key={r.id} className="chip outdated" data-testid="old-review">
-                {VERDICT[r.verdict]} · {VERDICT_MEANING[r.verdict]} · 커밋 {shortSha(r.commitSha)}
+            {current === undefined ? (
+              <span className="chip quiet">{NO_INTERNAL_REVIEW}</span>
+            ) : (
+              <span className={`chip studio-${current.verdict}`} data-testid="review-decision" data-freshness="current" data-verdict={current.verdict}>
+                {VERDICT[current.verdict]} · {VERDICT_MEANING[current.verdict]} · 커밋 {shortSha(current.commitSha)}
               </span>
-            ))}
-            {previews.map((p) => (
-              <span key={p.id} className="chip outdated">
-                Preview {shortSha(p.commitSha)} · 이전 버전
-              </span>
-            ))}
+            )}
+          </dd>
+        </div>
+        <div className="chip-row">
+          <dt>Preview</dt>
+          <dd>
+            <PreviewStatus view={preview} />
           </dd>
         </div>
       </dl>
-      <p className="old-note" data-testid="old-card-note">
-        {oldCardNote(pr.headSha)}
-      </p>
+      <div className="result-foot">
+        <a className="btn small" href={reviewHref} data-testid="open-review">
+          <Icon name="review" />
+          Open review
+        </a>
+        {foot}
+      </div>
     </article>
+  );
+}
+
+/**
+ * 이전 커밋의 카드 — 기록이다. 한 줄로 접혀 있고, 펼치면 그 커밋에 대해 기록된 검사 결과 · 검토 결정 · 미리보기가 보인다.
+ * PR 의 지금 상태(열림 · 병합 등)는 최신 카드에 있다. 이 카드에는 버튼이 없다(결정 16-5).
+ */
+export function OldPrCard({
+  pr,
+  commitSha,
+  recordedChecks,
+  foot,
+}: {
+  pr: PrCardView;
+  commitSha: string;
+  recordedChecks: PrCardView["github"]["checks"] | null;
+  foot?: ReactNode;
+}) {
+  const reviews = visibleReviews(pr.studio.reviews).filter((r) => r.commitSha === commitSha);
+  const previews = pr.studio.previews.filter((p) => p.commitSha === commitSha);
+  return (
+    <div className="old-card-wrap">
+      <details className="old-card" data-testid={`pr-card-old-${pr.repoId}-${pr.number}-${shortSha(commitSha)}`}>
+        <summary>
+          <Icon name="chevron" />
+          <span>
+            {pr.repoName}#{pr.number} · 커밋 <code>{shortSha(commitSha)}</code>
+          </span>
+          <span className="old-tag">이전 커밋</span>
+          {reviews.map((r) => (
+            <span key={r.id} className="chip outdated" data-testid="old-review">
+              {VERDICT[r.verdict]} · {VERDICT_MEANING[r.verdict]} · 커밋 {shortSha(r.commitSha)}
+            </span>
+          ))}
+        </summary>
+        <dl className="chip-rows">
+          <div className="chip-row">
+            <dt>GitHub</dt>
+            <dd>
+              <span className="chip quiet">{recordedChecks === null ? "이 커밋의 검사 기록 없음" : `${CHECKS[recordedChecks]} (이 커밋의 마지막 기록)`}</span>
+            </dd>
+          </div>
+          <div className="chip-row">
+            <dt>Studio</dt>
+            <dd>
+              {reviews.length === 0 && previews.length === 0 && <span className="chip quiet">이 커밋의 기록 없음</span>}
+              {reviews.map((r) => (
+                <span key={r.id} className="chip outdated">
+                  {VERDICT[r.verdict]} · 이전 커밋에 대한 결정
+                  {r.reason !== null && ` · ${r.reason}`}
+                </span>
+              ))}
+              {previews.map((p) => (
+                <span key={p.id} className="chip outdated">
+                  Preview {shortSha(p.commitSha)} · 이전 버전
+                </span>
+              ))}
+            </dd>
+          </div>
+        </dl>
+        <p className="old-note" data-testid="old-card-note">
+          {oldCardNote(pr.headSha)}
+        </p>
+      </details>
+      {foot}
+    </div>
   );
 }

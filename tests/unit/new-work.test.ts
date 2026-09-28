@@ -58,10 +58,17 @@ describe("빈 업무 만들기", () => {
     const { deps, readerCalls } = setup();
     await syncAll(deps);
     const calls = readerCalls.length;
-    const result = await createEmptyWork(deps, { projectId: "coach", title: "  코치 목록 검색 필터 " });
+    const result = await createEmptyWork(deps, { projectId: "coach", title: "  코치 목록 검색 필터 ", goal: "코치가 목록에서 원하는 선수를 바로 찾는다" });
     expect(result).toEqual({
       ok: true,
-      work: { id: "n00001", projectId: "coach", title: "코치 목록 검색 필터", status: "draft", createdAt: "2026-09-25T00:00:00.000Z" },
+      work: {
+        id: "n00001",
+        projectId: "coach",
+        title: "코치 목록 검색 필터",
+        goal: "코치가 목록에서 원하는 선수를 바로 찾는다",
+        status: "draft",
+        createdAt: "2026-09-25T00:00:00.000Z",
+      },
       marker: "studio-work-n00001",
     });
     const detail = await getWorkDetail(deps, "n00001");
@@ -74,11 +81,11 @@ describe("빈 업무 만들기", () => {
     const { deps } = setup();
     await syncAll(deps);
     const before = (await deps.store.listWorks()).length;
-    expect(await createEmptyWork(deps, { projectId: "coach", title: "   " })).toEqual({ ok: false, problem: "empty" });
-    expect(await createEmptyWork(deps, { projectId: "coach", title: "a\nb" })).toEqual({ ok: false, problem: "control_char" });
-    expect(await createEmptyWork(deps, { projectId: "coach", title: "x".repeat(201) })).toEqual({ ok: false, problem: "too_long" });
-    expect(await createEmptyWork(deps, { projectId: "nope", title: "업무" })).toEqual({ ok: false, problem: "no_project" });
-    expect(await createEmptyWork(deps, { projectId: "", title: "업무" })).toEqual({ ok: false, problem: "no_project" });
+    expect(await createEmptyWork(deps, { projectId: "coach", title: "   ", goal: "코치가 목록에서 원하는 선수를 바로 찾는다" })).toEqual({ ok: false, problem: "empty" });
+    expect(await createEmptyWork(deps, { projectId: "coach", title: "a\nb", goal: "코치가 목록에서 원하는 선수를 바로 찾는다" })).toEqual({ ok: false, problem: "control_char" });
+    expect(await createEmptyWork(deps, { projectId: "coach", title: "x".repeat(201), goal: "코치가 목록에서 원하는 선수를 바로 찾는다" })).toEqual({ ok: false, problem: "too_long" });
+    expect(await createEmptyWork(deps, { projectId: "nope", title: "업무", goal: "코치가 목록에서 원하는 선수를 바로 찾는다" })).toEqual({ ok: false, problem: "no_project" });
+    expect(await createEmptyWork(deps, { projectId: "", title: "업무", goal: "코치가 목록에서 원하는 선수를 바로 찾는다" })).toEqual({ ok: false, problem: "no_project" });
     expect((await deps.store.listWorks()).length).toBe(before);
   });
 
@@ -86,7 +93,7 @@ describe("빈 업무 만들기", () => {
     const { deps } = setup();
     const ids = ["a1b2c3", "BAD-ID", "z9"];
     const issuing = { ...deps, newId: () => ids.shift() ?? "never" };
-    const result = await createEmptyWork(issuing, { projectId: "coach", title: "업무" });
+    const result = await createEmptyWork(issuing, { projectId: "coach", title: "업무", goal: "코치가 목록에서 원하는 선수를 바로 찾는다" });
     expect(result.ok && result.work.id).toBe("z9");
   });
 });
@@ -95,7 +102,7 @@ describe("표식을 넣은 PR 은 다음 Sync 에서 그 업무에 붙는다 (�
   it("본문이나 브랜치 이름에 표식이 든 PR 은 자동 연결되고(업무는 R1 로 진행 중), 표식이 없는 PR 은 Inbox 에 남는다", async () => {
     const { data, deps } = setup();
     await syncAll(deps);
-    const result = await createEmptyWork(deps, { projectId: "coach", title: "코치 목록 검색 필터" });
+    const result = await createEmptyWork(deps, { projectId: "coach", title: "코치 목록 검색 필터", goal: "코치가 목록에서 원하는 선수를 바로 찾는다" });
     if (!result.ok) throw new Error("업무를 만들지 못했다");
     const { work, marker } = result;
     const inboxBefore = (await getWorkspace(deps)).inboxCount;
@@ -125,7 +132,7 @@ describe("표식을 넣은 PR 은 다음 Sync 에서 그 업무에 붙는다 (�
   it("다른 프로젝트 저장소의 PR 이나 복제본의 PR 에 그 표식이 있으면 붙지 않고 Inbox 로 간다 (계약 §4, 결정 10)", async () => {
     const { data, deps } = setup();
     await syncAll(deps);
-    const result = await createEmptyWork(deps, { projectId: "coach", title: "코치 목록 검색 필터" });
+    const result = await createEmptyWork(deps, { projectId: "coach", title: "코치 목록 검색 필터", goal: "코치가 목록에서 원하는 선수를 바로 찾는다" });
     if (!result.ok) throw new Error("업무를 만들지 못했다");
     data.pullRequests.push(
       newPr({ repoId: DEMO_REPO.playerApp, number: 50, body: result.marker }),

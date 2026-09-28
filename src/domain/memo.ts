@@ -97,7 +97,8 @@ export function resolveThread(target: ThreadTarget, memos: readonly Memo[]): Thr
 
 export type MemoBodyProblem = "empty" | "too_long" | "control_char";
 
-const CONTROL_BUT_NEWLINE = /[\0-\x09\x0B-\x1F\x7F-\x9F\u2028\u2029\u202A-\u202E\u2066-\u2069]/u;
+/** 줄바꿈(\n) 밖의 보이지 않는 제어 문자. 목표(work-goal.ts) · 검토 결정의 글(review-note.ts)도 같은 규칙을 쓴다 */
+export const CONTROL_BUT_NEWLINE =/[\0-\x09\x0B-\x1F\x7F-\x9F\u2028\u2029\u202A-\u202E\u2066-\u2069]/u;
 
 export function checkMemoBody(raw: string): { readonly ok: true; readonly body: string } | { readonly ok: false; readonly problem: MemoBodyProblem } {
   const body = raw.replace(/\r\n?/g, "\n").trim();

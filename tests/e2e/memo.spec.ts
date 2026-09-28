@@ -6,19 +6,11 @@
  * 메모는 서버 메모리(기본) 또는 PostgreSQL(E2E_STORAGE=postgres)에 남는다. 서버를 껐다 켠 뒤에도 남는지는 restart.spec 이 본다.
  */
 import { expect, type Page, test } from "@playwright/test";
-
-function watchServerErrors(page: Page): string[] {
-  const errors: string[] = [];
-  page.on("response", (r) => {
-    if (r.status() >= 500) errors.push(`${r.status()} ${r.url()}`);
-  });
-  return errors;
-}
+import { openWork, watchServerErrors } from "./helpers";
 
 async function openCoachWork(page: Page): Promise<void> {
   await page.goto("/");
-  await page.getByTestId("work-b4c5d6").getByRole("link", { name: "코치 로그인 개편" }).click();
-  await expect(page).toHaveURL(/\/works\/b4c5d6$/);
+  await openWork(page, "b4c5d6");
 }
 
 test("메모를 쓰면 타임라인에 '나' 와 시각과 함께 쌓이고, 새로 고쳐도 남는다. 고치면 '고침', 지우면 '지워진 메모' 자리만 남는다", async ({ page }) => {

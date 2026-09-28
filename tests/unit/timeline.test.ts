@@ -15,7 +15,7 @@ import type { PrEvent } from "../../src/domain/pr-event";
 import { setup } from "./helpers";
 
 const sha = (c: string) => c.repeat(40);
-const work: Work = { id: "w1", projectId: "p", title: "업무", status: "in_progress", createdAt: "2026-09-27T01:00:00.000Z" };
+const work: Work = { id: "w1", projectId: "p", title: "업무", goal: "", status: "in_progress", createdAt: "2026-09-27T01:00:00.000Z" };
 const card = (number: number, headSha: string): PrCardView =>
   ({
     key: `1#${number}`,
@@ -72,7 +72,7 @@ describe("타임라인 조립 — 시간순 · 날짜 구분 · 주인", () => {
       ev({ id: "c", kind: "checks", checks: "passing", commitSha: sha("b"), at: "2026-09-28T03:00:00.000Z" }),
     ];
     const reviews: ReviewDecision[] = [
-      { id: "r", workId: "w1", repoId: 1, number: 1, commitSha: sha("b"), verdict: "internal_review_done", decidedAt: "2026-09-28T04:00:00.000Z" },
+      { id: "r", workId: "w1", repoId: 1, number: 1, commitSha: sha("b"), verdict: "internal_review_done", decidedAt: "2026-09-28T04:00:00.000Z", reason: null, doneWhen: null },
     ];
     const statusChanges = [
       { from: "draft", to: "in_progress", at: "2026-09-27T02:00:00.000Z", cause: { kind: "rule", rule: "R1", evidence: [] } },
@@ -135,7 +135,7 @@ describe("PR 카드는 커밋 단위 — 버튼은 최신 카드에만", () => {
 
   it("이벤트 없이 내부 검토 결정만 가리키는 이전 커밋은 그 결정 바로 앞에 카드가 되고, 기록 시작 줄은 첫 이벤트의 시각이다", () => {
     const reviews: ReviewDecision[] = [
-      { id: "r", workId: "w1", repoId: 1, number: 1, commitSha: sha("z"), verdict: "changes_requested", decidedAt: "2026-09-27T05:00:00.000Z" },
+      { id: "r", workId: "w1", repoId: 1, number: 1, commitSha: sha("z"), verdict: "changes_requested", decidedAt: "2026-09-27T05:00:00.000Z", reason: "이유", doneWhen: "기준" },
     ];
     const events = [ev({ id: "l", kind: "linked", origin: "marker", commitSha: sha("a"), at: "2026-09-28T01:00:00.000Z" })];
     const out = buildTimeline(input({ cards: [card(1, sha("a"))], events, reviews }));
@@ -172,7 +172,7 @@ describe("시연 데이터로 — 업무 화면이 받는 모양 (getWorkChat)",
     const { deps } = setup();
     await syncAll(deps);
     const before = (await getWorkChat(deps, "a1b2c3", { now: "2026-09-25T00:00:00.000Z" }))!.timeline;
-    await recordReviewDecision(deps, { repoId: DEMO_REPO.payments, number: 12, workId: "a1b2c3", verdict: "internal_review_done" });
+    await recordReviewDecision(deps, { repoId: DEMO_REPO.payments, number: 12, workId: "a1b2c3", verdict: "internal_review_done", viewedSha: DEMO_SHA.payments12Head });
     const after = (await getWorkChat(deps, "a1b2c3", { now: "2026-09-25T00:00:00.000Z" }))!.timeline;
     expect(after.filter((e) => e.type === "card")).toHaveLength(before.filter((e) => e.type === "card").length);
     expect(after.at(-1)).toMatchObject({ type: "review", verdict: "internal_review_done", commitSha: DEMO_SHA.payments12Head });

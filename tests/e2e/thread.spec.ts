@@ -11,17 +11,10 @@
  */
 import { expect, type Page, test } from "@playwright/test";
 import { join } from "node:path";
+import { openWork, watchServerErrors } from "./helpers";
 
 const LATEST = "card-foot-710001-12-3c4d5e6";
 const OLD = "card-foot-710001-12-9f8e7d6";
-
-function watchServerErrors(page: Page): string[] {
-  const errors: string[] = [];
-  page.on("response", (r) => {
-    if (r.status() >= 500) errors.push(`${r.status()} ${r.url()}`);
-  });
-  return errors;
-}
 
 /** 보고용 화면을 따로 남기고 싶을 때만 CHAT_SHOTS 폴더에 저장한다 */
 async function shot(page: Page, name: string): Promise<void> {
@@ -31,8 +24,7 @@ async function shot(page: Page, name: string): Promise<void> {
 
 async function openLoginWork(page: Page): Promise<void> {
   await page.goto("/");
-  await page.getByTestId("work-a1b2c3").getByRole("link", { name: "로그인 화면 만들기" }).click();
-  await expect(page).toHaveURL(/\/works\/a1b2c3$/);
+  await openWork(page, "a1b2c3");
 }
 
 const memos = (page: Page) => page.getByTestId("timeline").locator('[data-kind="memo"]');
@@ -60,7 +52,7 @@ test("메모의 Reply 로 오른쪽 스레드를 열고, 답글을 달고, 닫�
   await expect(box).toHaveAttribute("placeholder", "답글을 남긴다");
   await expect(panel.getByTestId("reply-composer")).toContainText("답글도 AI 에게 전달되지 않는다.");
 
-  // 넓은 화면: 채널 · 타임라인 · 스레드 세 칸이 나란히 (스레드는 오른쪽)
+  // 넓은 화면: 타임라인과 스레드가 나란히 (스레드는 오른쪽, Work details 자리)
   const [tl, side] = [await page.getByRole("region", { name: "Timeline" }).boundingBox(), await panel.boundingBox()];
   expect(side!.x).toBeGreaterThanOrEqual(tl!.x + tl!.width - 1);
 

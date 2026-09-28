@@ -17,6 +17,7 @@ import type { PrSnapshot } from "../../src/domain/model";
 import { setup } from "./helpers";
 
 const payments12 = { repoId: DEMO_REPO.payments, number: 12 };
+const DOCS12_HEAD = "6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a";
 const docs12 = { repoId: DEMO_REPO.docsSite, number: 12 };
 
 async function statusOf(deps: ReturnType<typeof setup>["deps"], workId: string) {
@@ -93,10 +94,10 @@ describe("사람이 무언가를 한 뒤 그 자리에서 다시 판정한다", 
     const { deps } = setup();
     await syncAll(deps);
     const work = await createWorkFromPr(deps, docs12);
-    await recordReviewDecision(deps, { ...docs12, workId: work.id, verdict: "internal_review_done" });
+    await recordReviewDecision(deps, { ...docs12, workId: work.id, verdict: "internal_review_done", viewedSha: DOCS12_HEAD });
     expect(await statusOf(deps, work.id)).toBe("in_progress");
     expect((await historyOf(deps, work.id)).at(-1)).toBe("R3b:needs_review->in_progress");
-    await recordReviewDecision(deps, { ...docs12, workId: work.id, verdict: "changes_requested" });
+    await recordReviewDecision(deps, { ...docs12, workId: work.id, verdict: "changes_requested", viewedSha: DOCS12_HEAD, reason: "안내가 틀렸다", doneWhen: "안내가 맞다" });
     expect(await historyOf(deps, work.id)).toHaveLength(3);
   });
 
