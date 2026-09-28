@@ -248,7 +248,8 @@ input:focus, textarea:focus, select:focus { outline: 2px solid #365be833; border
 .work-head h1 { font-size: 23px; line-height: 1.35; font-weight: 650; letter-spacing: -0.03em; }
 .notice-bar { padding: 0 34px; }
 .work-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; min-height: calc(100dvh - 110px); background: var(--paper); }
-.work-main { display: flex; flex-direction: column; min-width: 0; padding: 24px 34px 0; }
+/* 왼쪽 열은 제 스크롤을 가진다 — 오른쪽 열이 더 길어 화면이 내려가도 입력칸이 마지막 카드의 Reply 를 덮지 않는다 */
+.work-main { display: flex; flex-direction: column; min-width: 0; padding: 24px 34px 0; position: sticky; top: 0; max-height: 100dvh; overflow-y: auto; }
 .work-side { border-left: 1px solid var(--line); background: #fbfcf9; padding: 22px 20px 40px; }
 .panel-open .work-grid { grid-template-columns: minmax(0, 1fr) 380px; }
 .panel-open .work-side { display: none; }
