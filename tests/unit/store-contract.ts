@@ -473,6 +473,7 @@ export function describeStoreContract(kind: string, make: StoreFactory): void {
         createdAt,
         editedAt: null,
         deletedAt: null,
+        thread: null,
       });
 
       it("쓴 그대로(줄바꿈 · 작성자 포함) 업무별로, 쌓인 순서대로 돌아온다 (같은 시각이어도)", async () => {
@@ -540,6 +541,64 @@ export function describeStoreContract(kind: string, make: StoreFactory): void {
         const got = (await store.listMemos("w1")) as { body: string }[];
         got[0]!.body = "x";
         expect(await store.listMemos("w1")).toEqual([memo("m0")]);
+      });
+      describe("답글 (feature-plan F9 스레드)", () => {
+        const sha = "3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d";
+        const toMemo = (id: string, memoId: string, workId = "w1"): Memo => ({ ...memo(id, workId), thread: { kind: "memo", memoId } });
+        const toCard = (id: string, commitSha = sha): Memo => ({ ...memo(id), thread: { kind: "card", repoId: 710001, number: 12, commitSha } });
+
+        it("메모와 PR 카드(커밋)에 단 답글이 대상 그대로, 최상위 메모와 함께 쌓인 순서대로 돌아온다", async () => {
+          const store = await make({ projects: [project], works: [work] });
+          await store.addMemo(memo("m1"));
+          await store.addMemo(toMemo("r1", "m1"));
+          await store.addMemo(toCard("r2"));
+          await store.addMemo(toCard("r3", "9f8e7d6c5b4a39281706f5e4d3c2b1a098765432"));
+          expect(await store.listMemos("w1")).toEqual([memo("m1"), toMemo("r1", "m1"), toCard("r2"), toCard("r3", "9f8e7d6c5b4a39281706f5e4d3c2b1a098765432")]);
+        });
+
+        it("한 단계만: 답글에 단 답글 · 다른 업무의 메모 · 없는 메모에 단 답글은 invalid_input 이고 아무것도 쓰지 않는다", async () => {
+          const store = await make({ projects: [project], works: [work, other] });
+          await store.addMemo(memo("m1"));
+          await store.addMemo(memo("m2", "w2"));
+          await store.addMemo(toMemo("r1", "m1"));
+          await expect(store.addMemo(toMemo("r2", "r1"))).rejects.toMatchObject({ code: "invalid_input" });
+          await expect(store.addMemo(toMemo("r3", "m2"))).rejects.toMatchObject({ code: "invalid_input" });
+          await expect(store.addMemo(toMemo("r4", "nope"))).rejects.toMatchObject({ code: "invalid_input" });
+          await expect(store.addMemo(toMemo("r5", "m1", "ghost"))).rejects.toMatchObject({ code: "not_found" }); // 업무가 먼저
+          expect((await store.listMemos("w1")).map((m) => m.id)).toEqual(["m1", "r1"]);
+          expect((await store.listMemos("w2")).map((m) => m.id)).toEqual(["m2"]);
+        });
+
+        it("모양 밖의 대상(대문자 · 짧은 커밋, 0 번 PR, 빈 메모 ID)은 invalid_input", async () => {
+          const store = await make({ projects: [project], works: [work] });
+          const bad: Memo["thread"][] = [
+            { kind: "card", repoId: 710001, number: 12, commitSha: sha.toUpperCase() },
+            { kind: "card", repoId: 710001, number: 12, commitSha: "abc" },
+            { kind: "card", repoId: 710001, number: 0, commitSha: sha },
+            { kind: "memo", memoId: "" },
+          ];
+          for (const thread of bad) await expect(store.addMemo({ ...memo("r1"), thread })).rejects.toMatchObject({ code: "invalid_input" });
+          expect(await store.listMemos("w1")).toEqual([]);
+        });
+
+        it("답글도 고치고 지운다. 대상 메모를 지워도 답글은 남는다", async () => {
+          const store = await make({ projects: [project], works: [work] });
+          await store.addMemo(memo("m1"));
+          await store.addMemo(toMemo("r1", "m1"));
+          await store.editMemo({ workId: "w1", id: "r1", body: "고친 답글", editedAt: "2026-09-28T01:00:00.000Z" });
+          await store.deleteMemo({ workId: "w1", id: "m1", deletedAt: "2026-09-28T02:00:00.000Z" });
+          expect(await store.listMemos("w1")).toEqual([
+            { ...memo("m1"), body: "", deletedAt: "2026-09-28T02:00:00.000Z" },
+            { ...toMemo("r1", "m1"), body: "고친 답글", editedAt: "2026-09-28T01:00:00.000Z" },
+          ]);
+          await store.deleteMemo({ workId: "w1", id: "r1", deletedAt: "2026-09-28T03:00:00.000Z" });
+          expect((await store.listMemos("w1"))[1]).toMatchObject({ body: "", deletedAt: "2026-09-28T03:00:00.000Z", thread: { kind: "memo", memoId: "m1" } });
+        });
+
+        it("처음 상태로 심은 답글도 그대로 돌아온다", async () => {
+          const store = await make({ projects: [project], works: [work], memos: [memo("m0"), toMemo("r0", "m0"), toCard("r1")] });
+          expect(await store.listMemos("w1")).toEqual([memo("m0"), toMemo("r0", "m0"), toCard("r1")]);
+        });
       });
     });
   });

@@ -10,7 +10,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createWorkFromPr, linkPrToWork, unlinkPr } from "../application/inbox-actions";
-import { deleteMemo, editMemo, type MemoProblem, writeMemo } from "../application/memo";
+import { deleteMemo, editMemo, type MemoProblem, writeMemo, writeReply } from "../application/memo";
+import { parseThreadKey, threadKey } from "../domain/memo";
 import { createEmptyWork } from "../application/new-work";
 import { startPreview, stopPreview } from "../application/preview";
 import { isReviewVerdict, recordReviewDecision } from "../application/review";
@@ -197,6 +198,11 @@ function memoPath(workId: string, params: Record<string, string>, anchor: string
   return `/works/${encodeURIComponent(workId)}${query === "" ? "" : `?${query}`}${anchor === null ? "" : `#${anchor}`}`;
 }
 const memoAnchor = (id: string) => `memo-${id}`;
+/** 스레드 칸 안의 폼이면 그 스레드 이름. 돌아갈 때 스레드를 연 채로 돌아간다 */
+const threadOf = (form: FormData): Record<string, string> => {
+  const key = String(form.get("thread") ?? "");
+  return parseThreadKey(key) === null ? {} : { thread: key };
+};
 
 export async function writeMemoAction(form: FormData): Promise<void> {
   const workId = String(form.get("workId") ?? "");
@@ -213,10 +219,11 @@ export async function editMemoAction(form: FormData): Promise<void> {
   const container = getContainer();
   await container.ensureSynced();
   const result = await editMemo(container.deps, { workId, id, body: String(form.get("body") ?? "") });
+  const thread = threadOf(form);
   const failed = (problem: MemoProblem) =>
-    problem === "no_memo" ? memoPath(workId, { memo: problem }, null) : memoPath(workId, { memo: problem, edit: id }, memoAnchor(id));
+    problem === "no_memo" ? memoPath(workId, { ...thread, memo: problem }, null) : memoPath(workId, { ...thread, memo: problem, edit: id }, memoAnchor(id));
   revalidatePath("/", "layout");
-  redirect(result.ok ? memoPath(workId, {}, memoAnchor(id)) : failed(result.problem));
+  redirect(result.ok ? memoPath(workId, thread, memoAnchor(id)) : failed(result.problem));
 }
 
 export async function deleteMemoAction(form: FormData): Promise<void> {
@@ -225,6 +232,24 @@ export async function deleteMemoAction(form: FormData): Promise<void> {
   const container = getContainer();
   await container.ensureSynced();
   const result = await deleteMemo(container.deps, { workId, id });
+  const thread = threadOf(form);
   revalidatePath("/", "layout");
-  redirect(result.ok ? memoPath(workId, {}, memoAnchor(id)) : memoPath(workId, { memo: result.problem }, null));
+  redirect(result.ok ? memoPath(workId, thread, memoAnchor(id)) : memoPath(workId, { ...thread, memo: result.problem }, null));
+}
+
+/**
+ * 스레드의 Reply (feature-plan F9). 답글도 메모라 Studio 저장소에만 쓰고 GitHub 에도 AI 에게도 보내지 않는다.
+ * 성공하면 스레드를 연 채로 그 답글 자리로, 걸리면 스레드 입력칸에 이유를 보인다(?reply=). 스레드 이름이 틀리면 업무 화면으로 돌아간다.
+ */
+export async function writeReplyAction(form: FormData): Promise<void> {
+  const workId = String(form.get("workId") ?? "");
+  const key = String(form.get("thread") ?? "");
+  const target = parseThreadKey(key);
+  const container = getContainer();
+  await container.ensureSynced();
+  const result = target === null ? ({ ok: false, problem: "no_thread" } as const) : await writeReply(container.deps, { workId, thread: target, body: String(form.get("body") ?? "") });
+  revalidatePath("/", "layout");
+  // 답글에 단 답글은 그 답글이 달린 스레드로 들어갔으므로(한 단계만), 돌아갈 스레드도 실제로 들어간 스레드다
+  if (result.ok) redirect(memoPath(workId, { thread: threadKey(result.memo.thread!) }, memoAnchor(result.memo.id)));
+  redirect(target === null ? memoPath(workId, {}, null) : memoPath(workId, { thread: key, reply: result.problem }, "thread"));
 }

@@ -330,4 +330,21 @@ export const MEMO_PROBLEM: Record<MemoProblem, string> = {
   control_char: "메모에 보이지 않는 제어 문자(탭 등)가 들어 있다. 줄바꿈은 된다.",
   no_work: "이 업무를 찾지 못했다.",
   no_memo: "그 메모가 없거나 이미 지워졌다 — 화면이 오래됐을 수 있다.",
+  no_thread: "이 스레드에는 새 답글을 달 수 없다 — 메모가 지워졌거나 새 커밋이 와서 최신 카드가 바뀌었을 수 있다(화면이 오래됐을 수 있다).",
 };
+
+// ── 스레드 (feature-plan F9, 시안 v2 의 thread 패널) ──────────────────────────────
+
+export const REPLY_PLACEHOLDER = "답글을 남긴다";
+/** 스레드 입력칸 아래의 안내 (시안 v2 그대로) */
+export const REPLY_NOTE = "답글도 AI 에게 전달되지 않는다.";
+/** PR 카드 스레드의 대상 아래 한 줄 (시안 v2 그대로) */
+export const CARD_THREAD_NOTE = "이 스레드는 이 커밋의 카드에 붙는다. 새 커밋이 오면 새 카드에서 새 스레드가 시작된다.";
+export const NO_REPLIES = "아직 답글이 없다.";
+export const repliesLabel = (n: number) => `답글 ${n}`;
+/** 새 답글을 받지 않는 스레드의 이유 (입력칸 자리에 보인다) */
+export function threadClosedText(reason: "deleted_memo" | "old_card", headSha: string | null): string {
+  return reason === "deleted_memo"
+    ? "지워진 메모의 스레드다. 남은 답글은 읽을 수 있고, 새 답글은 달지 않는다."
+    : `이전 커밋 카드의 스레드다. 남은 답글은 여기에 그대로 있고, 새 답글은 최신 카드(${shortSha(headSha ?? "")})의 Reply 로 남긴다.`;
+}

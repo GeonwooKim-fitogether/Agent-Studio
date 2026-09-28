@@ -26,11 +26,12 @@ import {
   type UnlinkRecord,
   type Work,
 } from "../domain/model";
+import type { ThreadTarget } from "../domain/memo";
 import { markerFor } from "../domain/work-marker";
 import type { PrFingerprint, StatusChange, StatusRule } from "../domain/work-status";
 import type { StudioStore } from "../ports/studio-store";
 import type { AppDeps } from "./deps";
-import { buildTimeline, type TimelineEntry } from "./timeline";
+import { buildThread, buildTimeline, type ThreadView, type TimelineEntry } from "./timeline";
 
 export interface CommitRecordView {
   readonly id: string;
@@ -138,25 +139,28 @@ export interface ChannelGroupView {
 export interface WorkChatView extends WorkDetailView {
   readonly channels: readonly ChannelGroupView[];
   readonly timeline: readonly TimelineEntry[];
+  /** 열린 스레드 (F9). 스레드를 고르지 않았거나 이 업무에 그 항목이 없으면 null */
+  readonly thread: ThreadView | null;
 }
 
 export async function getWorkChat(
   deps: Pick<AppDeps, "store">,
   workId: string,
-  options: { readonly now: string; readonly dayOf?: (iso: string) => string },
+  options: { readonly now: string; readonly dayOf?: (iso: string) => string; readonly thread?: ThreadTarget | null },
 ): Promise<WorkChatView | undefined> {
   const s = await loadAll(deps.store);
   const work = s.works.find((w) => w.id === workId);
   const project = work && s.projects.find((p) => p.id === work.projectId);
   if (work === undefined || project === undefined) return undefined;
   const summary = summarizeWork(s, work);
+  const memos = await deps.store.listMemos(work.id);
   const timeline = buildTimeline({
     work,
     cards: summary.prs,
     events: await deps.store.listPrEvents(work.id),
     statusChanges: s.statusChanges.filter((c) => c.workId === work.id).map((c) => toChangeView(s, c)),
     reviews: s.reviews.filter((r) => r.workId === work.id),
-    memos: await deps.store.listMemos(work.id),
+    memos,
     repoName: (id) => s.repositories.get(id)?.fullName ?? `저장소 ${id}`,
     now: options.now,
     ...(options.dayOf === undefined ? {} : { dayOf: options.dayOf }),
@@ -169,6 +173,7 @@ export async function getWorkChat(
       works: s.works.filter((w) => w.projectId === p.id).map((w) => ({ id: w.id, title: w.title, status: w.status })),
     })),
     timeline,
+    thread: options.thread === undefined || options.thread === null ? null : buildThread(timeline, memos, options.thread),
   };
 }
 

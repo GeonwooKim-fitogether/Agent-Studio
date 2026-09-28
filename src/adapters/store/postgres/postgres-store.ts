@@ -24,7 +24,7 @@ import {
   isValidPrRef,
   withoutNul,
 } from "../../../domain/model";
-import { isAcceptedMemoBody, type Memo } from "../../../domain/memo";
+import { isAcceptedMemoBody, isValidThreadTarget, type Memo, type ThreadTarget } from "../../../domain/memo";
 import { isPrEventKind, type PrEvent } from "../../../domain/pr-event";
 import { isValidWorkId } from "../../../domain/work-marker";
 import { isWorkStatus, type PrFingerprint, type StatusCause, type StatusChange, type StatusEvidence } from "../../../domain/work-status";
@@ -139,14 +139,34 @@ const toMemo = (r: Row): Memo => ({
   createdAt: iso(r["created_at"]),
   editedAt: r["edited_at"] === null ? null : iso(r["edited_at"]),
   deletedAt: r["deleted_at"] === null ? null : iso(r["deleted_at"]),
+  thread: toThread(r),
 });
+
+function toThread(r: Row): ThreadTarget | null {
+  if (r["thread_memo_id"] !== null) return { kind: "memo", memoId: String(r["thread_memo_id"]) };
+  if (r["thread_repo_id"] === null) return null;
+  return { kind: "card", repoId: Number(r["thread_repo_id"]), number: Number(r["thread_number"]), commitSha: String(r["thread_commit_sha"]) };
+}
 
 /** 메모 한 건을 쓴다. 같은 ID 가 이미 있으면 invalid_input (메모리 구현과 같다) */
 async function insertMemo(db: Queryable, m: Memo): Promise<void> {
   const inserted = await db.query(
-    `insert into memo (id, work_id, author, body, created_at, edited_at, deleted_at) values ($1, $2, $3, $4, $5, $6, $7)
+    `insert into memo (id, work_id, author, body, created_at, edited_at, deleted_at, thread_memo_id, thread_repo_id, thread_number, thread_commit_sha)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      on conflict (id) do nothing`,
-    [m.id, m.workId, m.author, m.body, m.createdAt, m.editedAt, m.deletedAt],
+    [
+      m.id,
+      m.workId,
+      m.author,
+      m.body,
+      m.createdAt,
+      m.editedAt,
+      m.deletedAt,
+      m.thread?.kind === "memo" ? m.thread.memoId : null,
+      m.thread?.kind === "card" ? m.thread.repoId : null,
+      m.thread?.kind === "card" ? m.thread.number : null,
+      m.thread?.kind === "card" ? m.thread.commitSha : null,
+    ],
   );
   if ((inserted.rowCount ?? 0) === 0) throw new StudioError("invalid_input", "같은 ID 의 메모가 이미 있다.");
 }
@@ -195,6 +215,10 @@ async function inTransaction<T>(pool: Pool, fn: (client: PoolClient) => Promise<
 function translate(error: unknown): unknown {
   if (error instanceof StudioError) return error;
   const code = (error as { code?: unknown }).code;
+  // 답글의 대상이 같은 업무의 최상위 메모가 아니다 (스레드는 한 단계만, 20260928021302_memo_thread.sql)
+  if (code === "23503" && (error as { constraint?: unknown }).constraint === "memo_thread_top") {
+    return new StudioError("invalid_input", "답글은 같은 업무의 최상위 메모에만 단다.");
+  }
   if (code === "23503") return new StudioError("not_found", "가리키는 업무나 프로젝트가 없다.");
   // 23514 check 위반 · 23502 not null · 22003 범위 초과 · 22P02 형식 · 22021 NUL 같은 저장할 수 없는 글자
   if (code === "23514" || code === "23502" || code === "22003" || code === "22P02" || code === "22021") {
@@ -463,8 +487,15 @@ export function createPostgresStore(pool: Pool): StudioStore {
     },
 
     async addMemo(memo) {
-      // 확인 순서는 메모리 구현과 같다: 값 → 없는 업무(외래 키 위반 → not_found) → 같은 ID
-      if (!isAcceptedMemoBody(memo.body) || memo.author === "" || memo.editedAt !== null || memo.deletedAt !== null) {
+      // 확인 순서는 메모리 구현과 같다: 값 → 없는 업무(외래 키 위반 → not_found) → 같은 ID → 답글의 대상(memo_thread_top 위반 → invalid_input)
+      // 업무의 외래 키가 먼저 만들어져 먼저 확인된다
+      if (
+        !isAcceptedMemoBody(memo.body) ||
+        memo.author === "" ||
+        memo.editedAt !== null ||
+        memo.deletedAt !== null ||
+        (memo.thread !== null && !isValidThreadTarget(memo.thread))
+      ) {
         throw new StudioError("invalid_input", "메모 값이 올바르지 않다.");
       }
       try {
