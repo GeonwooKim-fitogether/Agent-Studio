@@ -5,6 +5,7 @@ import { getSidebar } from "../application/queries";
 import { getContainer } from "../server/container";
 import { syncAction } from "./actions";
 import { AutoRefresh } from "./components/auto-refresh";
+import { Hydrated } from "./components/hydrated";
 import { Icon } from "./components/glyph";
 import { formatAgo, formatKst } from "./components/labels";
 import { sourceStatusText } from "./components/source-status";
@@ -72,6 +73,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   return (
     <html lang="ko">
       <body>
+        <Hydrated />
         <div className="app">
           <aside className="sidebar" aria-label="Sidebar">
             <a href="/" className="brand">

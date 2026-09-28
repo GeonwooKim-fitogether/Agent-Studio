@@ -11,7 +11,7 @@
  */
 import { expect, type Page, test } from "@playwright/test";
 import { join } from "node:path";
-import { openWork, watchServerErrors } from "./helpers";
+import { hydrated, openWork, watchServerErrors } from "./helpers";
 
 const LATEST = "card-foot-710001-12-3c4d5e6";
 const OLD = "card-foot-710001-12-9f8e7d6";
@@ -81,6 +81,7 @@ test("메모의 Reply 로 오른쪽 스레드를 열고, 답글을 달고, 닫�
 
   // 답글 고치기 — 스레드 안에서 Edit · Save 하고 스레드에 머문다
   await panel.getByTestId("reply").nth(1).getByRole("link", { name: "Edit" }).click();
+  await hydrated(page);
   await panel.getByRole("textbox", { name: "Edit memo" }).fill("OTP 표기는 화면에서 뺀다");
   await panel.getByRole("button", { name: "Save" }).click();
   await expect(thread(page).getByTestId("reply").nth(1).getByTestId("memo-body")).toHaveText("OTP 표기는 화면에서 뺀다");

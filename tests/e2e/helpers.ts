@@ -3,6 +3,14 @@
  */
 import { expect, type Locator, type Page } from "@playwright/test";
 
+/**
+ * 브라우저 쪽 React 가 화면에 붙기(하이드레이션)를 기다린다. 미리 채워진 textarea(메모 Edit · 목표 Edit)는 React 가 붙는 순간
+ * 본문을 다시 놓으므로, 그 전에 fill 하면 새 글 뒤에 옛 글이 이어 붙는다(부하가 큰 CI 에서 실측). 자바스크립트를 끈 시험에서는 부르지 않는다.
+ */
+export async function hydrated(page: Page): Promise<void> {
+  await expect(page.locator("html")).toHaveAttribute("data-hydrated", "1");
+}
+
 /** 지금 보이는 주 내비게이션 (넓은 화면은 사이드바, 휴대전화 폭은 아래쪽 탭) */
 export const nav = (page: Page) => page.getByRole("navigation", { name: "Main" });
 
