@@ -47,10 +47,12 @@ export async function openWork(page: Page, workId: string): Promise<void> {
   await expect(page).toHaveURL(new RegExp(`/works/${workId}(\\?|#|$)`));
 }
 
-/** Workspace 를 한 프로젝트로 거른다 (사이드바의 Projects — 넓은 화면만) */
+/** Workspace 를 한 프로젝트로 거른다 (사이드바의 Projects — 넓은 화면만). 끝나지 않은 업무가 없는 프로젝트는 "N more" 안에 접혀 있어 먼저 펼친다 */
 export async function filterProject(page: Page, projectId: string): Promise<void> {
   if (new URL(page.url()).pathname !== "/") await nav(page).getByRole("link", { name: "Workspace" }).click();
-  await page.getByTestId(`project-filter-${projectId}`).click();
+  const link = page.getByTestId(`project-filter-${projectId}`);
+  if (!(await link.isVisible())) await page.getByTestId("project-more").locator("summary").click();
+  await link.click();
   await expect(page).toHaveURL(new RegExp(`project=${projectId}`));
 }
 

@@ -85,11 +85,16 @@ input:focus, textarea:focus, select:focus { outline: 2px solid #365be833; border
 .nav-item .count { margin-left: auto; font-size: 11px; line-height: 18px; padding: 0 6px; border-radius: 4px; background: #e2e5dd; color: var(--ink); font-weight: 650; }
 .project-nav { margin-top: 30px; display: grid; gap: 2px; }
 .project-nav .eyebrow { display: flex; justify-content: space-between; padding: 0 12px; margin-bottom: 8px; font-size: 10px; }
-.project-nav a { display: flex; align-items: center; gap: 9px; min-height: 36px; padding: 6px 12px; border-radius: 6px; color: #62685e; font-size: 12px; }
+.project-nav a { display: flex; align-items: center; gap: 9px; min-height: 36px; padding: 6px 12px; border-radius: 6px; color: #62685e; font-size: 12px; min-width: 0; }
 .project-nav a:hover, .project-nav a.selected { background: #e5e9df; color: var(--ink); }
 .project-nav a .icon { width: 15px; height: 15px; }
-.project-initial { flex-shrink: 0; width: 20px; height: 20px; border: 1px solid #d3d8cd; border-radius: 5px; font-size: 10px; line-height: 18px; text-align: center; font-weight: 650; }
-.project-nav .n { color: #8a9183; font-size: 11px; }
+.project-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.project-initial { flex-shrink: 0; width: 20px; height: 20px; border: 1px solid #d3d8cd; border-radius: 5px; font-size: 9px; line-height: 18px; text-align: center; font-weight: 650; letter-spacing: 0; }
+.project-nav .n { color: #8a9183; font-size: 11px; flex-shrink: 0; }
+.project-more summary { display: flex; align-items: center; gap: 6px; min-height: 32px; padding: 4px 12px; font-size: 11px; color: #8a9183; cursor: pointer; list-style: none; }
+.project-more summary::-webkit-details-marker { display: none; }
+.project-more summary .icon { width: 12px; height: 12px; transition: transform 0.15s; }
+.project-more[open] summary .icon { transform: rotate(90deg); }
 .sidebar-bottom { margin-top: auto; padding-top: 26px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-width: 0; }
 .sidebar-bottom .nav-item { font-size: 13px; padding: 8px 12px; }
 .sidebar-status { display: grid; gap: 8px; padding: 12px 10px 2px; border-top: 1px solid #dce1d5; font-size: 11px; color: var(--muted); }
