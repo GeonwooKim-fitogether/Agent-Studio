@@ -5,7 +5,7 @@
  *   1. Workspace → Needs your attention 줄 → Up next → 업무 화면 → Open review → Request changes(빈 칸 거절 → 채워 저장 → 타임라인에 이유 · 기준 · 커밋)
  *   2. 검토하는 동안 새 커밋이 도착 → 저장 거절 문구와 새 커밋으로 다시 그린 패널(적은 이유는 되살림) → 새 커밋으로 다시 판단해 저장
  *   3. 목표를 적고 고친다 (Set goal · Edit goal)
- *   4. Connections 에 AI models — Not connected 가 보이고, Flow · Agents 는 메뉴에 없다
+ *   4. Connections 에 AI models — Not connected 가 보이고, Flow · Agents 는 메뉴에 Demo 로 있다 (결정 20)
  */
 import { type ChildProcess, spawn } from "node:child_process";
 import { rmSync, writeFileSync } from "node:fs";
@@ -181,19 +181,19 @@ test.describe("Focus 흐름 (서버 3104)", () => {
     expect(serverErrors).toEqual([]);
   });
 
-  test("Connections 에 AI models 는 Not connected 로 보이고, Flow · Agents · 모델 선택은 어디에도 없다 (결정 7 · 13)", async ({ page }) => {
+  test("Connections 에 AI models 는 Not connected 로 보이고, Flow · Agents 는 메뉴에 Demo 로 있으며 모델 선택은 없다 (결정 7 · 13 · 20)", async ({ page }) => {
     await page.goto("/");
-    await expect(nav(page).getByRole("link", { name: /Flow|Agents/ })).toHaveCount(0);
+    await expect(nav(page).getByRole("link", { name: /Flow|Agents/ })).toHaveText([/^Flow\s*Demo$/, /^Agents\s*Demo$/]);
     await page.getByRole("navigation", { name: "Settings" }).getByRole("link", { name: "Connections" }).click();
     const ai = page.getByTestId("ai-models");
     await expect(ai.getByRole("heading", { name: "AI models" })).toBeVisible();
     await expect(ai.getByTestId("ai-models-state")).toHaveText("Not connected");
-    await expect(ai).toContainText("3단계 첫 단위(실행 경로 시험) 전에는 모델 선택 · Flow · Agents 를 열지 않는다");
+    await expect(ai).toContainText("3단계 첫 단위(실행 경로 시험) 전에는 모델을 연결하지 않는다. Flow · Agents 는 Demo 다");
     await expect(page.getByRole("combobox", { name: /model/i })).toHaveCount(0);
     if (SHOTS !== undefined) await page.screenshot({ path: join(SHOTS, "desktop-connections.png") });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.reload();
-    await expect(nav(page).getByRole("link", { name: "Connections" })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("navigation", { name: "Settings" }).getByRole("link", { name: "Connections" })).toHaveAttribute("aria-current", "page");
     if (SHOTS !== undefined) await page.screenshot({ path: join(SHOTS, "phone-connections.png"), fullPage: true });
   });
 });

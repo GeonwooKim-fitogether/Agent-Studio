@@ -4,6 +4,7 @@
  * GitHub 의 리뷰와 Studio 의 내부 검토 결정은 같은 낱말(changes requested)을 쓰므로, Studio 쪽 검토 표기는
  * 모두 "Internal:" 로 시작한다. 한 카드에 둘이 함께 보여도 어느 쪽 것인지 글자만 보고 가릴 수 있어야 한다.
  */
+import type { AgentDraftProblem } from "../../domain/agent-draft";
 import type { AttentionItem, AttentionKind } from "../../application/attention";
 import type { MemoProblem } from "../../application/memo";
 import type { NewWorkProblem } from "../../application/new-work";
@@ -315,6 +316,9 @@ export function dayLabel(day: string): string {
   return `${m}월 ${d}일 (${WEEKDAY[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]})`;
 }
 
+/** 월 · 일만 (예: "9월 23일") — Flow 의 Review 노드처럼 좁은 자리에 쓴다 */
+export const kstMonthDay = (iso: string) => dayLabel(kstDay(iso)).replace(/ \(.\)$/, "");
+
 /** 이벤트 줄의 주인 표시 (계약 §5 — GitHub 가 알려 준 것과 Studio 가 한 것을 가른다) */
 export const OWNER_TAG = { github: "GitHub", studio: "Studio" } as const;
 
@@ -386,3 +390,13 @@ export function threadClosedText(reason: "deleted_memo" | "old_card", headSha: s
     ? "지워진 메모의 스레드다. 남은 답글은 읽을 수 있고, 새 답글은 달지 않는다."
     : `이전 커밋 카드의 스레드다. 남은 답글은 여기에 그대로 있고, 새 답글은 최신 카드(${shortSha(headSha ?? "")})의 Reply 로 남긴다.`;
 }
+
+// ── Agents (결정 20, Demo) ─────────────────────────────────────────────────
+
+/** Save draft · Add Agent 가 걸린 이유 — 칸 옆에 한 줄로 보인다 */
+export const AGENT_PROBLEM: Record<AgentDraftProblem, string> = {
+  empty: "이름이 비어 있다.",
+  too_long: "너무 길다 — 칸의 글자 수 안으로 줄인다.",
+  control_char: "보이지 않는 제어 문자(탭 · 방향 제어 문자 등)나, 한 줄 칸에 줄바꿈이 들어 있다.",
+  unknown_skill: "정의되지 않은 Skill 이다 — 목록에 있는 Skill 만 고른다.",
+};

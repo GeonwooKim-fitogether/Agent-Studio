@@ -9,7 +9,7 @@ import { Hydrated } from "./components/hydrated";
 import { Icon } from "./components/glyph";
 import { formatAgo, formatKst } from "./components/labels";
 import { sourceStatusText } from "./components/source-status";
-import { MobileTabs, Nav, ProjectNav, SettingsNav } from "./nav";
+import { MobileConnections, MobileTabs, Nav, ProjectNav, SettingsNav } from "./nav";
 import "./globals.css";
 
 // 화면은 저장소(메모리 또는 PostgreSQL)의 현재 상태를 그린다. 빌드 때 미리 굳혀 두면 안 되므로 매 요청마다 그린다.
@@ -121,10 +121,13 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                 </span>
                 Agent Studio
               </a>
-              <div className="sync-summary" data-testid="sync-summary">
-                {syncLine}
-                {hostDot}
-                {syncButton}
+              <div className="top-right">
+                <div className="sync-summary" data-testid="sync-summary">
+                  {syncLine}
+                  {hostDot}
+                  {syncButton}
+                </div>
+                <MobileConnections />
               </div>
             </header>
             {warning !== null && (

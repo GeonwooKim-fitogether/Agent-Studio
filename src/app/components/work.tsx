@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
 import type { NextAction } from "../../application/focus";
 import type { PreviewCardView } from "../../application/preview";
+import { workPathOfSummary } from "../../application/flow";
 import type { WorkSummaryView } from "../../application/queries";
+import { FLOW_STEP_NAMES, FLOW_STEPS, type FlowStep, type WorkPath as WorkPathState } from "../../domain/work-path";
 import { MAX_WORK_GOAL_LENGTH } from "../../domain/work-goal";
 import type { Work } from "../../domain/model";
 import { markDoneAction, setGoalAction } from "../actions";
@@ -185,29 +187,26 @@ export function NextActionCard({
 }
 
 /**
- * Work path — Brief · Build · Review · Done 네 점 (Focus 시안). 실제 상태로만 채운다:
- * draft = Brief, in_progress(PR 연결) = Build, needs_review = Review, done_candidate = Review 끝 · Done 대기, done = Done.
+ * Work path — Goal · Build · Review · Finish on GitHub 네 점 (결정 20). Flow 화면의 네 노드와 **같은 함수**(workPathOfSummary →
+ * src/domain/work-path.ts 의 workPathOf)에서 상태를 받는다. Goal 은 목표가 있을 때만 끝난 것으로 칠한다.
  */
-const PATH_STEPS = ["Brief", "Build", "Review", "Done"] as const;
-const PATH_INDEX: Record<Work["status"], number> = { draft: 0, in_progress: 1, needs_review: 2, done_candidate: 3, done: 4 };
-
-export function WorkPath({ status }: { status: Work["status"] }) {
-  const at = PATH_INDEX[status];
-  const state = (i: number) => (i < at ? "complete" : i === at ? "current" : "");
+export function WorkPath({ path }: { path: WorkPathState }) {
+  const cls = (step: FlowStep) => (path.steps[step] === "done" ? "complete" : path.steps[step] === "current" ? "current" : "");
   const dots: ReactNode[] = [];
-  PATH_STEPS.forEach((step, i) => {
-    if (i > 0) dots.push(<i key={`line-${i}`} className={i <= at ? "complete" : ""} />);
-    dots.push(<span key={step} className={state(i)} />);
+  FLOW_STEPS.forEach((step, i) => {
+    if (i > 0) dots.push(<i key={`line-${i}`} className={path.steps[step] === "todo" ? "" : "complete"} />);
+    dots.push(<span key={step} className={cls(step)} data-step={step} data-state={path.steps[step]} />);
   });
   return (
-    <div className="work-path" data-testid="work-path" data-step={at >= PATH_STEPS.length ? "done" : PATH_STEPS[at]!.toLowerCase()} aria-label="Work path">
+    <div className="work-path" data-testid="work-path" data-step={path.current ?? "done"} aria-label="Work path">
       <div className="path-steps" aria-hidden="true">
         {dots}
       </div>
       <div className="path-caption">
-        {PATH_STEPS.map((step, i) => (
-          <span key={step} className={state(i)}>
-            {step}
+        {FLOW_STEPS.map((step) => (
+          <span key={step} className={cls(step)}>
+            {FLOW_STEP_NAMES[step]}
+            {path.steps[step] !== "todo" && <span className="sr-only">{path.steps[step] === "done" ? " (끝남)" : " (지금)"}</span>}
           </span>
         ))}
       </div>
@@ -253,7 +252,7 @@ export function WorkDetails({
           </dd>
         </div>
       </dl>
-      <WorkPath status={work.status} />
+      <WorkPath path={workPathOfSummary(summary)} />
       <WorkStatusPanel summary={summary} />
       <details className="link-pr" id="link-pr" open={prs.length === 0}>
         <summary>

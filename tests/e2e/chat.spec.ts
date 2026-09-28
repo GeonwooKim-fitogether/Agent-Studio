@@ -20,7 +20,7 @@ async function shot(page: Page, name: string): Promise<void> {
 test("Workspace 에서 업무를 열면 목표 · 타임라인 · 결과 카드 · Next action 이 한 화면에 있고, 결정 버튼은 최신 커밋의 Review 패널에만 있다", async ({ page }) => {
   const serverErrors = watchServerErrors(page);
   await page.goto("/");
-  await expect(nav(page).getByRole("link")).toHaveText(["Workspace", "Chat", /^Inbox/]);
+  await expect(nav(page).getByRole("link")).toHaveText(["Workspace", "Chat", /^Flow\s*Demo$/, /^Agents\s*Demo$/, /^Inbox/]); // Flow · Agents 는 Demo (결정 20)
   await openWork(page, "a1b2c3");
   await expect(nav(page).getByRole("link", { name: "Chat" })).toHaveAttribute("aria-current", "page");
   // 왼쪽 채널 목록 열은 없다 — 사이드바의 Projects 와 Workspace 가 그 역할이다 (Q6)
@@ -159,7 +159,8 @@ test.describe("휴대전화 폭", () => {
     const serverErrors = watchServerErrors(page);
     await page.goto("/");
     await expect(page.getByRole("complementary", { name: "Sidebar" })).toBeHidden();
-    await expect(nav(page).getByRole("link")).toHaveText(["Workspace", "Chat", /^Inbox/, "Connections"]);
+    await expect(nav(page).getByRole("link")).toHaveText(["Workspace", "Chat", /^Flow\s*Demo$/, /^Agents\s*Demo$/, /^Inbox/]); // 결정 20
+    await expect(page.getByRole("navigation", { name: "Settings" }).getByRole("link", { name: "Connections" })).toBeVisible(); // 위쪽 줄 오른쪽
     await expect(page.getByTestId("up-next")).toBeHidden(); // 휴대전화 폭에는 Up next 패널이 없다
     await openWork(page, "a1b2c3");
     const button = page.getByTestId("next-action").getByTestId("next-action-button");

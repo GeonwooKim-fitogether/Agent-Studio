@@ -84,6 +84,13 @@ const PATHS = {
       <path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
     </>
   ),
+  flow: (
+    <>
+      <rect x="3" y="3" width="6" height="6" rx="1" />
+      <rect x="15" y="15" width="6" height="6" rx="1" />
+      <path d="M6 9v9h9M9 6h9v9" />
+    </>
+  ),
   agents: (
     <>
       <rect x="4" y="7" width="16" height="14" rx="4" />
