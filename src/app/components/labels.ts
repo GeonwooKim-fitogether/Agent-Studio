@@ -5,6 +5,7 @@
  * 모두 "Internal:" 로 시작한다. 한 카드에 둘이 함께 보여도 어느 쪽 것인지 글자만 보고 가릴 수 있어야 한다.
  */
 import type { AttentionItem, AttentionKind } from "../../application/attention";
+import type { MemoProblem } from "../../application/memo";
 import type { NewWorkProblem } from "../../application/new-work";
 import type { StatusChangeView } from "../../application/queries";
 import type { ReviewBlock } from "../../application/review";
@@ -14,6 +15,7 @@ import type { PreviewBlock, PreviewPhase } from "../../domain/preview";
 import { markerFor } from "../../domain/work-marker";
 import type { PrEvent } from "../../domain/pr-event";
 import type { StatusRule } from "../../domain/work-status";
+import { MAX_MEMO_LENGTH } from "../../domain/memo";
 import { MAX_WORK_TITLE_LENGTH } from "../../domain/work-title";
 
 export const WORK_STATUS: Record<WorkStatus, string> = {
@@ -310,3 +312,22 @@ export function oldCardNote(headSha: string): string {
 
 /** 채널 목록 아래의 한 줄 (시안 v2) */
 export const CHANNELS_FOOT = "채널 하나가 업무 하나다. 새 업무는 Workspace 의 New Work 로 만든다.";
+
+// ── 메모 (feature-plan F8, 시안 v2 의 composer · memo) ──────────────────────────────
+
+/** 메모 작성자 "나" (결정 15: 첫 버전의 작성자는 한 명이다) */
+export const MEMO_AUTHOR_LABEL = "나";
+export const MEMO_PLACEHOLDER = "판단의 이유를 메모로 남긴다";
+/** 입력칸 아래의 안내 (시안 v2 그대로) — 이 칸이 AI 에게 가지 않는다는 것을 보인다(결정 7) */
+export const MEMO_NOTE = "메모는 AI 에게 전달되지 않는다. 첫 버전은 나 혼자 보는 기록이다.";
+export const MEMO_EDITED = "고침";
+export const MEMO_DELETED = "지워진 메모";
+
+/** 메모를 남기거나 고치지 않은 이유 */
+export const MEMO_PROBLEM: Record<MemoProblem, string> = {
+  empty: "메모가 비어 있다. 남길 내용을 적는다.",
+  too_long: `메모가 ${MAX_MEMO_LENGTH}자를 넘는다. 나눠서 남긴다.`,
+  control_char: "메모에 보이지 않는 제어 문자(탭 등)가 들어 있다. 줄바꿈은 된다.",
+  no_work: "이 업무를 찾지 못했다.",
+  no_memo: "그 메모가 없거나 이미 지워졌다 — 화면이 오래됐을 수 있다.",
+};

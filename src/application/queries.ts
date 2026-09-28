@@ -156,6 +156,7 @@ export async function getWorkChat(
     events: await deps.store.listPrEvents(work.id),
     statusChanges: s.statusChanges.filter((c) => c.workId === work.id).map((c) => toChangeView(s, c)),
     reviews: s.reviews.filter((r) => r.workId === work.id),
+    memos: await deps.store.listMemos(work.id),
     repoName: (id) => s.repositories.get(id)?.fullName ?? `저장소 ${id}`,
     now: options.now,
     ...(options.dayOf === undefined ? {} : { dayOf: options.dayOf }),

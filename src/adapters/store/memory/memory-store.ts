@@ -23,6 +23,7 @@ import {
   withoutNul,
   type Work,
 } from "../../../domain/model";
+import { isAcceptedMemoBody, type Memo } from "../../../domain/memo";
 import { isPrEventKind, type PrEvent } from "../../../domain/pr-event";
 import { isValidWorkId } from "../../../domain/work-marker";
 import { isWorkStatus, type PrFingerprint, type StatusChange } from "../../../domain/work-status";
@@ -45,6 +46,8 @@ export function createMemoryStore(seed: StudioSeed = {}): StudioStore {
   const statusPins = new Map<string, PrFingerprint>();
   const statusChanges: StatusChange[] = [];
   const events: PrEvent[] = copies(seed.events ?? []);
+  const memos: Memo[] = copies(seed.memos ?? []);
+  const memoIn = (workId: string, id: string) => memos.findIndex((m) => m.workId === workId && m.id === id);
 
   const rejectIfBadRef = (ref: PrRef) => {
     if (!isValidPrRef(ref)) throw new StudioError("invalid_input", "PR 을 가리키는 값이 올바르지 않다.");
@@ -191,6 +194,33 @@ export function createMemoryStore(seed: StudioSeed = {}): StudioStore {
     },
     async listPrEvents(workId) {
       return copies(events.filter((e) => e.workId === workId));
+    },
+
+    async addMemo(memo) {
+      // 확인 순서는 PostgreSQL 구현과 같다: 값 → 없는 업무 → 같은 ID
+      if (!isAcceptedMemoBody(memo.body) || memo.author === "" || memo.editedAt !== null || memo.deletedAt !== null) {
+        throw new StudioError("invalid_input", "메모 값이 올바르지 않다.");
+      }
+      if (!works.has(memo.workId)) throw new StudioError("not_found", "메모를 남길 업무가 없다.");
+      if (memos.some((m) => m.id === memo.id)) throw new StudioError("invalid_input", "같은 ID 의 메모가 이미 있다.");
+      memos.push(copy(memo));
+    },
+    async listMemos(workId) {
+      return copies(memos.filter((m) => m.workId === workId));
+    },
+    async editMemo(edit) {
+      if (!isAcceptedMemoBody(edit.body)) throw new StudioError("invalid_input", "메모 값이 올바르지 않다.");
+      const i = memoIn(edit.workId, edit.id);
+      if (i < 0) throw new StudioError("not_found", "고칠 메모가 없다.");
+      const memo = memos[i]!;
+      if (memo.deletedAt !== null) throw new StudioError("invalid_input", "지운 메모는 고치지 않는다.");
+      memos[i] = { ...memo, body: edit.body, editedAt: edit.editedAt };
+    },
+    async deleteMemo(target) {
+      const i = memoIn(target.workId, target.id);
+      if (i < 0) throw new StudioError("not_found", "지울 메모가 없다.");
+      const memo = memos[i]!;
+      if (memo.deletedAt === null) memos[i] = { ...memo, body: "", deletedAt: target.deletedAt };
     },
 
     async listPreviewRecords() {

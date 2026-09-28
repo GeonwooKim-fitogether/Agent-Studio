@@ -74,10 +74,10 @@ test("Workspace 에서 업무를 열면 같은 주소에서 Chat 배치다 — �
   await expect(merged.getByRole("button", { name: "Approve" })).toBeDisabled();
   await expect(merged.getByTestId("review-blocked-reason")).toContainText("이미 병합된");
 
-  // 메모 입력칸과 Reply 는 아직 없다 — 동작하지 않는 칸을 두지 않는다(결정 7, F8 · F9 는 다음 단위)
-  await expect(page.getByRole("textbox")).toHaveCount(0);
+  // 메모 입력칸(F8)은 있고 Reply(F9 스레드)는 아직 없다 — 동작하지 않는 칸을 두지 않는다(결정 7). 메모 자체는 memo.spec 이 본다
+  await expect(page.getByRole("textbox")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Send" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Reply" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Send" })).toHaveCount(0);
   await shot(page, "chat-desktop.png");
   expect(serverErrors).toEqual([]);
 });

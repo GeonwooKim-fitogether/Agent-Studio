@@ -5,7 +5,8 @@ import { getContainer } from "../../../server/container";
 import { unlinkAction } from "../../actions";
 import { Channels, Timeline } from "../../components/chat";
 import { CopyButton } from "../../components/copy-button";
-import { kstDay } from "../../components/labels";
+import { kstDay, MEMO_PROBLEM } from "../../components/labels";
+import { MemoComposer } from "../../components/memo";
 import { StateLegend } from "../../components/pr-card";
 import { PreviewControls } from "../../components/preview-controls";
 import { RememberWork } from "../../components/remember-work";
@@ -21,7 +22,8 @@ export const dynamic = "force-dynamic";
  *
  * 휴대전화 폭에서는 채널 목록과 타임라인 중 하나만 보인다. `‹ Channels` 는 ?channels=1 로 같은 화면을 다시 그려
  * 채널 목록을 연다 — 자바스크립트 없이도 동작한다.
- * 메모 입력칸과 스레드(F8 · F9)는 다음 단위다. 동작하지 않는 칸을 미리 두지 않는다(결정 7).
+ * 타임라인 아래에 메모 입력칸(F8)이 있다. 메모의 Edit 은 ?edit=<메모 ID> 로 같은 화면을 다시 그려 고치기 칸을 연다(자바스크립트 없이도 동작한다).
+ * 스레드(F9)는 다음 단위다. 동작하지 않는 칸을 미리 두지 않는다(결정 7).
  */
 export default async function WorkPage({
   params,
@@ -36,6 +38,8 @@ export default async function WorkPage({
   const reviewRefused = query["review"] === "refused";
   const statusRefused = query["status"] === "refused";
   const showChannels = query["channels"] === "1";
+  const memoProblem = typeof query["memo"] === "string" && Object.hasOwn(MEMO_PROBLEM, query["memo"]) ? MEMO_PROBLEM[query["memo"] as keyof typeof MEMO_PROBLEM] : null;
+  const editingMemoId = typeof query["edit"] === "string" ? query["edit"] : null;
   const container = getContainer();
   await container.ensureSynced();
   const chat = await getWorkChat(container.deps, id, { now: container.deps.now().toISOString(), dayOf: kstDay });
@@ -107,8 +111,10 @@ export default async function WorkPage({
           {prs.length > 0 && <StateLegend />}
         </header>
 
-        <Timeline entries={chat.timeline} marker={marker} source={source} actionsFor={actionsFor} />
+        <Timeline entries={chat.timeline} marker={marker} source={source} actionsFor={actionsFor} workId={work.id} editingMemoId={editingMemoId} />
         {prs.length === 0 && <p className="empty-note tl-empty">아직 연결된 PR 이 없다. Inbox 에서 연결하거나 위 표식을 PR 에 넣는다.</p>}
+        {/* 고치기에서 걸린 이유는 그 메모 옆이 아니라 여기 한 곳에 보인다 — 입력칸은 늘 화면 아래에 있다 */}
+        <MemoComposer workId={work.id} problem={memoProblem} />
       </section>
     </div>
   );

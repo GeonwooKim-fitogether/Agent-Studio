@@ -10,6 +10,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createWorkFromPr, linkPrToWork, unlinkPr } from "../application/inbox-actions";
+import { deleteMemo, editMemo, type MemoProblem, writeMemo } from "../application/memo";
 import { createEmptyWork } from "../application/new-work";
 import { startPreview, stopPreview } from "../application/preview";
 import { isReviewVerdict, recordReviewDecision } from "../application/review";
@@ -184,4 +185,46 @@ async function changeStatus(form: FormData, action: "mark_done" | "set_status", 
   }
   revalidatePath("/", "layout");
   redirect(target);
+}
+
+/**
+ * 업무 Chat 의 메모 (feature-plan F8) — Send · Save · Delete. Studio 저장소에만 쓰고 GitHub 에도 AI 에게도 보내지 않는다.
+ * 성공하면 그 메모 자리로 돌아간다. 규칙에 걸리면 업무 화면에 이유를 보인다(본문은 주소에 싣지 않는다).
+ * 고치기에서 걸리면 그 메모의 고치기 칸을 다시 연다.
+ */
+function memoPath(workId: string, params: Record<string, string>, anchor: string | null): string {
+  const query = new URLSearchParams(params).toString();
+  return `/works/${encodeURIComponent(workId)}${query === "" ? "" : `?${query}`}${anchor === null ? "" : `#${anchor}`}`;
+}
+const memoAnchor = (id: string) => `memo-${id}`;
+
+export async function writeMemoAction(form: FormData): Promise<void> {
+  const workId = String(form.get("workId") ?? "");
+  const container = getContainer();
+  await container.ensureSynced();
+  const result = await writeMemo(container.deps, { workId, body: String(form.get("body") ?? "") });
+  revalidatePath("/", "layout");
+  redirect(result.ok ? memoPath(workId, {}, memoAnchor(result.memo.id)) : memoPath(workId, { memo: result.problem }, "composer"));
+}
+
+export async function editMemoAction(form: FormData): Promise<void> {
+  const workId = String(form.get("workId") ?? "");
+  const id = String(form.get("memoId") ?? "");
+  const container = getContainer();
+  await container.ensureSynced();
+  const result = await editMemo(container.deps, { workId, id, body: String(form.get("body") ?? "") });
+  const failed = (problem: MemoProblem) =>
+    problem === "no_memo" ? memoPath(workId, { memo: problem }, null) : memoPath(workId, { memo: problem, edit: id }, memoAnchor(id));
+  revalidatePath("/", "layout");
+  redirect(result.ok ? memoPath(workId, {}, memoAnchor(id)) : failed(result.problem));
+}
+
+export async function deleteMemoAction(form: FormData): Promise<void> {
+  const workId = String(form.get("workId") ?? "");
+  const id = String(form.get("memoId") ?? "");
+  const container = getContainer();
+  await container.ensureSynced();
+  const result = await deleteMemo(container.deps, { workId, id });
+  revalidatePath("/", "layout");
+  redirect(result.ok ? memoPath(workId, {}, memoAnchor(id)) : memoPath(workId, { memo: result.problem }, null));
 }

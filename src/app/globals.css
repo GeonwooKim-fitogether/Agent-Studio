@@ -256,6 +256,20 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .pr-card.old { opacity: 0.62; }
 .pr-card.old:hover { opacity: 0.85; }
 .old-note { font-size: 11px; color: var(--muted); margin: 10px 0 0; }
+/* 메모 (feature-plan F8, 시안 v2 의 .memo · .composer). 입력칸은 타임라인 아래에 붙어 늘 보인다 */
+.memo { font-size: 13px; line-height: 1.55; color: var(--ink); }
+.memo .by { font-weight: 780; margin-right: 8px; }
+.memo .by small { font-weight: 500; color: #8b939d; font-size: 11px; margin-left: 4px; }
+.memo-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.memo-edited { font-size: 11px; color: #8b939d; margin-left: 6px; }
+.memo.deleted { color: var(--muted); font-style: italic; }
+.memo-edit { margin-top: 4px; flex-direction: column; align-items: stretch; }
+.ev-foot { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.composer { position: sticky; bottom: 0; margin-top: auto; border-top: 1px solid var(--line); padding: 10px 22px 12px; background: var(--surface); }
+.composer .source-error { margin: 0 0 8px; }
+.composer-box { display: flex; gap: 8px; align-items: flex-end; }
+.composer textarea, .memo-edit textarea { flex: 1; min-height: 40px; max-height: 240px; resize: vertical; border: 1px solid #d5d9de; border-radius: 9px; padding: 9px 11px; background: #fff; font: inherit; font-size: 13px; color: var(--ink); }
+.composer .note { font-size: 11px; color: var(--muted); margin: 6px 0 0; }
 
 @media (max-width: 720px) {
   .chat { grid-template-columns: minmax(0, 1fr); min-height: 0; }
@@ -266,6 +280,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
   .tl-head { padding: 10px 14px; }
   .tl { padding: 6px 14px 20px; }
   .tl-empty { padding: 0 14px 20px; }
+  .composer { padding: 8px 14px 10px; }
   .marker-why { display: none; }
   .ev { grid-template-columns: 36px minmax(0, 1fr); gap: 8px; }
   .ev.ev-card { grid-template-columns: minmax(0, 1fr); }

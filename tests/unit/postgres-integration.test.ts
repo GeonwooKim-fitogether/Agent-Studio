@@ -8,6 +8,7 @@ import pg from "pg";
 import { beforeAll, describe, expect, it } from "vitest";
 import { DEMO_REPO } from "../../src/adapters/github/fixture/demo-scenario";
 import { createWorkFromPr, linkPrToWork, unlinkPr } from "../../src/application/inbox-actions";
+import { writeMemo } from "../../src/application/memo";
 import { getInbox, getWorkDetail, getWorkspace } from "../../src/application/queries";
 import { createContainer } from "../../src/server/container";
 import { HAS_POSTGRES, recreateSchema, runMigrate, TEST_DATABASE_URL } from "./postgres-harness";
@@ -53,6 +54,7 @@ const MIGRATIONS = [
   "20260927224929_work_status_history",
   "20260927232653_status_rule_r1b",
   "20260928013218_pr_event",
+  "20260928015348_memo",
 ];
 
 describe.skipIf(!HAS_POSTGRES)("PostgreSQL 통합", () => {
@@ -101,9 +103,11 @@ describe.skipIf(!HAS_POSTGRES)("PostgreSQL 통합", () => {
       expect(out).toContain("적용함 20260927224929_work_status_history.sql");
       expect(out).toContain("적용함 20260927232653_status_rule_r1b.sql");
       expect(out).toContain("적용함 20260928013218_pr_event.sql"); // 뒤에 온 마이그레이션도 함께 얹힌다
-      expect(out).toContain("새로 적용 3개");
+      expect(out).toContain("적용함 20260928015348_memo.sql");
+      expect(out).toContain("새로 적용 4개");
       // PR 이벤트 표는 비어서 시작한다 — 이 표가 생기기 전의 변화는 없다
       expect((await client.query("select count(*)::int as n from pr_event")).rows[0]).toEqual({ n: 0 });
+      expect((await client.query("select count(*)::int as n from memo")).rows[0]).toEqual({ n: 0 }); // 메모 표도 비어서 시작한다
       const row = (await client.query("select status, status_pin from work where id = 'w1'")).rows[0];
       expect(row).toEqual({ status: "needs_review", status_pin: null });
       await client.query("update work set status = 'done_candidate'");
@@ -137,6 +141,8 @@ describe.skipIf(!HAS_POSTGRES)("PostgreSQL 통합", () => {
       await linkPrToWork(first.deps, { repoId: DEMO_REPO.coachWeb, number: 12, workId: "b4c5d6" });
       const created = await createWorkFromPr(first.deps, { repoId: DEMO_REPO.docsSite, number: 12 });
       await unlinkPr(first.deps, { repoId: DEMO_REPO.payments, number: 12, workId: "a1b2c3" });
+      const memo = await writeMemo(first.deps, { workId: "b4c5d6", body: "다시 켜도 남아야 한다\n둘째 줄" });
+      if (!memo.ok) throw new Error(memo.problem);
       const worksBefore = (await first.deps.store.listWorks()).length;
       await first.close(); // 서버를 끈다
 
@@ -148,6 +154,7 @@ describe.skipIf(!HAS_POSTGRES)("PostgreSQL 통합", () => {
       expect((await getWorkDetail(second.deps, created.id))?.prs.map((p) => p.key)).toEqual([`${DEMO_REPO.docsSite}#12`]);
       const unlinked = (await getInbox(second.deps)).groups.flatMap((g) => g.items).find((i) => i.pr.key === `${DEMO_REPO.payments}#12`);
       expect(unlinked?.reason).toBe("unlinked_by_user"); // 다시 켠 뒤의 동기화에서도 자동으로 붙지 않았다
+      expect(await second.deps.store.listMemos("b4c5d6")).toEqual([memo.memo]); // 메모도 그대로 (F8)
       expect(await second.deps.store.listWorks()).toHaveLength(worksBefore); // 시연 업무가 두 번 심기지 않았다
       expect((await getWorkspace(second.deps)).projects).toHaveLength(5);
       await second.close();
