@@ -10,6 +10,7 @@ import { createWorkFromPr, linkPrToWork, unlinkPr } from "../../src/application/
 import { getPrNotice, getWorkspace } from "../../src/application/queries";
 import { syncAll } from "../../src/application/sync";
 import type { PrLink, PrSnapshot, Work } from "../../src/domain/model";
+import type { Memo } from "../../src/domain/memo";
 import type { PrEvent } from "../../src/domain/pr-event";
 import type { StatusChange } from "../../src/domain/work-status";
 import type { StudioSeed, StudioStore } from "../../src/ports/studio-store";
@@ -460,6 +461,85 @@ export function describeStoreContract(kind: string, make: StoreFactory): void {
       it("처음 상태로 심은 이벤트도 그대로 돌아온다", async () => {
         const store = await make({ projects: [project], works: [work], events: [events[0]!] });
         expect(await store.listPrEvents("w1")).toEqual([events[0]]);
+      });
+    });
+
+    describe("메모 (feature-plan F8)", () => {
+      const memo = (id: string, workId = "w1", createdAt = "2026-09-28T00:00:00.000Z"): Memo => ({
+        id,
+        workId,
+        author: "me",
+        body: `메모 ${id}\n둘째 줄`,
+        createdAt,
+        editedAt: null,
+        deletedAt: null,
+      });
+
+      it("쓴 그대로(줄바꿈 · 작성자 포함) 업무별로, 쌓인 순서대로 돌아온다 (같은 시각이어도)", async () => {
+        const store = await make({ projects: [project], works: [work, other] });
+        await store.addMemo(memo("m2"));
+        await store.addMemo(memo("m1"));
+        await store.addMemo(memo("m3", "w2"));
+        expect(await store.listMemos("w1")).toEqual([memo("m2"), memo("m1")]);
+        expect(await store.listMemos("w2")).toEqual([memo("m3", "w2")]);
+        expect(await store.listMemos("nope")).toEqual([]);
+      });
+
+      it("고치면 본문과 고친 시각이 바뀌고 자리는 그대로다. 지우면 본문이 비고 지운 시각이 남으며, 다시 지워도 처음 시각이 남는다", async () => {
+        const store = await make({ projects: [project], works: [work] });
+        await store.addMemo(memo("m1"));
+        await store.addMemo(memo("m2"));
+        await store.editMemo({ workId: "w1", id: "m1", body: "고친 본문", editedAt: "2026-09-28T01:00:00.000Z" });
+        expect((await store.listMemos("w1")).map((m) => [m.id, m.body, m.editedAt])).toEqual([
+          ["m1", "고친 본문", "2026-09-28T01:00:00.000Z"],
+          ["m2", "메모 m2\n둘째 줄", null],
+        ]);
+        await store.deleteMemo({ workId: "w1", id: "m1", deletedAt: "2026-09-28T02:00:00.000Z" });
+        await store.deleteMemo({ workId: "w1", id: "m1", deletedAt: "2026-09-28T03:00:00.000Z" });
+        expect((await store.listMemos("w1"))[0]).toEqual({ ...memo("m1"), body: "", editedAt: "2026-09-28T01:00:00.000Z", deletedAt: "2026-09-28T02:00:00.000Z" });
+      });
+
+      it("규칙 밖 본문 · 빈 작성자 · 처음부터 고침/지움 → invalid_input, 없는 업무 → not_found, 같은 ID → invalid_input 이고 아무것도 쓰지 않는다", async () => {
+        const store = await make({ projects: [project], works: [work] });
+        for (const bad of [{ body: "" }, { body: " 앞 공백" }, { body: "탭\t가운데" }, { body: "가".repeat(4001) }, { author: "" }, { editedAt: "2026-09-28T00:00:00.000Z" }]) {
+          await expect(store.addMemo({ ...memo("m1"), ...bad })).rejects.toMatchObject({ code: "invalid_input" });
+        }
+        await expect(store.addMemo(memo("m1", "ghost"))).rejects.toMatchObject({ code: "not_found" });
+        expect(await store.listMemos("w1")).toEqual([]);
+        await store.addMemo(memo("m1"));
+        await expect(store.addMemo({ ...memo("m1"), body: "다른 본문" })).rejects.toMatchObject({ code: "invalid_input" });
+        expect(await store.listMemos("w1")).toEqual([memo("m1")]);
+      });
+
+      it("없는 메모 · 다른 업무의 메모는 not_found, 지운 메모 고치기와 규칙 밖 본문은 invalid_input 이고 아무것도 바꾸지 않는다", async () => {
+        const store = await make({ projects: [project], works: [work, other] });
+        await store.addMemo(memo("m1"));
+        const at = "2026-09-28T01:00:00.000Z";
+        await expect(store.editMemo({ workId: "w2", id: "m1", body: "남의 것", editedAt: at })).rejects.toMatchObject({ code: "not_found" });
+        await expect(store.deleteMemo({ workId: "w2", id: "m1", deletedAt: at })).rejects.toMatchObject({ code: "not_found" });
+        await expect(store.editMemo({ workId: "w1", id: "nope", body: "x", editedAt: at })).rejects.toMatchObject({ code: "not_found" });
+        await expect(store.editMemo({ workId: "w1", id: "m1", body: "", editedAt: at })).rejects.toMatchObject({ code: "invalid_input" });
+        expect(await store.listMemos("w1")).toEqual([memo("m1")]);
+        await store.deleteMemo({ workId: "w1", id: "m1", deletedAt: at });
+        await expect(store.editMemo({ workId: "w1", id: "m1", body: "되살리기", editedAt: at })).rejects.toMatchObject({ code: "invalid_input" });
+        expect((await store.listMemos("w1"))[0]).toMatchObject({ body: "", editedAt: null, deletedAt: at });
+      });
+
+      it("동시에 고치고 지우면 지운 쪽이 이기거나 고친 뒤 지워진다 — 어느 쪽이든 지운 메모에 본문이 남지 않는다", async () => {
+        const store = await make({ projects: [project], works: [work] });
+        await store.addMemo(memo("m1"));
+        await Promise.allSettled([
+          store.editMemo({ workId: "w1", id: "m1", body: "고친 본문", editedAt: "2026-09-28T01:00:00.000Z" }),
+          store.deleteMemo({ workId: "w1", id: "m1", deletedAt: "2026-09-28T01:00:00.000Z" }),
+        ]);
+        expect((await store.listMemos("w1"))[0]).toMatchObject({ body: "", deletedAt: "2026-09-28T01:00:00.000Z" });
+      });
+
+      it("돌려받은 메모를 고쳐도 저장된 값은 바뀌지 않고, 처음 상태로 심은 메모도 그대로 돌아온다", async () => {
+        const store = await make({ projects: [project], works: [work], memos: [memo("m0")] });
+        const got = (await store.listMemos("w1")) as { body: string }[];
+        got[0]!.body = "x";
+        expect(await store.listMemos("w1")).toEqual([memo("m0")]);
       });
     });
   });

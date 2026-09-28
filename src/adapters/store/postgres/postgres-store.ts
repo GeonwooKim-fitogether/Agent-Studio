@@ -24,6 +24,7 @@ import {
   isValidPrRef,
   withoutNul,
 } from "../../../domain/model";
+import { isAcceptedMemoBody, type Memo } from "../../../domain/memo";
 import { isPrEventKind, type PrEvent } from "../../../domain/pr-event";
 import { isValidWorkId } from "../../../domain/work-marker";
 import { isWorkStatus, type PrFingerprint, type StatusCause, type StatusChange, type StatusEvidence } from "../../../domain/work-status";
@@ -129,6 +130,26 @@ const toPrEvent = (r: Row): PrEvent => {
       return { ...base, kind: r["kind"] as "unlinked" | "merged" | "closed" | "reopened" };
   }
 };
+
+const toMemo = (r: Row): Memo => ({
+  id: String(r["id"]),
+  workId: String(r["work_id"]),
+  author: String(r["author"]),
+  body: String(r["body"]),
+  createdAt: iso(r["created_at"]),
+  editedAt: r["edited_at"] === null ? null : iso(r["edited_at"]),
+  deletedAt: r["deleted_at"] === null ? null : iso(r["deleted_at"]),
+});
+
+/** 메모 한 건을 쓴다. 같은 ID 가 이미 있으면 invalid_input (메모리 구현과 같다) */
+async function insertMemo(db: Queryable, m: Memo): Promise<void> {
+  const inserted = await db.query(
+    `insert into memo (id, work_id, author, body, created_at, edited_at, deleted_at) values ($1, $2, $3, $4, $5, $6, $7)
+     on conflict (id) do nothing`,
+    [m.id, m.workId, m.author, m.body, m.createdAt, m.editedAt, m.deletedAt],
+  );
+  if ((inserted.rowCount ?? 0) === 0) throw new StudioError("invalid_input", "같은 ID 의 메모가 이미 있다.");
+}
 
 /** PR 이벤트 한 건을 쓴다. 같은 ID 가 이미 있으면 아무것도 하지 않는다(같은 변화는 한 번만) */
 async function insertPrEvent(db: Queryable, e: PrEvent): Promise<void> {
@@ -441,6 +462,44 @@ export function createPostgresStore(pool: Pool): StudioStore {
       return (await rows("select * from pr_event where work_id = $1 order by ord", [workId])).map(toPrEvent);
     },
 
+    async addMemo(memo) {
+      // 확인 순서는 메모리 구현과 같다: 값 → 없는 업무(외래 키 위반 → not_found) → 같은 ID
+      if (!isAcceptedMemoBody(memo.body) || memo.author === "" || memo.editedAt !== null || memo.deletedAt !== null) {
+        throw new StudioError("invalid_input", "메모 값이 올바르지 않다.");
+      }
+      try {
+        await insertMemo(pool, memo);
+      } catch (error) {
+        throw translate(error);
+      }
+    },
+    async listMemos(workId) {
+      return (await rows("select * from memo where work_id = $1 order by ord", [workId])).map(toMemo);
+    },
+    async editMemo(edit) {
+      if (!isAcceptedMemoBody(edit.body)) throw new StudioError("invalid_input", "메모 값이 올바르지 않다.");
+      const updated = await run("update memo set body = $3, edited_at = $4 where work_id = $1 and id = $2 and deleted_at is null", [
+        edit.workId,
+        edit.id,
+        edit.body,
+        edit.editedAt,
+      ]);
+      if ((updated.rowCount ?? 0) > 0) return;
+      const [row] = await rows("select deleted_at from memo where work_id = $1 and id = $2", [edit.workId, edit.id]);
+      if (row === undefined) throw new StudioError("not_found", "고칠 메모가 없다.");
+      throw new StudioError("invalid_input", "지운 메모는 고치지 않는다.");
+    },
+    async deleteMemo(target) {
+      const updated = await run("update memo set body = '', deleted_at = $3 where work_id = $1 and id = $2 and deleted_at is null", [
+        target.workId,
+        target.id,
+        target.deletedAt,
+      ]);
+      if ((updated.rowCount ?? 0) > 0) return;
+      const [row] = await rows("select 1 from memo where work_id = $1 and id = $2", [target.workId, target.id]);
+      if (row === undefined) throw new StudioError("not_found", "지울 메모가 없다.");
+    },
+
     async listPreviewRecords() {
       return (await rows("select * from preview_record order by started_at, id")).map(toPreview);
     },
@@ -485,6 +544,7 @@ export async function seedIfEmpty(pool: Pool, seed: StudioSeed): Promise<boolean
       );
     }
     for (const e of seed.events ?? []) await insertPrEvent(db, e);
+    for (const m of seed.memos ?? []) await insertMemo(db, m);
     for (const p of seed.previews ?? []) {
       await db.query("insert into preview_record (id, repo_id, number, commit_sha, started_at) values ($1, $2, $3, $4, $5)", [
         p.id,

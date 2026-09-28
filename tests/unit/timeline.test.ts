@@ -4,11 +4,13 @@
  */
 import { describe, expect, it } from "vitest";
 import { DEMO_REPO, DEMO_SHA } from "../../src/adapters/github/fixture/demo-scenario";
+import { deleteMemo, editMemo, writeMemo } from "../../src/application/memo";
 import { getWorkChat, pickChatWork, type PrCardView } from "../../src/application/queries";
 import { recordReviewDecision } from "../../src/application/review";
 import { syncAll } from "../../src/application/sync";
 import { buildTimeline, type TimelineEntry, type TimelineInput } from "../../src/application/timeline";
 import type { ReviewDecision, Work } from "../../src/domain/model";
+import type { Memo } from "../../src/domain/memo";
 import type { PrEvent } from "../../src/domain/pr-event";
 import { setup } from "./helpers";
 
@@ -35,6 +37,7 @@ const input = (fields: Partial<TimelineInput>): TimelineInput => ({
   events: [],
   statusChanges: [],
   reviews: [],
+  memos: [],
   repoName: () => "org/repo",
   now: "2026-09-28T12:00:00.000Z",
   ...fields,
@@ -56,6 +59,8 @@ const line = (e: TimelineEntry): string => {
       return `studio:status:${e.change.to}`;
     case "card":
       return `card:${e.pr.number}@${e.commitSha.slice(0, 1)}${e.latest ? ":latest" : ":old"}`;
+    case "memo":
+      return `studio:memo:${e.memo.id}${e.memo.deletedAt !== null ? ":deleted" : e.memo.editedAt !== null ? ":edited" : ""}`;
   }
 };
 
@@ -181,5 +186,73 @@ describe("시연 데이터로 — 업무 화면이 받는 모양 (getWorkChat)",
     expect(await pickChatWork(deps, null)).toBe("a1b2c3");
     const empty = setup({ seed: {} });
     expect(await pickChatWork(empty.deps, null)).toBeNull();
+  });
+});
+
+describe("메모 (feature-plan F8)", () => {
+  const memo = (id: string, createdAt: string, fields: Partial<Memo> = {}): Memo => ({
+    id,
+    workId: "w1",
+    author: "me",
+    body: `메모 ${id}`,
+    createdAt,
+    editedAt: null,
+    deletedAt: null,
+    ...fields,
+  });
+
+  it("메모는 쓴 시각의 자리에 Studio 줄로 놓인다. 고쳐도 자리는 그대로이고, 지운 메모도 자리를 지킨다. 같은 시각이면 상태 변화 뒤다", () => {
+    const statusChanges = [{ from: "draft", to: "in_progress", at: "2026-09-27T03:00:00.000Z", cause: { kind: "rule", rule: "R1", evidence: [] } }] as const;
+    const memos = [
+      memo("a", "2026-09-27T03:00:00.000Z", { editedAt: "2026-09-28T09:00:00.000Z" }),
+      memo("b", "2026-09-27T02:00:00.000Z", { body: "", deletedAt: "2026-09-28T09:00:00.000Z" }),
+      memo("c", "2026-09-28T01:00:00.000Z"),
+    ];
+    const out = buildTimeline(input({ statusChanges, memos }));
+    expect(out.map(line)).toEqual([
+      "day:2026-09-27",
+      "created",
+      "studio:memo:b:deleted",
+      "studio:status:in_progress",
+      "studio:memo:a:edited",
+      "day:2026-09-28",
+      "studio:memo:c",
+    ]);
+    expect(out.filter((e) => e.type === "memo").every((e) => e.owner === "studio")).toBe(true);
+  });
+
+  it("쓰고 · 고치고 · 지우면 업무 화면의 타임라인 끝에 그대로 보인다. 작성자는 me, 지운 메모의 본문은 남지 않는다", async () => {
+    const { deps } = setup();
+    await syncAll(deps);
+    const written = await writeMemo(deps, { workId: "a1b2c3", body: "  로그인 화면 문구 다시 확인 필요\r\n둘째 줄  \n" });
+    if (!written.ok) throw new Error(written.problem);
+    expect(written.memo).toMatchObject({ workId: "a1b2c3", author: "me", body: "로그인 화면 문구 다시 확인 필요\n둘째 줄", editedAt: null, deletedAt: null });
+    const last = async () => (await getWorkChat(deps, "a1b2c3", { now: "2026-09-25T00:00:00.000Z" }))!.timeline.at(-1);
+    expect(await last()).toMatchObject({ type: "memo", memo: { id: written.memo.id, body: "로그인 화면 문구 다시 확인 필요\n둘째 줄" } });
+
+    expect(await editMemo(deps, { workId: "a1b2c3", id: written.memo.id, body: "문구는 인증 코드로 통일" })).toEqual({ ok: true });
+    expect(await last()).toMatchObject({ memo: { body: "문구는 인증 코드로 통일", editedAt: "2026-09-25T00:00:00.000Z" } });
+
+    expect(await deleteMemo(deps, { workId: "a1b2c3", id: written.memo.id })).toEqual({ ok: true });
+    expect(await last()).toMatchObject({ memo: { body: "", deletedAt: "2026-09-25T00:00:00.000Z" } });
+    expect(await deleteMemo(deps, { workId: "a1b2c3", id: written.memo.id })).toEqual({ ok: true }); // 두 번 눌러도 된다
+  });
+
+  it("규칙에 걸리면 쓰지 않고 이유를 돌려준다. 지운 메모 · 없는 메모 · 다른 업무의 메모는 고치거나 지울 수 없다(no_memo), 없는 업무는 no_work", async () => {
+    const { deps } = setup();
+    await syncAll(deps);
+    expect(await writeMemo(deps, { workId: "a1b2c3", body: " \n " })).toEqual({ ok: false, problem: "empty" });
+    expect(await writeMemo(deps, { workId: "ghost", body: "메모" })).toEqual({ ok: false, problem: "no_work" });
+    expect(await deps.store.listMemos("a1b2c3")).toEqual([]);
+
+    const written = await writeMemo(deps, { workId: "a1b2c3", body: "메모" });
+    if (!written.ok) throw new Error(written.problem);
+    expect(await editMemo(deps, { workId: "a1b2c3", id: written.memo.id, body: "탭\t가운데" })).toEqual({ ok: false, problem: "control_char" });
+    expect(await editMemo(deps, { workId: "d0e1f2", id: written.memo.id, body: "남의 업무" })).toEqual({ ok: false, problem: "no_memo" });
+    expect(await deleteMemo(deps, { workId: "d0e1f2", id: written.memo.id })).toEqual({ ok: false, problem: "no_memo" });
+    expect(await editMemo(deps, { workId: "a1b2c3", id: "nope", body: "x" })).toEqual({ ok: false, problem: "no_memo" });
+    await deleteMemo(deps, { workId: "a1b2c3", id: written.memo.id });
+    expect(await editMemo(deps, { workId: "a1b2c3", id: written.memo.id, body: "되살리기" })).toEqual({ ok: false, problem: "no_memo" });
+    expect((await deps.store.listMemos("a1b2c3"))[0]).toMatchObject({ body: "", editedAt: null });
   });
 });

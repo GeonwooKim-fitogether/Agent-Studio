@@ -1,7 +1,8 @@
 /**
  * 업무 Chat 의 타임라인 조립 (feature-plan F7, 시안 v2 의 timelineFor). 순수 함수 하나다 — 저장소를 모르고 재료만 받는다.
  *
- * 재료는 넷이다. PR 이벤트(연결 · 새 커밋 · 검사 · 병합 · 닫힘 · 다시 열림 · 연결 해제), 업무 상태 이력, 내부 검토 결정, 업무를 만든 시각.
+ * 재료는 다섯이다. PR 이벤트(연결 · 새 커밋 · 검사 · 병합 · 닫힘 · 다시 열림 · 연결 해제), 업무 상태 이력, 내부 검토 결정, 업무를 만든 시각,
+ * 그리고 사람이 쓴 메모(F8 — 쓴 시각의 자리에 놓인다. 고쳐도 자리는 그대로이고, 지운 메모도 "지워진 메모" 로 자리를 지킨다).
  * 이것들을 시간순으로 늘어놓고, 날짜가 바뀌는 자리에 구분선을 넣고, 항목마다 주인(GitHub · Studio)을 붙인다(계약 §5).
  *
  * PR 카드는 **커밋 단위**다(계약 §3-2 "이 PR 의 이 커밋", 결정 16-5). 지금 연결된 PR 마다 Studio 가 아는 커밋의 카드가 하나씩 생긴다.
@@ -14,6 +15,7 @@
  */
 import type { ChecksState, PrRef, ReviewDecision, ReviewVerdict, Work } from "../domain/model";
 import { samePr } from "../domain/model";
+import type { Memo } from "../domain/memo";
 import { eventOwner, type PrEvent } from "../domain/pr-event";
 import type { PrCardView, StatusChangeView } from "./queries";
 
@@ -35,6 +37,7 @@ export type TimelineEntry =
       readonly verdict: ReviewVerdict;
     }
   | { readonly type: "status"; readonly key: string; readonly at: string; readonly owner: "studio"; readonly change: StatusChangeView }
+  | { readonly type: "memo"; readonly key: string; readonly at: string; readonly owner: "studio"; readonly memo: Memo }
   | {
       readonly type: "card";
       readonly key: string;
@@ -60,6 +63,8 @@ export interface TimelineInput {
   readonly statusChanges: readonly StatusChangeView[];
   /** 이 업무의 내부 검토 결정 */
   readonly reviews: readonly ReviewDecision[];
+  /** 이 업무의 메모 (쌓인 순서, 지운 메모 포함) */
+  readonly memos: readonly Memo[];
   readonly repoName: (repoId: number) => string;
   /** 화면을 그리는 지금 시각 — 기록이 아직 하나도 없을 때 "지금부터" 의 기준 */
   readonly now: string;
@@ -67,8 +72,8 @@ export interface TimelineInput {
   readonly dayOf?: (iso: string) => string;
 }
 
-/** 같은 시각이면 이 순서로 놓는다: 업무 생성 → PR 이벤트 → 카드 → 검토 결정 → 상태 변화 (원인이 결과보다 먼저) */
-const RANK = { work_created: 0, pr_event: 1, card: 2, review: 3, status: 4 } as const;
+/** 같은 시각이면 이 순서로 놓는다: 업무 생성 → PR 이벤트 → 카드 → 검토 결정 → 상태 변화 (원인이 결과보다 먼저) → 메모 */
+const RANK = { work_created: 0, pr_event: 1, card: 2, review: 3, status: 4, memo: 5 } as const;
 
 type Timed = Exclude<TimelineEntry, { type: "note" } | { type: "day" }>;
 
@@ -95,6 +100,7 @@ export function buildTimeline(input: TimelineInput): TimelineEntry[] {
     push(entry, r.decidedAt);
   }
   input.statusChanges.forEach((change, i) => push({ type: "status", key: `st-${i}`, at: change.at, owner: "studio", change }, change.at));
+  for (const memo of input.memos) push({ type: "memo", key: `memo-${memo.id}`, at: memo.createdAt, owner: "studio", memo }, memo.createdAt);
 
   let unrecorded = false;
   for (const pr of input.cards) {

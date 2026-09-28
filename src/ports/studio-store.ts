@@ -19,6 +19,7 @@ import type {
   Work,
   WorkStatus,
 } from "../domain/model";
+import type { Memo } from "../domain/memo";
 import type { PrEvent } from "../domain/pr-event";
 import type { PrFingerprint, StatusChange } from "../domain/work-status";
 
@@ -35,6 +36,8 @@ export interface StudioSeed {
   readonly unlinks?: readonly UnlinkRecord[];
   /** PR 이벤트 (feature-plan F7). 시연 데이터는 넣지 않는다 — 기록은 Studio 가 실제로 읽은 변화에서만 시작한다 */
   readonly events?: readonly PrEvent[];
+  /** 메모 (feature-plan F8). 시연 데이터는 넣지 않는다 */
+  readonly memos?: readonly Memo[];
 }
 
 /**
@@ -123,6 +126,25 @@ export interface StudioStore {
   addPrEvents(events: readonly PrEvent[]): Promise<void>;
   /** 한 업무의 PR 이벤트. 쌓인 순서(오래된 것부터)다 */
   listPrEvents(workId: string): Promise<PrEvent[]>;
+
+  /**
+   * 메모를 더한다 (feature-plan F8, src/domain/memo.ts). 하나라도 걸리면 아무것도 쓰지 않는다.
+   * 확인 순서: 본문이 규칙 밖(isAcceptedMemoBody)이거나 작성자가 비었거나 고침 · 지움 시각이 차 있음 → invalid_input,
+   *   없는 업무 → not_found, 같은 ID 의 메모 → invalid_input.
+   */
+  addMemo(memo: Memo): Promise<void>;
+  /** 한 업무의 메모. 쌓인 순서(오래된 것부터)다. 지운 메모도 자리를 지키려고 함께 돌아온다(본문은 비어 있다) */
+  listMemos(workId: string): Promise<Memo[]>;
+  /**
+   * 메모 본문을 고치고 고친 시각을 남긴다. 그 업무에 그 메모가 없으면 not_found, 본문이 규칙 밖이거나 이미 지운 메모면 invalid_input.
+   * 확인 순서: 본문 → 메모가 있는가 → 지웠는가.
+   */
+  editMemo(edit: { readonly workId: string; readonly id: string; readonly body: string; readonly editedAt: string }): Promise<void>;
+  /**
+   * 메모를 지운다 — 본문을 비우고 지운 시각을 남긴다. 그 업무에 그 메모가 없으면 not_found.
+   * 이미 지운 메모면 아무것도 바꾸지 않는다(두 번 눌러도 처음 지운 시각이 남는다).
+   */
+  deleteMemo(target: { readonly workId: string; readonly id: string; readonly deletedAt: string }): Promise<void>;
 
   /** 미리보기 실행은 2단계에서 붙으므로 이번 단위에는 읽기만 있다. */
   listPreviewRecords(): Promise<PreviewRecord[]>;

@@ -21,13 +21,14 @@ import {
   VERDICT_MEANING,
   WORK_STATUS,
 } from "./labels";
+import { MemoEvent } from "./memo";
 import { PrCard } from "./pr-card";
 
 /**
  * 업무 Chat 의 조각들 (feature-plan F7, 시안 v2 의 renderChat · renderEvent). 무엇을 어떤 순서로 보일지는
  * application/timeline.ts 가 정하고, 여기서는 받은 목록을 그리기만 한다.
  *
- * 메모 입력칸과 Reply(F8 · F9)는 아직 그리지 않는다 — 동작하지 않는 칸을 두지 않는다(결정 7).
+ * 메모(F8)는 memo.tsx 가 그린다. Reply(F9 스레드)는 아직 그리지 않는다 — 동작하지 않는 칸을 두지 않는다(결정 7).
  */
 
 /** 왼쪽 채널 목록 — 프로젝트 > 업무. 채널 하나가 업무 하나다 */
@@ -78,11 +79,16 @@ export function Timeline({
   marker,
   source,
   actionsFor,
+  workId,
+  editingMemoId,
 }: {
   entries: readonly TimelineEntry[];
   marker: string;
   source: DataSource;
   actionsFor: (pr: PrCardView) => ReactNode;
+  workId: string;
+  /** 고치기 칸을 연 메모 (?edit=). 없으면 null */
+  editingMemoId: string | null;
 }) {
   return (
     <div className="tl" data-testid="timeline">
@@ -145,6 +151,13 @@ export function Timeline({
                   업무 상태 {WORK_STATUS[e.change.from]} → <b>{WORK_STATUS[e.change.to]}</b>{" "}
                   <span className="muted">· {statusCauseText(e.change)}</span>
                 </div>
+              </div>
+            );
+          case "memo":
+            return (
+              <div key={e.key} className="ev" id={`memo-${e.memo.id}`} data-testid="event" data-kind="memo">
+                <Time at={e.at} />
+                <MemoEvent memo={e.memo} workId={workId} editing={e.memo.id === editingMemoId} />
               </div>
             );
           case "card":
