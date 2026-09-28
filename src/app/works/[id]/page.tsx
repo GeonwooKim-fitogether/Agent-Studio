@@ -1,17 +1,28 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getPreviewCards } from "../../../application/preview";
-import { getWorkDetail } from "../../../application/queries";
+import { getWorkChat, type PrCardView } from "../../../application/queries";
 import { getContainer } from "../../../server/container";
 import { unlinkAction } from "../../actions";
-import { PrCard, StateLegend } from "../../components/pr-card";
+import { Channels, Timeline } from "../../components/chat";
+import { CopyButton } from "../../components/copy-button";
+import { kstDay } from "../../components/labels";
+import { StateLegend } from "../../components/pr-card";
 import { PreviewControls } from "../../components/preview-controls";
+import { RememberWork } from "../../components/remember-work";
 import { ReviewControls } from "../../components/review-controls";
 import { StatusBadge, WorkStatusPanel } from "../../components/work-status";
 
 export const dynamic = "force-dynamic";
 
-/** 업무 화면 — 그 업무에 연결된 PR 카드와, 사용자가 PR 에 넣을 업무 표식. */
+/**
+ * 업무 화면 = 업무 Chat (feature-plan F7, 결정 13: 2.5단계부터 같은 주소에서 Chat 배치가 된다).
+ * 왼쪽에 채널 목록(프로젝트 > 업무), 가운데 머리(제목 · 상태 · 표식 Copy · 상태 칸)와 시간순 타임라인.
+ * PR 카드는 타임라인 속에 커밋마다 쌓이고, 버튼은 최신 카드에만 있다.
+ *
+ * 휴대전화 폭에서는 채널 목록과 타임라인 중 하나만 보인다. `‹ Channels` 는 ?channels=1 로 같은 화면을 다시 그려
+ * 채널 목록을 연다 — 자바스크립트 없이도 동작한다.
+ * 메모 입력칸과 스레드(F8 · F9)는 다음 단위다. 동작하지 않는 칸을 미리 두지 않는다(결정 7).
+ */
 export default async function WorkPage({
   params,
   searchParams,
@@ -24,88 +35,80 @@ export default async function WorkPage({
   const refused = query["preview"] === "refused";
   const reviewRefused = query["review"] === "refused";
   const statusRefused = query["status"] === "refused";
+  const showChannels = query["channels"] === "1";
   const container = getContainer();
   await container.ensureSynced();
-  const detail = await getWorkDetail(container.deps, id);
-  if (detail === undefined) notFound();
-  const { work, project, marker, prs } = detail;
+  const chat = await getWorkChat(container.deps, id, { now: container.deps.now().toISOString(), dayOf: kstDay });
+  if (chat === undefined) notFound();
+  const { work, project, marker, prs } = chat;
   const previews = await getPreviewCards(container.deps, container.preview, prs);
+  const source = container.deps.reader.source;
+  const workPath = `/works/${encodeURIComponent(work.id)}`;
+
+  const actionsFor = (pr: PrCardView) => (
+    <>
+      {previews.get(pr.key) !== undefined && <PreviewControls view={previews.get(pr.key)!} pr={pr} workId={work.id} />}
+      <ReviewControls pr={pr} workId={work.id} />
+      {/* 오조작을 막는 확인 한 단계: 체크박스를 체크해야 제출된다. 자바스크립트 없이도 브라우저가 막는다(required). */}
+      <form action={unlinkAction} className="unlink-form" data-testid="unlink-form">
+        <input type="hidden" name="repoId" value={pr.repoId} />
+        <input type="hidden" name="number" value={pr.number} />
+        <input type="hidden" name="workId" value={work.id} />
+        <label>
+          <input type="checkbox" name="confirm" value="yes" required /> 이 PR 을 업무에서 떼어 Inbox 로 돌려보낸다 (표식이 있어도 다시 자동으로 붙지
+          않는다)
+        </label>
+        <button type="submit" className="btn">
+          Unlink
+        </button>
+      </form>
+    </>
+  );
 
   return (
-    <div className="page-inner">
-      <nav className="crumbs" aria-label="Breadcrumb">
-        <Link href="/">Workspace</Link> / <span>{project.name}</span>
-      </nav>
-      <div className="page-head work-head">
-        <h1>{work.title}</h1>
-        <StatusBadge status={work.status} />
-      </div>
-      <WorkStatusPanel summary={detail} />
-
-      {statusRefused && (
-        <p className="source-error" data-testid="status-refused">
-          업무 상태를 바꾸지 않았다 — 화면이 오래됐을 수 있다(그사이 PR 이 바뀌어 더는 완료 후보가 아닐 수 있다). 지금 상태를 확인한다.
-        </p>
-      )}
-
-      {refused && (
-        <p className="source-error" data-testid="preview-refused">
-          미리보기를 열지 않았다 — 화면이 오래됐을 수 있다. 아래 PR 카드의 이유를 확인한다.
-        </p>
-      )}
-
-      {reviewRefused && (
-        <p className="source-error" data-testid="review-refused">
-          내부 검토 결정을 남기지 않았다 — 화면이 오래됐을 수 있다(그사이 PR 이 병합 · 닫히거나 연결이 풀렸을 수 있다). 아래 PR 카드를 확인한다.
-        </p>
-      )}
-
-      <section className="marker-box">
-        <p className="eyebrow">Work marker</p>
-        <code data-testid="work-marker">{marker}</code>
-        <p className="muted">
-          PR 본문이나 브랜치 이름에 이 표식을 넣으면 다음 Sync 때 이 업무에 자동으로 연결된다. 표식 앞뒤는 띄어 쓴다(예: "studio-work-… 에서"). 조사를 붙여 쓰거나 다른 표식과 섞이면 Inbox 로 간다.
-        </p>
-      </section>
-
-      <section className="project">
-        <header className="section-header">
-          <h2>Pull requests</h2>
-          <small>{prs.length}개</small>
-        </header>
-        {prs.length === 0 ? (
-          <p className="empty-note">아직 연결된 PR 이 없다. Inbox 에서 연결하거나 위 표식을 PR 에 넣는다.</p>
-        ) : (
-          <div className="pr-list">
-            <StateLegend />
-            {prs.map((pr) => (
-              <PrCard
-                key={pr.key}
-                pr={pr}
-                source={container.deps.reader.source}
-                actions={
-                  <>
-                    {previews.get(pr.key) !== undefined && <PreviewControls view={previews.get(pr.key)!} pr={pr} workId={work.id} />}
-                    <ReviewControls pr={pr} workId={work.id} />
-                    {/* 오조작을 막는 확인 한 단계: 체크박스를 체크해야 제출된다. 자바스크립트 없이도 브라우저가 막는다(required). */}
-                  <form action={unlinkAction} className="unlink-form" data-testid="unlink-form">
-                    <input type="hidden" name="repoId" value={pr.repoId} />
-                    <input type="hidden" name="number" value={pr.number} />
-                    <input type="hidden" name="workId" value={work.id} />
-                    <label>
-                      <input type="checkbox" name="confirm" value="yes" required /> 이 PR 을 업무에서 떼어 Inbox 로 돌려보낸다
-                      (표식이 있어도 다시 자동으로 붙지 않는다)
-                    </label>
-                    <button type="submit" className="btn">
-                      Unlink
-                    </button>
-                  </form>
-                  </>
-                }
-              />
-            ))}
+    <div className={showChannels ? "chat show-channels" : "chat"} data-testid="chat">
+      <RememberWork id={work.id} />
+      <Channels groups={chat.channels} currentId={work.id} />
+      <section className="tl-col" aria-label="Timeline">
+        <header className="tl-head">
+          <div className="work-head">
+            <a className="btn tiny back" href={`${workPath}?channels=1`} data-testid="show-channels">
+              ‹ Channels
+            </a>
+            <h1>{work.title}</h1>
+            <StatusBadge status={work.status} />
           </div>
-        )}
+          <div className="marker">
+            <code id="work-marker" data-testid="work-marker">
+              {marker}
+            </code>
+            <CopyButton text={marker} targetId="work-marker" />
+            <span className="why marker-why">
+              {project.name} · PR 본문이나 브랜치 이름에 이 표식을 넣으면 다음 Sync 때 이 업무에 자동으로 연결된다. 표식 앞뒤는 띄어 쓴다.
+            </span>
+          </div>
+          <WorkStatusPanel summary={chat} />
+
+          {statusRefused && (
+            <p className="source-error" data-testid="status-refused">
+              업무 상태를 바꾸지 않았다 — 화면이 오래됐을 수 있다(그사이 PR 이 바뀌어 더는 완료 후보가 아닐 수 있다). 지금 상태를 확인한다.
+            </p>
+          )}
+          {refused && (
+            <p className="source-error" data-testid="preview-refused">
+              미리보기를 열지 않았다 — 화면이 오래됐을 수 있다. 아래 최신 카드의 이유를 확인한다.
+            </p>
+          )}
+          {reviewRefused && (
+            <p className="source-error" data-testid="review-refused">
+              내부 검토 결정을 남기지 않았다 — 화면이 오래됐을 수 있다(그사이 PR 이 병합 · 닫히거나 연결이 풀렸을 수 있다). 아래 최신 카드를 확인한다.
+            </p>
+          )}
+          {prs.length > 0 && <StateLegend />}
+        </header>
+
+        <Timeline entries={chat.timeline} marker={marker} source={source} actionsFor={actionsFor} />
+        {prs.length === 0 && <p className="empty-note tl-empty">아직 연결된 PR 이 없다. Inbox 에서 연결하거나 위 표식을 PR 에 넣는다.</p>}
       </section>
     </div>
   );

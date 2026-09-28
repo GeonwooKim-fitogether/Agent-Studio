@@ -45,13 +45,14 @@ async function expectSeparateStateRows(card: Locator) {
  * 보이는 Open Preview 는 모두 비활성이어야 한다 — 누를 수 있는데 동작하지 않는 버튼이 없다는 같은 규칙이다.
  */
 async function expectNoUnbuiltFeatures(page: Page) {
-  const unbuilt = /^(Run|Chat|Flow|Agents)$/;
+  // Chat 은 2.5단계에 실제 화면(업무 Chat)이 생겨 메뉴에 들어갔다(feature-plan §3-1). Run · Flow · Agents 는 아직 없다
+  const unbuilt = /^(Run|Flow|Agents)$/;
   await expect(page.getByRole("button", { name: unbuilt })).toHaveCount(0);
   const previewButtons = page.getByRole("button", { name: "Open Preview" });
   for (const button of await previewButtons.all()) await expect(button).toBeDisabled();
   await expect(page.getByRole("link", { name: unbuilt })).toHaveCount(0);
   await expect(page.getByText(unbuilt)).toHaveCount(0);
-  await expect(nav(page).getByRole("link")).toHaveText(["Workspace", "Inbox"]);
+  await expect(nav(page).getByRole("link")).toHaveText(["Workspace", "Chat", "Inbox"]);
 }
 
 test("Workspace 에서 Inbox 로 가서 PR 을 기존 업무에 연결하면, 업무 화면과 Workspace 에 PR 카드가 나타난다", async ({ page }) => {

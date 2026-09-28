@@ -30,6 +30,7 @@ import { markerFor } from "../domain/work-marker";
 import type { PrFingerprint, StatusChange, StatusRule } from "../domain/work-status";
 import type { StudioStore } from "../ports/studio-store";
 import type { AppDeps } from "./deps";
+import { buildTimeline, type TimelineEntry } from "./timeline";
 
 export interface CommitRecordView {
   readonly id: string;
@@ -125,6 +126,61 @@ export interface InboxView {
 
 export interface WorkDetailView extends WorkSummaryView {
   readonly project: Project;
+}
+
+/** Chat 왼쪽의 채널 목록 — 프로젝트마다 그 업무들(채널 하나가 업무 하나). Workspace 와 같은 순서다 */
+export interface ChannelGroupView {
+  readonly project: Project;
+  readonly works: readonly Pick<Work, "id" | "title" | "status">[];
+}
+
+/** 업무 Chat 화면 (feature-plan F7). 업무 화면의 모든 것에 채널 목록과 타임라인이 더해진다 */
+export interface WorkChatView extends WorkDetailView {
+  readonly channels: readonly ChannelGroupView[];
+  readonly timeline: readonly TimelineEntry[];
+}
+
+export async function getWorkChat(
+  deps: Pick<AppDeps, "store">,
+  workId: string,
+  options: { readonly now: string; readonly dayOf?: (iso: string) => string },
+): Promise<WorkChatView | undefined> {
+  const s = await loadAll(deps.store);
+  const work = s.works.find((w) => w.id === workId);
+  const project = work && s.projects.find((p) => p.id === work.projectId);
+  if (work === undefined || project === undefined) return undefined;
+  const summary = summarizeWork(s, work);
+  const timeline = buildTimeline({
+    work,
+    cards: summary.prs,
+    events: await deps.store.listPrEvents(work.id),
+    statusChanges: s.statusChanges.filter((c) => c.workId === work.id).map((c) => toChangeView(s, c)),
+    reviews: s.reviews.filter((r) => r.workId === work.id),
+    repoName: (id) => s.repositories.get(id)?.fullName ?? `저장소 ${id}`,
+    now: options.now,
+    ...(options.dayOf === undefined ? {} : { dayOf: options.dayOf }),
+  });
+  return {
+    ...summary,
+    project,
+    channels: s.projects.map((p) => ({
+      project: p,
+      works: s.works.filter((w) => w.projectId === p.id).map((w) => ({ id: w.id, title: w.title, status: w.status })),
+    })),
+    timeline,
+  };
+}
+
+/** Chat 메뉴가 열 업무 — 기억해 둔 업무가 아직 있으면 그것, 아니면 Workspace 의 첫 업무. 업무가 하나도 없으면 null */
+export async function pickChatWork(deps: Pick<AppDeps, "store">, remembered: string | null): Promise<string | null> {
+  const [projects, works] = await Promise.all([deps.store.listProjects(), deps.store.listWorks()]);
+  if (remembered !== null && works.some((w) => w.id === remembered)) return remembered;
+  const ordered = [...works].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+  for (const p of projects) {
+    const first = ordered.find((w) => w.projectId === p.id);
+    if (first !== undefined) return first.id;
+  }
+  return null;
 }
 
 export async function getWorkspace(deps: Pick<AppDeps, "store">): Promise<WorkspaceView> {
