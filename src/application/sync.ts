@@ -2,7 +2,8 @@
  * 동기화 — GitHub 에서 PR 을 읽어 받아 적고, 아직 연결이 없는 PR 에만 자동 연결 규칙을 적용한다.
  */
 import { decideLink } from "../domain/auto-link";
-import { type Project, prKey, type RepoId, StudioError } from "../domain/model";
+import { type PrLink, type Project, prKey, type PrSnapshot, type RepoId, StudioError } from "../domain/model";
+import { linkedEvent, prChangeEvents } from "../domain/pr-event";
 import type { SourceReport } from "../ports/github-reader";
 import type { AppDeps } from "./deps";
 import { refreshWorkStatuses } from "./work-status";
@@ -43,6 +44,8 @@ export interface SyncResult {
  * 4. 이미 연결된 PR 은 다시 판정하지 않는다. 사람이 연결한 것이든 표식으로 연결된 것이든, 연결은 동기화가 바꾸지 않는다.
  *    연결이 없는 PR 만 표식 규칙으로 판정하고, 확실하지 않으면 그대로 둔다(= Inbox 에 남는다).
  *    다른 요청(동시에 도는 동기화, 사람의 연결)이 먼저 연결해 버린 PR 은 건너뛰고 계속 간다.
+ *    PR 이벤트(feature-plan F7): 연결된 PR 은 앞 모습과 비교해 바뀐 것(새 커밋 · 검사 · 병합 · 닫힘 · 다시 열림)을 그 업무에 남기고,
+ *    표식으로 새로 연결된 PR 은 "연결됨" 을 남긴다. 처음 읽는 PR 은 앞 모습이 없어 변화를 남기지 않는다.
  * 5. 끝으로 모든 업무의 상태를 규칙(계약 §5-1)으로 다시 판정한다. 새 커밋 · 병합 · 닫힘 · 새 연결이 상태에 반영되는 자리다.
  */
 export async function syncAll(deps: AppDeps): Promise<SyncResult> {
@@ -64,6 +67,8 @@ export async function syncAll(deps: AppDeps): Promise<SyncResult> {
 
   const works = await store.listWorks();
   const unlinked = new Set((await store.listUnlinks()).map(prKey));
+  // 앞 모습. 스냅샷을 새로 쓰기 전에 한 번에 읽어 둔다(PR 마다 묻지 않게)
+  const previous = new Map<string, PrSnapshot>((await store.listSnapshots()).map((s) => [prKey(s), s]));
   const linkedAt = deps.now().toISOString();
   const discarded: DiscardedSnapshot[] = [];
   const skipped: { repoId: RepoId; number: number }[] = [];
@@ -94,25 +99,31 @@ export async function syncAll(deps: AppDeps): Promise<SyncResult> {
         }
         throw error;
       }
-      if ((await store.getLink(snapshot)) !== undefined) continue;
+      const existing = await store.getLink(snapshot);
+      if (existing !== undefined) {
+        await store.addPrEvents(prChangeEvents(previous.get(prKey(snapshot)), snapshot, existing.workId, linkedAt));
+        continue;
+      }
 
       const decision = decideLink(snapshot, project.id, works, { unlinkedByUser: unlinked.has(prKey(snapshot)) });
       if (decision.kind !== "auto") continue;
+      const link: PrLink = {
+        repoId: snapshot.repoId,
+        number: snapshot.number,
+        workId: decision.workId,
+        origin: "marker",
+        markerFoundIn: decision.foundIn,
+        linkedAt,
+      };
       try {
-        await store.addLink({
-          repoId: snapshot.repoId,
-          number: snapshot.number,
-          workId: decision.workId,
-          origin: "marker",
-          markerFoundIn: decision.foundIn,
-          linkedAt,
-        });
+        await store.addLink(link);
         autoLinked += 1;
       } catch (error) {
         // 다른 요청이 먼저 연결했거나, 판정 뒤에 사람이 연결을 풀었다 — 건너뛰고 계속 간다.
         if (error instanceof StudioError && (error.code === "already_linked" || error.code === "unlinked_by_user")) continue;
         throw error;
       }
+      await store.addPrEvents([linkedEvent(link, snapshot.headSha)]);
     }
   }
 

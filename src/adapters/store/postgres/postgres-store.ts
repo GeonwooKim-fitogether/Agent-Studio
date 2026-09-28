@@ -24,6 +24,7 @@ import {
   isValidPrRef,
   withoutNul,
 } from "../../../domain/model";
+import { isPrEventKind, type PrEvent } from "../../../domain/pr-event";
 import { isValidWorkId } from "../../../domain/work-marker";
 import { isWorkStatus, type PrFingerprint, type StatusCause, type StatusChange, type StatusEvidence } from "../../../domain/work-status";
 import type { StudioSeed, StudioStore } from "../../../ports/studio-store";
@@ -107,6 +108,48 @@ const toStatusChange = (r: Row): StatusChange => {
     changedAt: iso(r["changed_at"]),
   };
 };
+
+const toPrEvent = (r: Row): PrEvent => {
+  const base = {
+    id: String(r["id"]),
+    repoId: num(r["repo_id"]),
+    number: num(r["number"]),
+    workId: String(r["work_id"]),
+    commitSha: String(r["commit_sha"]),
+    at: iso(r["at"]),
+  };
+  switch (r["kind"]) {
+    case "linked":
+      return { ...base, kind: "linked", origin: r["origin"] as "marker" | "user" };
+    case "new_commit":
+      return { ...base, kind: "new_commit", previousSha: String(r["previous_sha"]) };
+    case "checks":
+      return { ...base, kind: "checks", checks: r["checks"] as PrSnapshot["checks"] };
+    default:
+      return { ...base, kind: r["kind"] as "unlinked" | "merged" | "closed" | "reopened" };
+  }
+};
+
+/** PR 이벤트 한 건을 쓴다. 같은 ID 가 이미 있으면 아무것도 하지 않는다(같은 변화는 한 번만) */
+async function insertPrEvent(db: Queryable, e: PrEvent): Promise<void> {
+  await db.query(
+    `insert into pr_event (id, repo_id, number, work_id, kind, commit_sha, origin, previous_sha, checks, at)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     on conflict (id) do nothing`,
+    [
+      e.id,
+      e.repoId,
+      e.number,
+      e.workId,
+      e.kind,
+      e.commitSha,
+      e.kind === "linked" ? e.origin : null,
+      e.kind === "new_commit" ? e.previousSha : null,
+      e.kind === "checks" ? e.checks : null,
+      e.at,
+    ],
+  );
+}
 
 /** 트랜잭션 하나 안에서 fn 을 돌린다. 던지면 되돌린다. */
 async function inTransaction<T>(pool: Pool, fn: (client: PoolClient) => Promise<T>): Promise<T> {
@@ -383,6 +426,21 @@ export function createPostgresStore(pool: Pool): StudioStore {
       return (await rows("select * from work_status_change order by ord")).map(toStatusChange);
     },
 
+    async addPrEvents(events) {
+      // 확인 순서는 메모리 구현과 같다: 범위 · 종류 → 없는 업무(외래 키 위반 → not_found)
+      for (const e of events) {
+        assertRef(e);
+        if (!isPrEventKind(e.kind)) throw new StudioError("invalid_input", "PR 이벤트 종류가 올바르지 않다.");
+      }
+      if (events.length === 0) return;
+      await inTransaction(pool, async (db) => {
+        for (const e of events) await insertPrEvent(db, e);
+      });
+    },
+    async listPrEvents(workId) {
+      return (await rows("select * from pr_event where work_id = $1 order by ord", [workId])).map(toPrEvent);
+    },
+
     async listPreviewRecords() {
       return (await rows("select * from preview_record order by started_at, id")).map(toPreview);
     },
@@ -426,6 +484,7 @@ export async function seedIfEmpty(pool: Pool, seed: StudioSeed): Promise<boolean
         [d.id, d.workId, d.repoId, d.number, d.commitSha, d.verdict, d.decidedAt],
       );
     }
+    for (const e of seed.events ?? []) await insertPrEvent(db, e);
     for (const p of seed.previews ?? []) {
       await db.query("insert into preview_record (id, repo_id, number, commit_sha, started_at) values ($1, $2, $3, $4, $5)", [
         p.id,

@@ -12,6 +12,7 @@ import type { InboxReason } from "../../domain/auto-link";
 import type { ChecksState, GitHubReviewState, MarkerPlace, PrState, ReviewVerdict, WorkStatus } from "../../domain/model";
 import type { PreviewBlock, PreviewPhase } from "../../domain/preview";
 import { markerFor } from "../../domain/work-marker";
+import type { PrEvent } from "../../domain/pr-event";
 import type { StatusRule } from "../../domain/work-status";
 import { MAX_WORK_TITLE_LENGTH } from "../../domain/work-title";
 
@@ -59,14 +60,18 @@ function ruleReason(rule: StatusRule, to: WorkStatus): string {
  */
 export function statusChangeText(change: StatusChangeView | null, pinned: boolean): string {
   if (change === null) return "아직 규칙이나 사람이 상태를 바꾼 적이 없다";
-  const at = formatKst(change.at);
+  return [statusCauseText(change, pinned), formatKst(change.at)].join(" · ");
+}
+
+/** 상태를 누가 · 왜 바꿨나 (시각 없이). Chat 타임라인의 상태 줄과 업무 머리의 이력 한 줄이 함께 쓴다 */
+export function statusCauseText(change: StatusChangeView, pinned = false): string {
   if (change.cause.kind === "person") {
     const what =
       change.cause.action === "mark_done" ? "사람이 Mark as Done 을 눌렀다" : `사람이 상태를 ${WORK_STATUS[change.to]} 로 바꿨다`;
-    return [what, pinned ? "다음 PR 변화까지 규칙이 덮지 않는다" : null, at].filter((p) => p !== null).join(" · ");
+    return [what, pinned ? "다음 PR 변화까지 규칙이 덮지 않는다" : null].filter((p) => p !== null).join(" · ");
   }
   const evidence = change.cause.evidence.map((e) => `${e.repoName}#${e.number} 커밋 ${shortSha(e.commitSha)}`).join(", ");
-  return [`규칙 ${change.cause.rule}`, evidence === "" ? null : evidence, ruleReason(change.cause.rule, change.to), at]
+  return [`규칙 ${change.cause.rule}`, evidence === "" ? null : evidence, ruleReason(change.cause.rule, change.to)]
     .filter((p) => p !== null)
     .join(" · ");
 }
@@ -247,3 +252,61 @@ export const NEW_WORK_FORM_NOTE =
 /** 빈 업무를 만든 뒤 표식 아래의 안내 (시안 v2) */
 export const NEW_WORK_DONE_NOTE =
   "이 표식을 Claude 에게 주는 지시에 붙여 넣는다. 표식 앞뒤는 띄어 쓴다. 표식이 든 PR 은 다음 Sync 에서 이 업무에 붙고, 표식이 없는 PR 은 Inbox 로 간다.";
+
+// ── 업무 Chat (feature-plan F7, 시안 v2 의 2.5단계) ──────────────────────────────
+
+const KST_HM = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit", hour12: false });
+const KST_DAY = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" });
+const WEEKDAY = ["일", "월", "화", "수", "목", "금", "토"];
+
+/** 타임라인 줄의 시각 (한국 시간, 예: 09:58) */
+export const formatKstTime = (iso: string) => KST_HM.format(new Date(iso));
+/** 타임라인의 날짜 구분 열쇠 (한국 시간의 날짜, 예: 2026-09-28) */
+export const kstDay = (iso: string) => KST_DAY.format(new Date(iso));
+/** 날짜 구분선의 글자 (예: "9월 28일 (월)") — kstDay 의 값을 받는다 */
+export function dayLabel(day: string): string {
+  const [y, m, d] = day.split("-").map(Number) as [number, number, number];
+  return `${m}월 ${d}일 (${WEEKDAY[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]})`;
+}
+
+/** 이벤트 줄의 주인 표시 (계약 §5 — GitHub 가 알려 준 것과 Studio 가 한 것을 가른다) */
+export const OWNER_TAG = { github: "GitHub", studio: "Studio" } as const;
+
+/** 타임라인 맨 위 — 기록이 생기기 전의 변화는 없다는 것을 정직하게 적는다 */
+export function recordStartText(since: string): string {
+  return `이 업무의 기록은 ${formatKst(since)} 부터 남는다. 그전에 PR 에 있었던 변화(연결 · 새 커밋 · 검사 · 병합 · 닫힘)는 기록되지 않아, 그 앞의 카드는 Studio 에 남은 검토 기록과 PR 의 지금 모습에서 시작한다.`;
+}
+
+/** PR 이벤트 한 줄 (PR 이름은 앞에 굵게 따로 붙인다) */
+export function prEventText(event: PrEvent): string {
+  switch (event.kind) {
+    case "linked":
+      return `이 업무에 연결됐다 · ${event.origin === "marker" ? "Linked by marker" : "Linked manually"} · 커밋 ${shortSha(event.commitSha)}`;
+    case "unlinked":
+      return `연결을 풀었다 (Unlink) · Inbox 로 돌아갔고 표식이 있어도 다시 자동으로 붙지 않는다`;
+    case "new_commit":
+      return `새 커밋 ${shortSha(event.commitSha)} (앞 커밋 ${shortSha(event.previousSha)}) · 새 카드가 생기고 앞 카드는 이전 커밋이 된다`;
+    case "checks":
+      return `커밋 ${shortSha(event.commitSha)} · ${CHECKS[event.checks]}`;
+    case "merged":
+      return `병합됨 (Merged) · GitHub 에서 병합됐다 · 커밋 ${shortSha(event.commitSha)}`;
+    case "closed":
+      return `닫힘 (Closed) · 병합 없이 닫혔다`;
+    case "reopened":
+      return `다시 열림 (Open)`;
+  }
+}
+
+/** 내부 검토 결정 한 줄 */
+export function reviewEventText(verdict: ReviewVerdict, commitSha: string): string {
+  const button = verdict === "internal_review_done" ? "Approve" : "Request Changes";
+  return `커밋 ${shortSha(commitSha)} 에 ${button} — ${VERDICT[verdict]} (${VERDICT_MEANING[verdict]})`;
+}
+
+/** 이전 커밋 카드의 한 줄 (결정 16-5: 옛 카드에는 버튼을 반복하지 않는다) */
+export function oldCardNote(headSha: string): string {
+  return `이전 커밋의 기록이다. 버튼은 최신 카드(${shortSha(headSha)})에서만 누른다.`;
+}
+
+/** 채널 목록 아래의 한 줄 (시안 v2) */
+export const CHANNELS_FOOT = "채널 하나가 업무 하나다. 새 업무는 Workspace 의 New Work 로 만든다.";
