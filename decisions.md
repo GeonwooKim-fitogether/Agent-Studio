@@ -130,7 +130,7 @@
 - **정한 것**: [`docs/product/agent-studio-focus.html`](docs/product/agent-studio-focus.html) 을 화면의 기준으로 둔다. 결정 16 의 시안 v2 는 이 결정으로 대체되고 `docs/product/archive/agent-studio-prototype-v2.html` 로 옮긴다(결정 16 의 다섯 기본값은 규칙으로 그대로 남는다). 시안을 복제하지 않고, 지금 제품의 규칙 · 실데이터 위에 핵심 구조만 옮긴다. 구현이 채택한 기본값은 열셋이다.
   1. **틀(Q1)**: 왼쪽 사이드바(Workspace · Chat · Inbox 와 대기 개수, Projects 목록, 아래에 Connections). 휴대전화 폭은 아래쪽 탭(Workspace · Chat · Inbox · Connections). 위쪽의 긴 기술 띠는 없앤다.
   2. **기술 정보의 자리(Q2)**: 출처 · 저장소 · 마지막 Sync · 자동 Sync · 저장 방식 · 출처별 결과 · 미리보기 기기 상세는 `Connections` 화면으로 옮긴다. 사이드바에는 한 줄 요약(`GitHub · 3분 전` + `Sync`, `Preview host · Offline/Connected`)만 두고, 고정 데이터면 "Fixture data" 가 늘 보인다. 동기화 실패 · 설정 오류는 모든 화면 맨 위에 경고 한 줄로 남긴다.
-  3. **Flow · Agents(Q3)**: 3단계 미착수이고 실행 연결이 없으므로 메뉴에 두지 않는다(결정 7 · 13). `Connections` 에 `AI models — Not connected` 를 보인다.
+  3. **Flow · Agents(Q3)**: 3단계 미착수이고 실행 연결이 없으므로 메뉴에 두지 않는다(결정 7 · 13). `Connections` 에 `AI models — Not connected` 를 보인다. — **결정 20 으로 대체됨**: Flow · Agents 는 Demo 로 메뉴에 둔다.
   4. **업무의 목표(Q4)**: 업무에 목표(Goal) 칸을 더한다. `New Work` 는 제목과 목표를 받는다(목표 필수, 500자 상한). Inbox 의 PR 로 만든 업무와 기존 업무는 목표가 비어 있고 업무 화면의 `Set goal` · `Edit goal` 로 적는다.
   5. **Workspace(Q5)**: 왼쪽 위 Needs your attention 은 **업무 하나에 한 줄**(이유가 여럿이면 가장 앞선 이유를 보이고 나머지는 개수로) + Inbox 한 줄. 그 아래 Other work 는 attention 에 없는 업무만(필터 Open · Done candidate · Done, 프로젝트). 오른쪽 Up next 는 고른 업무 하나의 요약과 버튼 하나. 같은 업무를 두 번 보이지 않고, PR 카드 전체를 반복하지 않는다.
   6. **업무 화면(Q6)**: 목표(고정) → 타임라인 → 메모 입력칸, 오른쪽 Work details 맨 위에 Next action(할 일 하나와 주 버튼 하나). 왼쪽 채널 목록은 없앤다. 휴대전화 폭은 한 열이고 목표 바로 아래에 Next action 이 오며 속성은 `Details` 로 접힌다.
@@ -160,6 +160,21 @@
 - **자리별 모습**: 결과 카드는 제목 · `#12` · "최신 커밋"(여러 커밋일 때) · 아이콘 줄 · Studio 결정 알약(결정이 있을 때만) · `Open review` · `Reply`. Review 패널 머리는 PR 제목 · `#12 · 3c4d5e6` · 아이콘 줄이고 GITHUB · STUDIO · PREVIEW 절은 없다. Work details 는 Project · Pull requests · Work path · 상태 이력 · Status · Link a PR 이다. Workspace 의 attention 줄은 제목 · 프로젝트 · 상태 아이콘 하나, Other work 줄은 제목 · 프로젝트(PR 이 있으면 `#12` 와 세 칸 아이콘 줄)다.
 - **왜**: 같은 업무 화면에 저장소 이름이 9번, 같은 커밋 번호가 4번 되풀이돼 읽는 사람이 무엇이 새 정보인지 가려내야 했다(구현 전 1440px 업무 화면의 보이는 글자 82줄). 시안 v3 에서 같은 화면은 57줄, 저장소 이름 0번, 커밋 번호 1번이다.
 - **되돌리기**: 쉽다. 화면만 바뀌었고 데이터 · 규칙 · 폼 흐름은 그대로다.
+
+### 결정 20 (2026-09-28) — Flow 와 Agents 를 Demo 로 메뉴에 둔다. 흐름도는 기록만 보이고, Agent 는 초안만 저장한다. Run 은 없다.
+
+- **정한 것**: 사이드바와 휴대전화 아래 탭에 `Flow` · `Agents` 를 둔다. 둘 다 실행 연결이 없으므로 결정 7 의 "Demo 로 표시" 쪽을 따른다 — 메뉴 칸 · 업무 머리의 `Flow` 탭 · 버튼에 점선 `Demo` 표시, 두 화면 위에 Demo 띠 한 줄("Demo · 실행 연결 없음 — 흐름은 기록을 보여 줄 뿐 아무것도 실행하지 않는다" / "Demo · 실행 연결 없음 — 지시문은 저장만 되고 아직 AI 에게 가지 않는다"). 이 결정이 결정 18 의 3번(Q3 "Flow · Agents 는 메뉴에 두지 않는다")과 [`docs/product/feature-plan.md`](docs/product/feature-plan.md) §3-1 표의 Flow · Agents 행을 대체한다. 화면의 모습은 [`docs/product/agent-studio-v3.html`](docs/product/agent-studio-v3.html) 의 Flow · Agents 화면이다.
+- **사용자가 권고대로 확정한 넷** (2026-09-28, "권고대로"):
+  1. **메뉴의 Flow** 는 마지막으로 연 업무의 Flow 를 연다(메뉴의 Chat 과 같은 규칙 — 마지막으로 연 업무, 없으면 Workspace 의 첫 업무). 업무가 없으면 Chat 과 같은 빈 안내를 보인다. 업무 화면 머리에는 `Conversation` · `Flow` 탭 한 쌍이 있다.
+  2. **단계 이름을 Goal · Build · Review · Finish on GitHub 로 통일한다.** 업무 화면 Work details 의 Work path 도 이 이름을 쓰고, Goal 은 목표가 있을 때만 끝난 것으로 칠한다. 두 화면은 같은 순수 함수(`src/domain/work-path.ts` 의 `workPathOf`)에서 상태를 받는다 — 같은 사실을 두 화면이 다르게 말하지 않게.
+  3. **`Add Agent` · `Add Skill` 을 둔다(둘 다 Demo).** `Add Agent` 는 이름만 받아 초안을 만들고 편집 칸을 연다. `Add Skill` 은 이미 정의된 Skill(`Read context` · `Code review`)에서 고르는 것이다 — 새 Skill 을 정의하는 화면은 만들지 않는다.
+  4. **휴대전화 아래 탭은 다섯 칸**(Workspace · Chat · Flow · Agents · Inbox)이고, `Connections` 는 휴대전화 위쪽 줄 오른쪽의 아이콘이다.
+- **Flow 의 모습**: 읽기 전용 흐름도(끌기 · 노드 더하기 없음). Build 노드는 업무의 최신 PR(첫 열린 PR, 없으면 마지막 PR)의 `#12` 와 아이콘 줄(결정 19), Review 노드는 그 PR 의 마지막 결정(이전 커밋이면 "이전 커밋"), Finish 는 병합 여부를 보인다. Request changes 고리와 Approve in Studio 선은 이 업무가 지나간 적이 있으면 실선, 없으면 점선이다. 노드를 누르면 설명 칸(Owner · Build 는 Agent · Input · Output)과 이미 있는 화면으로 가는 버튼 하나가 바뀐다 — Build 는 `Open in Agents`(Builder 초안을 고른 Agents), Review 는 기존 Review 패널, Goal 은 `Set goal`. Build 의 Owner 는 "PR 작성자 — 지금은 Studio 밖에서 커밋한다" 다.
+- **Agents 의 모습**: 초안 목록 + 편집 칸 — Name · What it does(사람용 소개) · Instructions(AI 용 지시문, 더 큰 칸 · 다른 바탕) · AI model · Skills · `Save draft`. 칸 규칙에 걸리면 그 칸 옆에 한 줄로 보이고 적은 글은 되살린다. 자바스크립트 없이 폼과 주소 파라미터로 동작한다. Builder 초안 위에는 "Flow 에서 쓰는 곳 · <업무 제목> — Build" 링크가 있다(지금은 Build 노드가 늘 Builder 를 가리키므로).
+- **저장하는 것과 하지 않는 것**: Agent 초안(이름 1~40자 · 소개 120자 이하 · 지시문 4000자 이하 · 정의된 Skill 목록)을 새 표 `agent_draft`(`db/migrations/20260928215247_agent_draft.sql`)에 저장한다. 모델은 저장하지 않는다 — 연결 · 확인된 모델이 없으므로 AI model 칸은 비활성 "연결된 모델 없음" 과 Runtime · Model · Access 세 칸 "—", 그리고 Connections 를 가리키는 한 줄이다(결정 3 · 7). fixture 모드는 초안 표가 비어 있을 때만 Planner · Builder · Reviewer 세 예시를 심고, 이미 있으면 다시 심지 않는다.
+- **`Run` 버튼은 어디에도 없다**(결정 2). 대화 · 메모 · 지시문은 AI 에게 전달되지 않는다. 실제 실행 · 모델 연결은 3단계 첫 단위(실행 경로 시험) 뒤의 일이다(결정 5 · 13).
+- **왜**: 사용자가 Flow · Agents 의 자리와 모습을 먼저 보고 3단계를 기획하려 한다. 실행이 없는 화면을 메뉴에 두는 대신, 무엇이 아직 진짜가 아닌지를 Demo 표시와 띠로 분명히 하고, 흐름도의 상태는 지어내지 않고 업무의 실제 기록에서만 가져온다.
+- **되돌리기**: 쉽다. 메뉴 두 칸과 화면 두 개를 지우면 된다. `agent_draft` 표는 다른 표가 가리키지 않아 지워도 다른 데이터가 깨지지 않는다(`drop table agent_draft`).
 
 ---
 
