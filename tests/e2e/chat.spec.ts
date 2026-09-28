@@ -42,10 +42,10 @@ test("Workspace 에서 업무를 열면 목표 · 타임라인 · 결과 카드 
   await expect(page.getByTestId("work-marker")).toHaveText("studio-work-a1b2c3");
   await expect(page.getByRole("button", { name: "Copy" })).toBeVisible();
 
-  // 타임라인: 첫 줄은 기록이 언제부터인지 정직하게, 그다음 날짜 구분과 출처가 붙은 작은 줄들
+  // 타임라인: 첫 줄은 기록이 언제부터인지(작은 한 줄), 그다음 날짜 구분과 출처가 붙은 작은 줄들
   const timeline = page.getByTestId("timeline");
-  await expect(timeline.getByTestId("record-start")).toContainText("이 업무의 기록은");
-  await expect(timeline.getByTestId("record-start")).toContainText("부터 남는다");
+  await expect(timeline.getByTestId("record-start")).toContainText("기록 시작 · ");
+  await expect(timeline.getByTestId("record-start")).toContainText("KST");
   await expect(timeline.getByTestId("day").first()).toBeVisible();
   await expect(timeline.locator('[data-kind="work_created"]')).toContainText("업무를 만들었다");
   await expect(timeline.locator('[data-kind="linked"]').first()).toContainText("Linked by marker");
@@ -55,13 +55,13 @@ test("Workspace 에서 업무를 열면 목표 · 타임라인 · 결과 카드 
   // payments#12: 검토 결정이 가리키는 이전 커밋(9f8e7d6)의 카드는 한 줄로 접힌 기록이고 버튼이 없다. 최신 카드(3c4d5e6)에만 Open review 가 있다
   const old = timeline.getByTestId("pr-card-old-710001-12-9f8e7d6");
   await expect(old).toContainText("이전 커밋");
-  await expect(old.getByTestId("old-card-note")).toHaveText("이전 커밋의 기록이다. 버튼은 최신 카드(3c4d5e6)에서만 누른다.");
   await expect(old.getByRole("link")).toHaveCount(0);
   await expect(old.getByRole("button", { name: /Approve|Request|Preview|Unlink/ })).toHaveCount(0);
   const latest = timeline.getByTestId("pr-card-710001-12");
   await expect(latest).toContainText("최신 커밋");
-  await expect(latest.getByTestId("github-status")).toContainText("GitHub: Open");
-  await expect(latest.getByTestId("studio-status")).toContainText("Internal: not reviewed");
+  await expect(latest.getByTestId("github-status")).toContainText("Open");
+  await expect(latest.getByTestId("github-status")).not.toContainText("Internal:");
+  await expect(latest.getByTestId("studio-status")).toHaveCount(0); // 최신 커밋에 결정이 없으면 Studio 줄이 없다 — 설명 문장을 두지 않는다 (결정 18)
   await expect(latest.getByRole("button")).toHaveCount(0); // 카드에는 버튼을 늘어놓지 않는다 — 결정은 Review 패널에서 (Q7)
   await shot(page, "chat-desktop.png");
 

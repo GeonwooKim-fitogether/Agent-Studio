@@ -51,7 +51,7 @@ export function ReplyFoot({
   );
 }
 
-/** 타임라인 아래의 입력칸 · Send · 안내 문장 */
+/** 타임라인 아래의 입력칸 · Send. "AI 에게 전달되지 않는다" 는 입력칸의 title 로만 보인다(결정 18) */
 export function MemoComposer({ workId, problem }: { workId: string; problem: string | null }) {
   return (
     <div className="composer" id="composer" data-testid="memo-composer">
@@ -62,12 +62,11 @@ export function MemoComposer({ workId, problem }: { workId: string; problem: str
       )}
       <form action={writeMemoAction} className="composer-box">
         <input type="hidden" name="workId" value={workId} />
-        <MemoTextarea name="body" rows={1} required maxLength={MAX_MEMO_LENGTH} placeholder={MEMO_PLACEHOLDER} aria-label="Memo" />
+        <MemoTextarea name="body" rows={1} required maxLength={MAX_MEMO_LENGTH} placeholder={MEMO_PLACEHOLDER} aria-label="Memo" title={MEMO_NOTE} />
         <button type="submit" className="btn">
           Send
         </button>
       </form>
-      <p className="note">{MEMO_NOTE}</p>
     </div>
   );
 }

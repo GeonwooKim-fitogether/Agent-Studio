@@ -27,7 +27,10 @@ test("Workspace 맨 위에 검사 실패와 Inbox 줄이 업무 하나에 한 �
   await expect(failing).toContainText("Checks failing");
   await expect(failing).toContainText("로그인 화면 만들기");
   await expect(failing).toContainText("결제 서비스");
-  await expect(failing).toContainText("작성자가 고칠 차례라 업무 상태는 그대로 둔다");
+  await expect(failing).toContainText("demo-org/payments#12");
+  // 이유 문장은 줄이 아니라 Up next 에만 있다 (결정 18 — 줄은 제목 · 프로젝트 · 종류 · PR 한 구절)
+  await expect(failing).not.toContainText("작성자가 고칠 차례");
+  await expect(page.getByTestId("up-next-reason")).toHaveText("demo-org/payments#12 커밋 3c4d5e6 · 검사 실패, 작성자가 고칠 차례");
   const inbox = rows(page).nth(1);
   await expect(inbox).toHaveAttribute("data-kind", "inbox");
   await expect(inbox.getByTestId("inbox-count")).toHaveText("5");
@@ -75,7 +78,8 @@ test.describe("검토 필요 줄 (서버 3101)", () => {
     await expect(first).toHaveAttribute("data-kind", "needs_review");
     await expect(first).toContainText("Needs review");
     await expect(first).toContainText("로그인 안내 문서");
-    await expect(first).toContainText("demo-org/docs-site#12 최신 커밋 6f7a8b9 의 검사가 끝났다. 아직 판단하지 않았다.");
+    await expect(first).toContainText("demo-org/docs-site#12");
+    await expect(page.getByTestId("up-next-reason")).toHaveText("demo-org/docs-site#12 커밋 6f7a8b9 · 검사 끝남, 판단 전");
     await expect(page.getByTestId("inbox-count")).toHaveText("4");
     await expect(page.getByTestId("up-next-title")).toHaveText("로그인 안내 문서");
     await expect(page.getByTestId("up-next-open")).toHaveText(/Review work/);
@@ -137,9 +141,7 @@ test.describe("판단할 일이 없을 때 (빈 저장소 서버 3103)", () => {
     const section = page.getByTestId("attention");
     await expect(section.getByRole("heading", { level: 2, name: "Needs your attention" })).toBeVisible();
     await expect(page.getByTestId("attention-count")).toHaveText("0");
-    await expect(page.getByTestId("attention-empty")).toHaveText(
-      "지금 판단할 일이 없다. 검토할 PR, 실패한 검사, 이전 버전 미리보기, 연결을 기다리는 PR 이 생기면 여기에 모인다.",
-    );
+    await expect(page.getByTestId("attention-empty")).toHaveText("지금 판단할 일이 없다.");
     await expect(rows(page)).toHaveCount(0);
     // 프로젝트가 없으면 New Work 는 누를 수 없고, 그 이유가 옆에 보인다(feature-plan F5, 결정 7)
     await expect(page.getByRole("button", { name: "New Work" })).toBeDisabled();

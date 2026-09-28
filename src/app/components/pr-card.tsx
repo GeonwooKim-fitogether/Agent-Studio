@@ -1,79 +1,39 @@
 import type { ReactNode } from "react";
 import type { PrCardView } from "../../application/queries";
-import { visibleReviews } from "../../application/review";
 import type { DataSource } from "../../ports/github-reader";
-import { CHECKS, GITHUB_REVIEW, linkLabel, NO_INTERNAL_REVIEW, PR_STATE, shortSha, STATE_LEGEND, VERDICT, VERDICT_MEANING } from "./labels";
+import { CHECKS } from "./labels";
 
-/** 카드가 있는 화면마다 한 번 두는 범례. 두 줄이 누구의 상태인지 알려 준다. */
-export function StateLegend() {
-  return (
-    <p className="legend" data-testid="state-legend">
-      {STATE_LEGEND}
-    </p>
-  );
-}
+/** 저장소 이름에서 소유자(`owner/`)를 뗀 짧은 이름. 프로젝트 제목 아래에 있으므로 소유자는 반복하지 않는다 */
+export const shortRepoName = (fullName: string) => fullName.slice(fullName.lastIndexOf("/") + 1);
 
 /**
- * PR 카드. GitHub 의 상태와 Studio 의 상태를 서로 다른 줄에 둔다 — 한 문장으로 합치지 않는다 (계약 §5).
+ * Inbox 항목 (결정 18 — Focus 시안의 밀도). 제목 한 줄, 그 아래 `저장소 · #번호 · 검사 상태` 한 줄, 그리고 행동 하나.
+ * 상태 칩 줄 · 브랜치 · 커밋은 두지 않는다 — 여기서 내릴 결정(어느 업무의 PR 인가)에 필요하지 않다. 그것은 업무 화면의 카드에 있다.
  * GitHub 로 가는 링크는 진짜 GitHub 에서 읽었을 때만 둔다. 고정 데이터의 주소는 실재하지 않기 때문이다.
  */
-export function PrCard({ pr, source, actions, tag }: { pr: PrCardView; source: DataSource; actions?: ReactNode; tag?: ReactNode }) {
-  const { github, studio } = pr;
+export function InboxCard({ pr, source, reason, actions }: { pr: PrCardView; source: DataSource; reason: string | null; actions: ReactNode }) {
   return (
     <article className="pr-card" data-testid={`pr-card-${pr.repoId}-${pr.number}`}>
-      <header className="pr-head">
-        <strong className="pr-id">
-          {pr.repoName}#{pr.number}
-        </strong>
-        <span className="pr-title">{pr.title}</span>
-        {tag}
-        {source !== "fixture" && (
-          <a className="pr-link" href={pr.url} target="_blank" rel="noreferrer">
-            Open on GitHub
-          </a>
+      <div className="grow">
+        <b className="pr-title">{pr.title}</b>
+        <small className="pr-meta">
+          {shortRepoName(pr.repoName)} · #{pr.number} · <span className={`checks-${pr.github.checks}`}>{CHECKS[pr.github.checks]}</span>
+          {source !== "fixture" && (
+            <>
+              {" "}
+              ·{" "}
+              <a className="pr-link" href={pr.url} target="_blank" rel="noreferrer">
+                Open on GitHub
+              </a>
+            </>
+          )}
+        </small>
+        {reason !== null && (
+          <small className="pr-reason" data-testid="inbox-reason">
+            {reason}
+          </small>
         )}
-      </header>
-      <p className="pr-meta">
-        <code>{pr.branch}</code> · head <code>{shortSha(pr.headSha)}</code>
-      </p>
-      <dl className="state-rows">
-        <div className="state-row" data-testid="github-status">
-          <dt>GitHub</dt>
-          <dd>
-            <span className={`chip pr-${github.state}`}>{PR_STATE[github.state]}</span>
-            <span className={`chip checks-${github.checks}`}>{CHECKS[github.checks]}</span>
-            <span className="chip">{GITHUB_REVIEW[github.review]}</span>
-          </dd>
-        </div>
-        <div className="state-row" data-testid="studio-status">
-          <dt>Studio</dt>
-          <dd>
-            <span className="chip" data-testid="link-origin">
-              {linkLabel(studio.linkOrigin, studio.markerFoundIn)}
-            </span>
-            {studio.reviews.length === 0 && studio.linkOrigin && <span className="chip quiet">{NO_INTERNAL_REVIEW}</span>}
-            {/* 커밋마다 마지막 결정 하나만 보인다. 이전 커밋에 대한 결정은 지우지 않고 그렇다고 표시한다 (계약 §6) */}
-            {visibleReviews(studio.reviews).map((r) => (
-              <span
-                key={r.id}
-                className={`chip ${r.freshness}`}
-                data-testid="review-decision"
-                data-freshness={r.freshness}
-                data-verdict={r.verdict}
-              >
-                {VERDICT[r.verdict]} · {VERDICT_MEANING[r.verdict]} · 커밋 {shortSha(r.commitSha)}
-                {r.freshness === "outdated" && " · 이전 커밋에 대한 결정"}
-              </span>
-            ))}
-            {studio.previews.map((p) => (
-              <span key={p.id} className={`chip ${p.freshness}`} data-testid="preview-record" data-freshness={p.freshness}>
-                Preview {shortSha(p.commitSha)}
-                {p.freshness === "outdated" ? " · 이전 버전" : " · 최신 커밋"}
-              </span>
-            ))}
-          </dd>
-        </div>
-      </dl>
+      </div>
       {actions}
     </article>
   );

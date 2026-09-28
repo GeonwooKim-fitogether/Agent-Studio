@@ -8,7 +8,6 @@ import {
   inboxReasonText,
   linkLabel,
   NO_INTERNAL_REVIEW,
-  STATE_LEGEND,
   statusChangeText,
   VERDICT,
   WORK_STATUS,
@@ -22,11 +21,6 @@ describe("화면 라벨", () => {
     expect(VERDICT.changes_requested).not.toBe(GITHUB_REVIEW.changes_requested);
   });
 
-  it("범례는 GitHub 줄과 Studio 줄이 누구의 것인지, Studio 기록이 GitHub 에 반영되지 않는다는 것을 말한다", () => {
-    expect(STATE_LEGEND).toContain("GitHub 줄은 GitHub 가 알려 준 상태");
-    expect(STATE_LEGEND).toContain("GitHub 에 반영되지 않는다");
-  });
-
   it("연결 표기: 사람이 연결하면 Linked manually, 표식이면 표식을 찾은 자리를 함께", () => {
     expect(linkLabel("user", [])).toBe("Linked manually");
     expect(linkLabel("marker", ["body"])).toBe("Linked by marker (body)");
@@ -35,10 +29,11 @@ describe("화면 라벨", () => {
     expect(linkLabel(null, [])).toBe("Not linked");
   });
 
-  it("다른 프로젝트의 표식이라는 사유에는 그 프로젝트 이름이 들어간다", () => {
-    expect(inboxReasonText("other_project", ["a1b2c3"], "결제 서비스")).toBe(
-      "표식 studio-work-a1b2c3 는 다른 프로젝트('결제 서비스')의 업무를 가리킨다.",
-    );
+  it("Inbox 사유: 다른 프로젝트의 표식에는 그 프로젝트 이름이 들어가고, 표식이 없어 온 보통의 PR 에는 사유가 없다", () => {
+    expect(inboxReasonText("other_project", ["a1b2c3"], "결제 서비스")).toBe("표식 studio-work-a1b2c3 는 다른 프로젝트('결제 서비스')의 업무를 가리킨다");
+    expect(inboxReasonText("no_marker", [])).toBeNull();
+    expect(inboxReasonText("fork_head", [])).toContain("복제본");
+    expect(inboxReasonText("unlinked_by_user", [], null, "로그인 화면 만들기")).toBe("사람이 연결을 풀었다('로그인 화면 만들기' 업무에서) · 자동으로 다시 붙지 않는다");
   });
 
   it("마지막 동기화 시각은 한국 시간(KST)으로 보인다", () => {

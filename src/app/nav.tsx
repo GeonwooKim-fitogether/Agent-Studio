@@ -44,37 +44,73 @@ export function Nav({ inboxCount }: { inboxCount: number }) {
   );
 }
 
-/** 사이드바의 Projects — 누르면 Workspace 를 그 프로젝트로 거른다 (?project=) */
-export function ProjectNav({ projects }: { projects: readonly { readonly id: string; readonly name: string; readonly openWorks: number }[] }) {
+/** 프로젝트 이름에서 소유자(`owner/`)를 뗀 짧은 이름. 목록에서는 소유자를 반복하지 않는다(결정 18) */
+export const shortProjectName = (name: string) => name.slice(name.lastIndexOf("/") + 1);
+
+/** 목록의 머리글자 — 두 낱말이면 각 첫 글자, 한 낱말이면 앞 두 글자 (시안의 AS · FT 처럼) */
+export function projectInitial(name: string): string {
+  const words = shortProjectName(name)
+    .split(/[\s\-_.]+/)
+    .filter((w) => w !== "");
+  const letters = words.length >= 2 ? [...words[0]!][0]! + [...words[1]!][0]! : [...(words[0] ?? "?")].slice(0, 2).join("");
+  return letters.toUpperCase();
+}
+
+type ProjectItem = { readonly id: string; readonly name: string; readonly openWorks: number };
+
+function ProjectLink({ p, selected }: { p: ProjectItem; selected: boolean }) {
+  return (
+    <Link
+      href={`/?project=${encodeURIComponent(p.id)}`}
+      className={selected ? "selected" : undefined}
+      aria-current={selected ? "page" : undefined}
+      title={p.name}
+      data-testid={`project-filter-${p.id}`}
+    >
+      <span className="project-initial" aria-hidden="true">
+        {projectInitial(p.name)}
+      </span>
+      <span className="grow project-name">{shortProjectName(p.name)}</span>
+      <span className="n">{p.openWorks}</span>
+    </Link>
+  );
+}
+
+/**
+ * 사이드바의 Projects — 누르면 Workspace 를 그 프로젝트로 거른다 (?project=).
+ * 끝나지 않은 업무가 없는 프로젝트는 아래의 "N more" 로 접는다(details — 자바스크립트 없이 동작한다). 개수는 머리글에 있다.
+ */
+export function ProjectNav({ projects }: { projects: readonly ProjectItem[] }) {
   const pathname = usePathname();
   const params = useSearchParams();
   const selected = pathname === "/" ? params.get("project") : null;
   const total = projects.reduce((n, p) => n + p.openWorks, 0);
+  const active = projects.filter((p) => p.openWorks > 0 || p.id === selected);
+  const idle = projects.filter((p) => !active.includes(p));
   return (
     <nav className="project-nav" aria-label="Projects">
       <p className="eyebrow">
-        Projects <span>{String(projects.length).padStart(2, "0")}</span>
+        Projects <span data-testid="project-count">{String(projects.length).padStart(2, "0")}</span>
       </p>
       <Link href="/" className={pathname === "/" && selected === null ? "selected" : undefined} data-testid="project-filter-all">
         <Icon name="workspace" />
         <span className="grow">All projects</span>
         <span className="n">{total}</span>
       </Link>
-      {projects.map((p) => (
-        <Link
-          key={p.id}
-          href={`/?project=${encodeURIComponent(p.id)}`}
-          className={selected === p.id ? "selected" : undefined}
-          aria-current={selected === p.id ? "page" : undefined}
-          data-testid={`project-filter-${p.id}`}
-        >
-          <span className="project-initial" aria-hidden="true">
-            {[...p.name][0]}
-          </span>
-          <span className="grow">{p.name}</span>
-          <span className="n">{p.openWorks}</span>
-        </Link>
+      {active.map((p) => (
+        <ProjectLink key={p.id} p={p} selected={selected === p.id} />
       ))}
+      {idle.length > 0 && (
+        <details className="project-more" data-testid="project-more">
+          <summary>
+            <Icon name="chevron" />
+            {idle.length} more
+          </summary>
+          {idle.map((p) => (
+            <ProjectLink key={p.id} p={p} selected={false} />
+          ))}
+        </details>
+      )}
     </nav>
   );
 }

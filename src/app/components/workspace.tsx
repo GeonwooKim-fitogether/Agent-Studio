@@ -5,13 +5,13 @@ import type { WorkSummaryView } from "../../application/queries";
 import { visibleReviews } from "../../application/review";
 import type { WorkStatus } from "../../domain/model";
 import { Icon } from "./glyph";
-import { ATTENTION_EMPTY, ATTENTION_KIND, attentionText, githubLine, shortSha, VERDICT, WORK_STATUS } from "./labels";
-import { PreviewStatus } from "./preview-status";
+import { ATTENTION_EMPTY, ATTENTION_KIND, attentionText, githubLine, shortSha, VERDICT } from "./labels";
+import { PreviewStatus, previewSummary } from "./preview-status";
 import { StatusBadge } from "./work-status";
 
 /**
  * Workspace 의 세 조각 (결정 18, Q5). 무엇을 어느 순서로 보일지는 application/focus.ts 가 정하고, 여기서는 받은 것을 그리기만 한다.
- *   - NeedsYourAttention: 업무 하나에 한 줄. 넓은 화면에서 줄을 누르면 오른쪽 Up next 가 그 업무로 바뀌고(?focus=),
+ *   - NeedsYourAttention: 업무 하나에 한 줄(제목, 그리고 `프로젝트 · 종류 · PR` 한 구절 — 설명 문장은 Up next 에만). 넓은 화면에서 줄을 누르면 오른쪽 Up next 가 그 업무로 바뀌고(?focus=),
  *     휴대전화 폭에서는 곧바로 업무 화면으로 간다(두 링크 중 하나만 보인다). 자바스크립트 없이도 동작한다.
  *   - OtherWork: attention 에 없는 업무의 목록. 필터 탭(Open · Done candidate · Done)과 프로젝트.
  *   - UpNext: 고른 업무 하나의 요약과 버튼 하나.
@@ -73,7 +73,7 @@ function AttentionLine({ row, query, selected }: { row: AttentionRow; query: Wor
           <b className="row-title">
             PR <span data-testid="inbox-count">{row.count}</span>개가 업무 연결을 기다린다
           </b>
-          <small className="row-meta">Inbox · 어느 업무의 것인지 확실하지 않아 자동으로 붙이지 않은 PR 이다</small>
+          <small className="row-meta">Inbox · {attentionText(row).detail}</small>
         </span>
         <span className="go">Open Inbox</span>
         <Icon name="chevron" />
@@ -91,9 +91,14 @@ function AttentionLine({ row, query, selected }: { row: AttentionRow; query: Wor
         <b className="row-title">{row.workTitle}</b>
         <small className="row-meta">
           {row.projectName} · <span className="reason-kind">{ATTENTION_KIND[lead.kind]}</span>
+          {"pr" in lead && lead.pr !== null && (
+            <>
+              {" "}
+              · {lead.pr.repoName}#{lead.pr.number}
+            </>
+          )}
           {rest.length > 0 && <span className="more"> +{rest.length}</span>}
         </small>
-        <small className="row-detail">{attentionText(lead).detail}</small>
       </span>
       <Icon name="chevron" />
     </>
@@ -179,7 +184,7 @@ export function OtherWork({
 }
 
 function WorkLine({ item }: { item: OtherWorkItem }) {
-  const { work, prs, marker } = item.summary;
+  const { work, prs } = item.summary;
   const pr = prs.find((p) => p.github.state === "open") ?? prs[0];
   return (
     <Link href={workHref(work.id)} className="work-row" data-testid={`work-${work.id}`} data-project={item.projectId}>
@@ -189,9 +194,7 @@ function WorkLine({ item }: { item: OtherWorkItem }) {
         <small className="row-meta">
           {item.projectName} ·{" "}
           {pr === undefined ? (
-            <>
-              PR 없음 · <code>{marker}</code>
-            </>
+            "PR 없음"
           ) : (
             <>
               {pr.repoName}#{pr.number}
@@ -206,7 +209,7 @@ function WorkLine({ item }: { item: OtherWorkItem }) {
   );
 }
 
-/** 오른쪽의 Up next — 고른 attention 업무 하나 (Q5). 넓은 화면에서만 보인다 */
+/** 오른쪽의 Up next — 고른 attention 업무 하나 (Q5). 넓은 화면에서만 보인다. 목표, 이유 한 구절, PR 요약 몇 줄, 버튼 하나 */
 export function UpNext({
   focus,
   summary,
@@ -223,7 +226,7 @@ export function UpNext({
           <span className="eyebrow">Up next</span>
         </div>
         <div className="focus-body">
-          <p className="muted">지금 판단할 업무가 없다. 검토할 PR 이나 실패한 검사가 생기면 여기에 먼저 보인다.</p>
+          <p className="muted">지금 판단할 업무가 없다.</p>
         </div>
       </aside>
     );
@@ -234,6 +237,7 @@ export function UpNext({
     : undefined) ?? summary.prs.find((p) => p.github.state === "open") ?? summary.prs[0];
   const decision = pr === undefined ? undefined : visibleReviews(pr.studio.reviews).filter((r) => r.freshness === "current").at(-1);
   const label = lead?.kind === "needs_review" ? "Review work" : "Open work";
+  const showPreview = preview !== undefined && previewSummary(preview).tone !== "quiet";
   return (
     <aside className="focus-panel desk-only" aria-label="Up next" data-testid="up-next">
       <div className="focus-top">
@@ -243,47 +247,44 @@ export function UpNext({
       <div className="focus-body">
         <p className="focus-context">{focus.projectName}</p>
         <h2 data-testid="up-next-title">{focus.workTitle}</h2>
-        <p className="focus-goal">{summary.work.goal === "" ? "목표가 아직 없다 — 업무 화면에서 Set goal 로 적는다." : summary.work.goal}</p>
-        {lead !== undefined && <p className="focus-reason">{attentionText(lead).detail}</p>}
+        {summary.work.goal !== "" && <p className="focus-goal">{summary.work.goal}</p>}
+        {lead !== undefined && (
+          <p className="focus-reason" data-testid="up-next-reason">
+            {attentionText(lead).detail}
+          </p>
+        )}
         {pr !== undefined && (
           <dl className="focus-summary">
             <div>
               <dt>Pull request</dt>
               <dd>
-                {pr.repoName}#{pr.number}
-              </dd>
-            </div>
-            <div>
-              <dt>Commit</dt>
-              <dd>
-                <code>{shortSha(pr.headSha)}</code>
+                {pr.repoName}#{pr.number} · <code>{shortSha(pr.headSha)}</code>
               </dd>
             </div>
             <div>
               <dt>GitHub</dt>
-              <dd>
-                {githubLine(pr.github)}
-              </dd>
+              <dd>{githubLine(pr.github)}</dd>
             </div>
-            <div>
-              <dt>Studio</dt>
-              <dd>{decision === undefined ? "Not decided" : VERDICT[decision.verdict]}</dd>
-            </div>
-            <div>
-              <dt>Preview</dt>
-              <dd>
-                <PreviewStatus view={preview} />
-              </dd>
-            </div>
+            {decision !== undefined && (
+              <div>
+                <dt>Studio</dt>
+                <dd>{VERDICT[decision.verdict]}</dd>
+              </div>
+            )}
+            {showPreview && (
+              <div>
+                <dt>Preview</dt>
+                <dd>
+                  <PreviewStatus view={preview} />
+                </dd>
+              </div>
+            )}
           </dl>
         )}
         <Link href={workHref(focus.workId)} className="btn accent wide" data-testid="up-next-open">
           {label}
           <Icon name="arrow" />
         </Link>
-        <p className="focus-foot muted">
-          {WORK_STATUS[summary.work.status]} · <code>{summary.marker}</code>
-        </p>
       </div>
     </aside>
   );

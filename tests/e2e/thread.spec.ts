@@ -50,7 +50,7 @@ test("메모의 Reply 로 오른쪽 스레드를 열고, 답글을 달고, 닫�
   await expect(panel.getByTestId("no-replies")).toHaveText("아직 답글이 없다.");
   const box = panel.getByRole("textbox", { name: "Reply" });
   await expect(box).toHaveAttribute("placeholder", "답글을 남긴다");
-  await expect(panel.getByTestId("reply-composer")).toContainText("답글도 AI 에게 전달되지 않는다.");
+  await expect(box).toHaveAttribute("title", "답글도 AI 에게 전달되지 않는다.");
 
   // 넓은 화면: 타임라인과 스레드가 나란히 (스레드는 오른쪽, Work details 자리)
   const [tl, side] = [await page.getByRole("region", { name: "Timeline" }).boundingBox(), await panel.boundingBox()];
@@ -110,7 +110,6 @@ test("PR 카드의 Reply 는 최신 커밋 카드에만 있고, 그 커밋의 �
   const panel = thread(page);
   await expect(panel.getByTestId("thread-title")).toHaveText("demo-org/payments#12 · 3c4d5e6");
   await expect(panel.getByTestId("thread-root")).toContainText("커밋 3c4d5e6");
-  await expect(panel.getByTestId("thread-root")).toContainText("이 스레드는 이 커밋의 카드에 붙는다. 새 커밋이 오면 새 카드에서 새 스레드가 시작된다.");
   await expect(panel.getByTestId("no-replies")).toBeVisible();
 
   await panel.getByRole("textbox", { name: "Reply" }).fill("미리보기에서 코드 입력칸이 6칸인지 확인한다");

@@ -5,27 +5,9 @@ import { visibleReviews } from "../../application/review";
 import type { TimelineEntry } from "../../application/timeline";
 import { threadKey } from "../../domain/memo";
 import { Icon } from "./glyph";
-import {
-  CHECKS,
-  dayLabel,
-  formatKst,
-  formatKstTime,
-  GITHUB_REVIEW,
-  NO_INTERNAL_REVIEW,
-  oldCardNote,
-  OWNER_TAG,
-  PR_STATE,
-  prEventText,
-  recordStartText,
-  reviewEventText,
-  shortSha,
-  statusCauseText,
-  VERDICT,
-  VERDICT_MEANING,
-  WORK_STATUS,
-} from "./labels";
+import { CHECKS, dayLabel, formatKst, formatKstTime, githubChips, OWNER_TAG, prEventText, recordStartText, reviewEventText, shortSha, VERDICT, WORK_STATUS } from "./labels";
 import { MemoEvent, ReplyFoot } from "./memo";
-import { PreviewStatus } from "./preview-status";
+import { PreviewStatus, previewSummary } from "./preview-status";
 
 /**
  * 업무 화면의 타임라인 (feature-plan F7, 결정 18 의 Q7). 무엇을 어떤 순서로 보일지는 application/timeline.ts 가 정하고,
@@ -33,8 +15,8 @@ import { PreviewStatus } from "./preview-status";
  *
  *   - GitHub · Studio 의 시스템 사건(연결 · 새 커밋 · 검사 · 병합 · 상태 변화)은 **작은 한 줄**이다. 주인(GitHub · Studio)이 앞에 붙는다.
  *   - 내부 검토 결정은 한 줄에 더해 Reason · Done when · 본 커밋("Reviewed abc1234")을 함께 보인다 — 다음 사람이 무엇을 고치면 되는지 읽는다.
- *   - PR 결과는 **최신 커밋 카드 하나**만 크게 보인다(제목 · PR · 커밋 · GitHub 칩 · Studio 칩 · 미리보기 한 줄 · Open review).
- *     이전 커밋 카드는 한 줄로 접힌다(펼치면 그 커밋의 기록이 보이고, 버튼은 없다 — 결정 16-5). 답글 개수는 그대로 붙는다.
+ *   - PR 결과는 **최신 커밋 카드 하나**만 크게 보인다(제목 · PR · 커밋 · GitHub 칩 셋 · 결정이 있을 때만 Studio 줄 · 미리보기가 돌 때만 그 줄 · Open review).
+ *     설명 문장은 두지 않는다(결정 18). 이전 커밋 카드는 한 줄로 접힌다(펼치면 그 커밋의 기록이 보이고, 버튼은 없다 — 결정 16-5). 답글 개수는 그대로 붙는다.
  *   - 메모(F8)는 memo.tsx 가, 스레드 칸(F9)은 thread.tsx 가 그린다.
  */
 
@@ -75,9 +57,9 @@ export function Timeline({
         switch (e.type) {
           case "note":
             return (
-              <p key={e.key} className="tl-note" data-testid="record-start">
+              <div key={e.key} className="date-line" data-testid="record-start">
                 {recordStartText(e.since)}
-              </p>
+              </div>
             );
           case "day":
             return (
@@ -154,7 +136,8 @@ export function Timeline({
                 <Icon name="check" />
                 <Tag owner={e.owner} />
                 <span className="sys-text">
-                  업무 상태 {WORK_STATUS[e.change.from]} → <b>{WORK_STATUS[e.change.to]}</b> <span className="muted">· {statusCauseText(e.change)}</span>
+                  업무 상태 {WORK_STATUS[e.change.from]} → <b>{WORK_STATUS[e.change.to]}</b>{" "}
+                  <span className="muted">· {e.change.cause.kind === "rule" ? `규칙 ${e.change.cause.rule}` : "사람"}</span>
                 </span>
                 <Time at={e.at} />
               </div>
@@ -200,7 +183,7 @@ export function Timeline({
   );
 }
 
-/** 최신 커밋의 결과 카드 (Q7). GitHub 칩과 Studio 칩은 다른 줄이다 — 한 문장으로 합치지 않는다 (계약 §5) */
+/** 최신 커밋의 결과 카드 (Q7). GitHub 칩과 Studio 칩은 다른 줄이다 — 한 문장으로 합치지 않는다 (계약 §5). Studio 줄은 결정이 있을 때만 있다 */
 export function ResultCard({
   pr,
   several,
@@ -217,6 +200,7 @@ export function ResultCard({
   foot: ReactNode;
 }) {
   const current = visibleReviews(pr.studio.reviews).filter((r) => r.freshness === "current").at(-1);
+  const showPreview = preview !== undefined && previewSummary(preview).tone !== "quiet";
   return (
     <article className="result-card" data-testid={`pr-card-${pr.repoId}-${pr.number}`}>
       <header className="result-head">
@@ -239,29 +223,31 @@ export function ResultCard({
         <div className="chip-row" data-testid="github-status">
           <dt>GitHub</dt>
           <dd>
-            <span className={`chip pr-${pr.github.state}`}>{PR_STATE[pr.github.state]}</span>
-            <span className={`chip checks-${pr.github.checks}`}>{CHECKS[pr.github.checks]}</span>
-            <span className="chip">{GITHUB_REVIEW[pr.github.review]}</span>
-          </dd>
-        </div>
-        <div className="chip-row" data-testid="studio-status">
-          <dt>Studio</dt>
-          <dd>
-            {current === undefined ? (
-              <span className="chip quiet">{NO_INTERNAL_REVIEW}</span>
-            ) : (
-              <span className={`chip studio-${current.verdict}`} data-testid="review-decision" data-freshness="current" data-verdict={current.verdict}>
-                {VERDICT[current.verdict]} · {VERDICT_MEANING[current.verdict]} · 커밋 {shortSha(current.commitSha)}
+            {githubChips(pr.github).map((c) => (
+              <span key={c.text} className={`chip ${c.className}`}>
+                {c.text}
               </span>
-            )}
+            ))}
           </dd>
         </div>
-        <div className="chip-row">
-          <dt>Preview</dt>
-          <dd>
-            <PreviewStatus view={preview} />
-          </dd>
-        </div>
+        {current !== undefined && (
+          <div className="chip-row" data-testid="studio-status">
+            <dt>Studio</dt>
+            <dd>
+              <span className={`chip studio-${current.verdict}`} data-testid="review-decision" data-freshness="current" data-verdict={current.verdict}>
+                {VERDICT[current.verdict]} · 커밋 {shortSha(current.commitSha)}
+              </span>
+            </dd>
+          </div>
+        )}
+        {showPreview && (
+          <div className="chip-row">
+            <dt>Preview</dt>
+            <dd>
+              <PreviewStatus view={preview} />
+            </dd>
+          </div>
+        )}
       </dl>
       <div className="result-foot">
         <a className="btn small" href={reviewHref} data-testid="open-review">
@@ -302,7 +288,7 @@ export function OldPrCard({
           <span className="old-tag">이전 커밋</span>
           {reviews.map((r) => (
             <span key={r.id} className="chip outdated" data-testid="old-review">
-              {VERDICT[r.verdict]} · {VERDICT_MEANING[r.verdict]} · 커밋 {shortSha(r.commitSha)}
+              {VERDICT[r.verdict]}
             </span>
           ))}
         </summary>
@@ -310,30 +296,27 @@ export function OldPrCard({
           <div className="chip-row">
             <dt>GitHub</dt>
             <dd>
-              <span className="chip quiet">{recordedChecks === null ? "이 커밋의 검사 기록 없음" : `${CHECKS[recordedChecks]} (이 커밋의 마지막 기록)`}</span>
+              <span className="chip quiet">{recordedChecks === null ? "검사 기록 없음" : CHECKS[recordedChecks]}</span>
             </dd>
           </div>
           <div className="chip-row">
             <dt>Studio</dt>
             <dd>
-              {reviews.length === 0 && previews.length === 0 && <span className="chip quiet">이 커밋의 기록 없음</span>}
+              {reviews.length === 0 && previews.length === 0 && <span className="chip quiet">기록 없음</span>}
               {reviews.map((r) => (
                 <span key={r.id} className="chip outdated">
-                  {VERDICT[r.verdict]} · 이전 커밋에 대한 결정
+                  {VERDICT[r.verdict]}
                   {r.reason !== null && ` · ${r.reason}`}
                 </span>
               ))}
               {previews.map((p) => (
                 <span key={p.id} className="chip outdated">
-                  Preview {shortSha(p.commitSha)} · 이전 버전
+                  Preview {shortSha(p.commitSha)}
                 </span>
               ))}
             </dd>
           </div>
         </dl>
-        <p className="old-note" data-testid="old-card-note">
-          {oldCardNote(pr.headSha)}
-        </p>
       </details>
       {foot}
     </div>

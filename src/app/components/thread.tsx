@@ -2,13 +2,13 @@ import type { ThreadView } from "../../application/timeline";
 import { MAX_MEMO_LENGTH, threadKey } from "../../domain/memo";
 import { writeReplyAction } from "../actions";
 import { cardAnchor } from "./chat";
-import { CARD_THREAD_NOTE, formatKst, formatKstTime, MEMO_DELETED, NO_REPLIES, REPLY_NOTE, REPLY_PLACEHOLDER, shortSha, threadClosedText } from "./labels";
+import { formatKst, formatKstTime, MEMO_DELETED, NO_REPLIES, REPLY_NOTE, REPLY_PLACEHOLDER, shortSha, threadClosedText } from "./labels";
 import { MemoEvent } from "./memo";
 import { MemoTextarea } from "./memo-textarea";
 
 /**
  * 업무 Chat 오른쪽의 스레드 칸 (feature-plan F9, 시안 v2 renderChat 의 thread 패널).
- * 머리(Thread · 대상 · Close), 대상 항목, 답글 시간순(없으면 "아직 답글이 없다."), 입력칸 · Reply · "답글도 AI 에게 전달되지 않는다."
+ * 머리(Thread · 대상 · Close), 대상 항목, 답글 시간순(없으면 "아직 답글이 없다."), 입력칸 · Reply(입력칸의 title 이 "답글도 AI 에게 전달되지 않는다.").
  *
  * 주소 파라미터(?thread=)로 열리고 Close 는 파라미터 없는 주소로 돌아가는 링크라 자바스크립트 없이도 동작한다.
  * 답글은 메인 타임라인에 놓이지 않는다(Slack 방식, 결정 2). 휴대전화 폭에서는 이 칸이 화면 전체를 덮는다(globals.css).
@@ -59,7 +59,6 @@ export function ThreadPanel({
               {!root.latest && <span className="old-tag thread-old">이전 커밋</span>}
               <br />
               {root.pr.title}
-              <p className="why thread-why">{CARD_THREAD_NOTE}</p>
             </>
           )}
         </div>
@@ -84,12 +83,11 @@ export function ThreadPanel({
             <form action={writeReplyAction} className="composer-box">
               <input type="hidden" name="workId" value={workId} />
               <input type="hidden" name="thread" value={key} />
-              <MemoTextarea name="body" rows={1} required maxLength={MAX_MEMO_LENGTH} placeholder={REPLY_PLACEHOLDER} aria-label="Reply" />
+              <MemoTextarea name="body" rows={1} required maxLength={MAX_MEMO_LENGTH} placeholder={REPLY_PLACEHOLDER} aria-label="Reply" title={REPLY_NOTE} />
               <button type="submit" className="btn">
                 Reply
               </button>
             </form>
-            <p className="note">{REPLY_NOTE}</p>
           </>
         ) : (
           <p className="note" data-testid="thread-closed">

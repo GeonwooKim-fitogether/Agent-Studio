@@ -18,7 +18,8 @@ test("메모를 쓰면 타임라인에 '나' 와 시각과 함께 쌓이고, 새
   await openCoachWork(page);
   const composer = page.getByTestId("memo-composer");
   await expect(composer.getByRole("textbox", { name: "Memo" })).toHaveAttribute("placeholder", "판단의 이유를 메모로 남긴다");
-  await expect(composer).toContainText("메모는 AI 에게 전달되지 않는다. 첫 버전은 나 혼자 보는 기록이다.");
+  // "AI 에게 전달되지 않는다" 는 본문이 아니라 입력칸의 title 로 있다 (결정 18)
+  await expect(composer.getByRole("textbox", { name: "Memo" })).toHaveAttribute("title", "메모는 AI 에게 전달되지 않는다. 첫 버전은 나 혼자 보는 기록이다.");
   // 메모의 Reply · 스레드(F9)는 thread.spec 이 본다
 
   // Send 버튼으로 두 줄짜리 메모를 남긴다 (Shift+Enter 는 줄바꿈)

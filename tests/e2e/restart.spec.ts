@@ -98,7 +98,7 @@ test.describe("서버 재시작", () => {
       await openWork(page, "a1b2c3");
       await expect(page.getByTestId("pr-card-710001-12")).toHaveCount(0);
       await nav(page).getByRole("link", { name: "Inbox" }).click();
-      await expect(page.getByTestId("inbox-710001-12").getByTestId("inbox-reason")).toContainText("사람이 이 PR 의 연결을 풀었다");
+      await expect(page.getByTestId("inbox-710001-12").getByTestId("inbox-reason")).toContainText("사람이 연결을 풀었다");
       await sync(page); // 다시 켠 뒤 Sync 해도 자동으로 붙지 않는다
       await expect(page.getByTestId("inbox-710001-12")).toBeVisible();
       // 메모가 고친 모습 · 지운 자리 그대로 남았다

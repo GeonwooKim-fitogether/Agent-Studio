@@ -53,7 +53,7 @@ describe("Needs your attention — 이미 있는 상태를 모으기만 한다",
     const work = await createWorkFromPr(deps, docs12); // 검사 없음 · 결정 없음 → R2 로 검토 필요
     const items = await attention(deps);
     expect(summary(items)).toEqual([`needs_review:${work.id}:demo-org/docs-site#12`, "checks_failing:a1b2c3:demo-org/payments#12", "inbox:4"]);
-    expect(attentionText(items[0]!).detail).toBe("demo-org/docs-site#12 최신 커밋 6f7a8b9 의 검사가 끝났다. 아직 판단하지 않았다.");
+    expect(attentionText(items[0]!).detail).toBe("demo-org/docs-site#12 커밋 6f7a8b9 · 검사 끝남, 판단 전");
   });
 
   it("사람이 손으로 검토 필요를 골라 판단할 PR 이 없으면, PR 없이 업무만 오른다", async () => {
@@ -70,7 +70,7 @@ describe("Needs your attention — 이미 있는 상태를 모으기만 한다",
     await syncAll(deps);
     expect(summary(await attention(deps, running(admin12, OLD_SHA)))).toContain("outdated_preview:d0e1f2:demo-org/admin-console#12");
     const outdated = (await attention(deps, running(admin12, OLD_SHA))).find((i) => i.kind === "outdated_preview");
-    expect(outdated && attentionText(outdated).detail).toBe("미리보기가 커밋 0123456 에서 돌고 있다. 최신은 9e28961. 검토 근거로 쓰지 않는다.");
+    expect(outdated && attentionText(outdated).detail).toBe("미리보기는 커밋 0123456, 최신은 9e28961");
 
     const kinds = async (preview: RunningPreview) => (await attention(deps, preview)).map((i) => i.kind);
     expect(await kinds(running(admin12, DEMO_SHA.admin12Head))).not.toContain("outdated_preview");
