@@ -639,6 +639,29 @@ a.pr-line:hover .t { text-decoration: underline; }
 .editor-foot { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line); }
 .saved-note { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #4e7a3a; font-weight: 600; }
 .saved-note .icon { width: 14px; height: 14px; }
+
+/* ── Agents · Skills 탭 (결정 21) — 업무 머리의 Conversation · Flow 탭과 같은 모양 ── */
+.lib-header { padding: 14px 0 0; }
+/* 탭의 왼쪽 선을 아래 목록의 왼쪽 선(.content 안쪽)에 맞춘다 */
+.lib-header .work-tabs { margin: 0 auto; max-width: 1180px; padding: 0 38px; }
+.lib-lead { margin: -6px 0 22px; color: var(--muted); font-size: 13px; }
+/* ── Skills — 목록 + 편집. 기본 Skill 은 읽기 전용이다 ── */
+.skill-grid { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 28px; align-items: start; max-width: 1020px; }
+.skill-list { display: grid; gap: 8px; }
+.skill-list .new-skill { width: 100%; justify-content: flex-start; margin-bottom: 6px; }
+.skill-list .new-skill .demo-tag { margin-left: auto; }
+.skill-item b { display: flex; align-items: center; gap: 6px; }
+.skill-item .lock { display: inline-flex; }
+.skill-item .lock .icon { width: 12px; height: 12px; color: #9aa190; }
+.locked-note { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--muted); margin: -4px 0 18px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.locked-note .icon { width: 13px; height: 13px; }
+.editor .field input[readonly], .editor .field textarea[readonly] { background: #f7f8f5; color: #4f564b; border-color: var(--line); resize: none; cursor: default; }
+.editor .field textarea.instructions[readonly] { background: #f4f5f1; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 7px; min-height: 30px; padding: 3px 11px 3px 4px; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); font-size: 12px; font-weight: 600; color: var(--ink); }
+.chip:hover { border-color: #b3c1f6; color: var(--accent); }
+.chip .agent-avatar { width: 22px; height: 22px; border-radius: 50%; font-size: 9.5px; }
+.chips .empty { font-size: 12px; font-weight: 400; color: #8e9588; line-height: 30px; }
 .mobile-settings { display: none; }
 
 /* ── 넓은 화면 전용 · 좁은 화면 전용 ──────────────────────────── */
@@ -736,6 +759,15 @@ a.pr-line:hover .t { text-decoration: underline; }
   .attention-row .go { display: none; }
   .list-toolbar { flex-wrap: wrap; }
   .work-header { padding: 16px 19px 14px; }
+  .lib-header { padding: 6px 0 0; }
+  .lib-header .work-tabs { padding: 0 19px; }
+  .lib-lead { margin: -4px 0 16px; font-size: 12.5px; }
+  .skill-grid { display: block; }
+  .skill-list { margin-bottom: 18px; gap: 6px; }
+  .skill-list .new-skill { margin-bottom: 4px; }
+  .skill-item { width: 100%; padding: 10px 13px; }
+  .skill-item small { display: block; }
+  .chip { min-height: 36px; }
   .work-head h1 { font-size: 20px; }
   .notice-bar { padding: 0 20px; }
   .ev.sys, .card-ev, .tl-empty, .sys-group, .ev.decision .ev.sys { margin-left: 0; }

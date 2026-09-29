@@ -2,7 +2,6 @@ import { cookies } from "next/headers";
 import { flowUsageOf } from "../../application/flow";
 import { listAgents } from "../../application/agents";
 import {
-  AGENT_SKILLS,
   type AgentDraftField,
   type AgentDraftProblems,
   agentInitial,
@@ -10,23 +9,29 @@ import {
   MAX_AGENT_NAME_LENGTH,
   MAX_AGENT_SUMMARY_LENGTH,
 } from "../../domain/agent-draft";
+import { allSkills } from "../../domain/skill-draft";
 import { getContainer } from "../../server/container";
 import { addAgentAction, saveAgentDraftAction } from "../actions";
 import { AGENT_DRAFT_COOKIE, problemsFromParams, readAgentFormDraft } from "../agent-draft-cookie";
-import { AGENTS_DEMO_TEXT, DemoBand, DemoTag } from "../components/demo";
+import { AGENTS_DEMO_TEXT, DemoBand, DemoTag, SKILLS_DEMO_TEXT } from "../components/demo";
 import { Icon } from "../components/glyph";
 import { AGENT_PROBLEM } from "../components/labels";
 import { Topbar } from "../components/topbar";
 import { LAST_WORK_COOKIE } from "../last-work-cookie";
+import { SkillsTab } from "./skills-tab";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Agents (결정 20 — Demo). 업무를 맡길 Agent 의 초안을 적어 둔다. 저장만 되고 아무것도 실행하지 않는다 — Run 버튼이 없고,
+ * Agents (결정 20 · 21 — Demo). 한 화면에 탭 한 쌍 `Agents` · `Skills` 가 있다(업무 머리의 Conversation · Flow 탭과 같은 모양).
+ *   ?tab=skills   Skills 탭 — 여러 Agent 가 함께 쓰는 지시문 묶음(skills-tab.tsx). 없으면 Agents 탭
+ *
+ * Agents 탭: 업무를 맡길 Agent 의 초안을 적어 둔다. 저장만 되고 아무것도 실행하지 않는다 — Run 버튼이 없고,
  * AI model 칸은 비활성이다(연결 · 확인된 모델이 없으므로, 결정 3 · 7).
  *
  *   왼쪽(휴대전화는 위의 가로 목록): 초안 목록 + Add Agent(이름만 받아 만든다)
  *   오른쪽: 고른 초안의 편집 칸 — Name · What it does(사람용) · Instructions(AI 용) · AI model(비활성) · Skills(+ Add Skill) · Save draft
+ *   Add Skill 은 기본 Skill 과 Skills 탭에서 만든 Skill 에서 고른다. 새 Skill 은 Skills 탭에서 만든다
  * 모두 폼과 주소 파라미터로 동작한다(자바스크립트 없이).
  *   ?agent=<id>   고른 초안 (없으면 첫 초안)
  *   ?saved=1      방금 저장했다 · ?created=1 방금 만들었다
@@ -42,7 +47,33 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
   };
   const container = getContainer();
   await container.ensureSynced();
+  const tab = one("tab") === "skills" ? "skills" : "agents";
   const agents = await listAgents(container.deps);
+  const skillOptions = allSkills(await container.deps.store.listSkillDrafts());
+  const header = (
+    <>
+      <Topbar crumbs={["Agents"]} />
+      <DemoBand text={tab === "skills" ? SKILLS_DEMO_TEXT : AGENTS_DEMO_TEXT} />
+      <header className="work-header has-tabs lib-header">
+        <nav className="work-tabs" aria-label="Agents views">
+          <a href="/agents" className={tab === "agents" ? "on" : undefined} aria-current={tab === "agents" ? "page" : undefined} data-testid="tab-agents">
+            Agents
+          </a>
+          <a href="/agents?tab=skills" className={tab === "skills" ? "on" : undefined} aria-current={tab === "skills" ? "page" : undefined} data-testid="tab-skills">
+            Skills
+          </a>
+        </nav>
+      </header>
+    </>
+  );
+  if (tab === "skills") {
+    return (
+      <>
+        {header}
+        <SkillsTab skills={skillOptions} agents={agents} selectedId={one("skill")} query={{ saved: one("saved"), created: one("created"), missing: one("missing"), bad: all("bad") }} />
+      </>
+    );
+  }
   const selected = agents.find((a) => a.id === one("agent")) ?? agents[0];
   const problems: AgentDraftProblems = selected === undefined ? {} : problemsFromParams(all("bad"));
   const jar = await cookies();
@@ -63,15 +94,9 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
 
   return (
     <>
-      <Topbar crumbs={["Agents"]} />
-      <DemoBand text={AGENTS_DEMO_TEXT} />
+      {header}
       <div className="content">
-        <div className="pageheading">
-          <div>
-            <h1>Agents</h1>
-            <p>업무를 맡길 Agent 의 초안을 적어 둔다.</p>
-          </div>
-        </div>
+        <p className="lib-lead">업무를 맡길 Agent 의 초안을 적어 둔다.</p>
         {one("missing") === "1" && (
           <p className="form-error" data-testid="agent-missing">
             그 초안을 찾지 못해 저장하지 않았다. 목록에서 다시 고른다.
@@ -200,14 +225,16 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
                 <fieldset className="field skills" data-testid="agent-skills">
                   <legend>Skills</legend>
                   <div className="skill-rows">
-                    {AGENT_SKILLS.filter((s) => chosen.has(s.id)).map((s) => (
-                      <label key={s.id} className="skill-row">
-                        <input type="checkbox" name="skills" value={s.id} defaultChecked /> {s.name}
-                      </label>
-                    ))}
-                    {chosen.size === 0 && <p className="hint">고른 Skill 이 없다.</p>}
+                    {skillOptions
+                      .filter((k) => chosen.has(k.id))
+                      .map((k) => (
+                        <label key={k.id} className="skill-row">
+                          <input type="checkbox" name="skills" value={k.id} defaultChecked /> {k.name}
+                        </label>
+                      ))}
+                    {!skillOptions.some((k) => chosen.has(k.id)) && <p className="hint">고른 Skill 이 없다.</p>}
                   </div>
-                  {AGENT_SKILLS.some((s) => !chosen.has(s.id)) && (
+                  {skillOptions.some((k) => !chosen.has(k.id)) && (
                     <details className="add-skill" data-testid="add-skill">
                       <summary>
                         <Icon name="plus" />
@@ -215,13 +242,19 @@ export default async function AgentsPage({ searchParams }: { searchParams: Promi
                         <DemoTag />
                       </summary>
                       <div className="skill-rows">
-                        {AGENT_SKILLS.filter((s) => !chosen.has(s.id)).map((s) => (
-                          <label key={s.id} className="skill-row">
-                            <input type="checkbox" name="skills" value={s.id} /> {s.name}
-                          </label>
-                        ))}
+                        {skillOptions
+                          .filter((k) => !chosen.has(k.id))
+                          .map((k) => (
+                            <label key={k.id} className="skill-row">
+                              <input type="checkbox" name="skills" value={k.id} /> {k.name}
+                            </label>
+                          ))}
                       </div>
-                      <p className="hint">이미 정의된 Skill 에서 고른다. 고른 것은 Save draft 로 저장된다.</p>
+                      <p className="hint">
+                        <a href="/agents?tab=skills" data-testid="add-skill-to-skills">
+                          새 Skill 은 Skills 탭에서 만든다
+                        </a>
+                      </p>
                     </details>
                   )}
                   {problemLine("skills")}

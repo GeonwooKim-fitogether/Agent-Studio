@@ -34,6 +34,12 @@ const PATHS = {
   arrow: <path d="M4 12h16m-6-6 6 6-6 6" />,
   chevron: <path d="m9 5 7 7-7 7" />,
   check: <path d="m5 12 4 4L19 6" />,
+  lock: (
+    <>
+      <rect x="5" y="11" width="14" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </>
+  ),
   review: (
     <>
       <path d="M6 3h9l4 4v14H6Z" />

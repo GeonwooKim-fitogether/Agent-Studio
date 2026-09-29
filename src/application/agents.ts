@@ -31,7 +31,8 @@ export async function saveAgent(
   deps: Pick<AppDeps, "store" | "now">,
   input: { readonly id: string; readonly name: string; readonly summary: string; readonly instructions: string; readonly skills: readonly string[] },
 ): Promise<AgentResult> {
-  const checked = checkAgentDraft(input);
+  // 고를 수 있는 Skill 은 기본 Skill + 지금 있는 사용자 Skill 이다(결정 21)
+  const checked = checkAgentDraft(input, await deps.store.listSkillDrafts());
   if (!checked.ok) return { ok: false, problems: checked.problems };
   try {
     await deps.store.saveAgentDraft({ id: input.id, ...checked.fields, updatedAt: deps.now().toISOString() });
