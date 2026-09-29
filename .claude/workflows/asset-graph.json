@@ -69,6 +69,15 @@
       ]
     },
     {
+      "name": "branch-guard",
+      "reason": "규칙만 내려가고 훅이 없으면 세션=브랜치=PR 이 강제되지 않는 글만 남는다 — v1 이 그랬다",
+      "members": [
+        ".claude/rules/branch-pr-naming.md",
+        ".claude/hooks/branch-guard.py",
+        ".claude/hooks/branch-guard.test.py"
+      ]
+    },
+    {
       "name": "environment-separation",
       "reason": "환경 분리 규칙과 상세 실행서가 함께 움직여야 규범과 실제 도입 절차가 갈라지지 않는다",
       "members": [
