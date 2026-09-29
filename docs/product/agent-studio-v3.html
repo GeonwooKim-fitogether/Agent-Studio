@@ -55,9 +55,9 @@ html.device-phone .frame { width: 390px; box-shadow: 0 0 0 1px var(--line); }
 /* ── 화면 전환 ── */
 .screen { display: none; }
 html.screen-workspace #s-workspace { display: block; }
-html.screen-work #s-work, html.screen-review #s-work, html.screen-flow #s-flow, html.screen-agents #s-agents { display: block; }
-html.screen-workspace .nav-item[data-nav="workspace"], html.screen-work .nav-item[data-nav="chat"], html.screen-review .nav-item[data-nav="chat"], html.screen-flow .nav-item[data-nav="flow"], html.screen-agents .nav-item[data-nav="agents"] { background: var(--paper); color: var(--ink); font-weight: 650; box-shadow: 0 1px 3px #1a23100c; }
-html.screen-workspace .nav-item[data-nav="workspace"] .icon, html.screen-work .nav-item[data-nav="chat"] .icon, html.screen-review .nav-item[data-nav="chat"] .icon, html.screen-flow .nav-item[data-nav="flow"] .icon, html.screen-agents .nav-item[data-nav="agents"] .icon { color: var(--accent); }
+html.screen-work #s-work, html.screen-review #s-work, html.screen-flow #s-flow, html.screen-agents #s-agents, html.screen-skills #s-agents { display: block; }
+html.screen-workspace .nav-item[data-nav="workspace"], html.screen-work .nav-item[data-nav="chat"], html.screen-review .nav-item[data-nav="chat"], html.screen-flow .nav-item[data-nav="flow"], html.screen-agents .nav-item[data-nav="agents"], html.screen-skills .nav-item[data-nav="agents"] { background: var(--paper); color: var(--ink); font-weight: 650; box-shadow: 0 1px 3px #1a23100c; }
+html.screen-workspace .nav-item[data-nav="workspace"] .icon, html.screen-work .nav-item[data-nav="chat"] .icon, html.screen-review .nav-item[data-nav="chat"] .icon, html.screen-flow .nav-item[data-nav="flow"] .icon, html.screen-agents .nav-item[data-nav="agents"] .icon, html.screen-skills .nav-item[data-nav="agents"] .icon { color: var(--accent); }
 
 /* ── 버튼 ── */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 38px; padding: 8px 13px; border: 1px solid var(--line); border-radius: 7px; background: var(--paper); font-weight: 600; font-size: 13px; line-height: 1.5; white-space: nowrap; }
@@ -385,6 +385,42 @@ html.stale .form-error.stale { display: block; }
 .editor-foot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line); }
 .btn.saved { background: var(--paper); color: var(--ok); border-color: var(--line); cursor: default; }
 
+/* ── Agents · Skills 탭 — 업무 머리의 Conversation · Flow 탭과 같은 모양 ── */
+.lib-header { padding: 14px 0 0; }
+/* 탭의 왼쪽 선을 아래 목록의 왼쪽 선(.content 안쪽)에 맞춘다 */
+.lib-header .work-tabs { margin: 0 auto; max-width: 1180px; padding: 0 38px; }
+.lib-lead { margin: -6px 0 22px; color: var(--muted); font-size: 13px; }
+.for-skills { display: none !important; }
+html.screen-skills .for-agents { display: none !important; }
+html.screen-skills .for-skills { display: revert !important; }
+html.screen-skills .skill-grid.for-skills { display: grid !important; }
+html.screen-skills .demo-band span.for-skills { display: inline !important; }
+/* Agents 의 Add Skill — 앱의 globals.css 와 같다 */
+.add-skill { margin-top: 4px; font-size: 12px; }
+.add-skill summary { display: flex; align-items: center; gap: 7px; cursor: pointer; list-style: none; font-weight: 650; color: #5f665b; min-height: 32px; padding: 0 2px; }
+.add-skill summary::-webkit-details-marker { display: none; }
+.add-skill summary .icon { width: 13px; height: 13px; }
+.add-skill summary .demo-tag { margin-left: 2px; }
+.add-skill .skill-rows { margin: 2px 0 4px 20px; }
+.add-skill .hint { margin-left: 20px; }
+.hint a { color: var(--accent); font-weight: 600; }
+/* ── Skills — 목록 + 편집. 기본 Skill 은 읽기 전용 ── */
+.skill-grid { grid-template-columns: 290px minmax(0, 1fr); gap: 28px; align-items: start; max-width: 1020px; }
+.skill-list { display: grid; gap: 8px; }
+.skill-list .new-skill { justify-content: flex-start; margin-bottom: 6px; }
+.skill-list .new-skill .demo-tag { margin-left: auto; }
+.skill-item b { display: flex !important; align-items: center; gap: 6px; }
+.skill-item .lock { width: 12px; height: 12px; color: #9aa190; }
+.locked-note { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--muted); margin: -4px 0 18px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.locked-note .icon { width: 13px; height: 13px; }
+.editor .field input[readonly], .editor .field textarea[readonly] { background: #f7f8f5; color: #4f564b; border-color: var(--line); resize: none; cursor: default; }
+.editor .field textarea.instructions[readonly] { background: #f4f5f1; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 7px; min-height: 30px; padding: 3px 11px 3px 4px; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); font-size: 12px; font-weight: 600; color: var(--ink); }
+.chip:hover { border-color: #b3c1f6; color: var(--accent); }
+.chip .agent-avatar { width: 22px; height: 22px; border-radius: 50%; font-size: 9.5px; }
+.chips .empty { font-size: 12px; font-weight: 400; color: #8e9588; line-height: 30px; }
+
 /* ── 휴대전화 폭 (390) — 틀 폭으로 판단한다 ── */
 @container frame (max-width: 700px) {
   .desk-only { display: none !important; }
@@ -457,6 +493,15 @@ html.stale .form-error.stale { display: block; }
   .editor-head { flex-direction: column; gap: 4px; }
   .model-parts > div { padding: 6px 8px; }
   .editor-foot .btn { width: 100%; }
+  .lib-header { padding: 6px 0 0; }
+  .lib-header .work-tabs { padding: 0 19px; }
+  .lib-lead { margin: -4px 0 16px; font-size: 12.5px; }
+  html.screen-skills .skill-grid.for-skills { display: block !important; }
+  .skill-list { margin-bottom: 18px; gap: 6px; }
+  .skill-list .new-skill { margin-bottom: 4px; }
+  .skill-item { padding: 10px 13px; }
+  .skill-item small { display: block; }
+  .chip { min-height: 36px; }
 }
 </style>
 </head>
@@ -468,6 +513,7 @@ html.stale .form-error.stale { display: block; }
   <symbol id="i-conn" viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.5"/><circle cx="15" cy="17" r="2.5"/></symbol>
   <symbol id="i-flow" viewBox="0 0 24 24"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/><path d="M6 9v9h9M9 6h9v9"/></symbol>
   <symbol id="i-agent" viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="14" rx="4"/><path d="M12 7V3m-2 10h.01M14 13h.01M9 17h6"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
   <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></symbol>
   <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
@@ -491,7 +537,7 @@ html.stale .form-error.stale { display: block; }
 
 <div class="mockbar" role="toolbar" aria-label="Mock controls">
   <b>mock v3</b>
-  <span class="seg" data-key="screen"><button data-v="workspace">Workspace</button><button data-v="work">Work</button><button data-v="review">Review</button><button data-v="flow">Flow</button><button data-v="agents">Agents</button></span>
+  <span class="seg" data-key="screen"><button data-v="workspace">Workspace</button><button data-v="work">Work</button><button data-v="review">Review</button><button data-v="flow">Flow</button><button data-v="agents">Agents</button><button data-v="skills">Skills</button></span>
   <span class="seg" data-key="device"><button data-v="desk">Desktop</button><button data-v="phone">Phone</button></span>
   <label><input type="checkbox" id="stale-toggle"> Review: stale commit state</label>
   <span class="note">원칙: 사실 하나는 한 자리에 · GitHub 상태는 아이콘+색, 낱말은 hover 에만</span>
@@ -800,12 +846,14 @@ html.stale .form-error.stale { display: block; }
     <!-- ════════ Agents (Demo) — 소개는 사람용, 지시문은 AI 용. 모델은 연결 · 확인된 것만 ════════ -->
     <main class="main screen" id="s-agents">
       <div class="topbar"><div class="crumb"><span>Studio</span><span class="sep">/</span><b>Agents</b></div></div>
-      <div class="demo-band"><span class="demo-tag">Demo</span><span>실행 연결 없음 — 지시문은 저장만 되고 아직 AI 에게 가지 않는다</span></div>
+      <div class="demo-band"><span class="demo-tag">Demo</span><span class="for-agents">실행 연결 없음 — 지시문은 저장만 되고 아직 AI 에게 가지 않는다</span><span class="for-skills">실행 연결 없음 — Skill 은 저장만 되고 아직 AI 에게 가지 않는다</span></div>
+      <header class="work-header has-tabs lib-header">
+        <nav class="work-tabs" aria-label="Agents views"><a href="#" data-go="agents" data-tab-lib="agents">Agents</a><a href="#" data-go="skills" data-tab-lib="skills">Skills</a></nav>
+      </header>
       <div class="content">
-        <div class="pageheading">
-          <div><h1>Agents</h1><p>업무를 맡길 Agent 의 초안을 적어 둔다.</p></div>
-        </div>
-        <div class="agent-grid">
+        <p class="lib-lead for-agents">업무를 맡길 Agent 의 초안을 적어 둔다.</p>
+        <p class="lib-lead for-skills">여러 Agent 가 함께 쓰는 지시문 묶음이다.</p>
+        <div class="agent-grid for-agents">
           <div class="agent-list" role="list">
             <p class="eyebrow"><span>Demo samples</span><span>3</span></p>
             <button class="agent-item" type="button" data-agent="planner"><span class="agent-avatar">P</span><span class="grow"><b>Planner</b><small>목표를 작은 작업과 완료 기준으로 나눈다.</small></span></button>
@@ -824,10 +872,30 @@ html.stale .form-error.stale { display: block; }
                 <p class="hint">연결 · 확인된 모델만 여기에 보인다. 연결은 <a href="#">Connections</a> 에서 한다.</p>
               </div>
               <div class="field"><span>Skills</span>
-                <div class="skill-rows"><label class="skill-row"><input type="checkbox" data-skill="Read context"> Read context</label><label class="skill-row"><input type="checkbox" data-skill="Code review"> Code review</label></div>
+                <div class="skill-rows" id="ag-skills"></div>
+                <details class="add-skill" id="ag-add-skill">
+                  <summary><svg class="icon"><use href="#i-plus"/></svg>Add Skill<span class="demo-tag">Demo</span></summary>
+                  <div class="skill-rows" id="ag-skill-pick"></div>
+                  <p class="hint"><a href="#" data-go="skills">새 Skill 은 Skills 탭에서 만든다</a></p>
+                </details>
               </div>
             </div>
             <div class="editor-foot"><button class="btn primary" type="button" id="ag-save">Save draft</button></div>
+          </form>
+        </div>
+        <div class="skill-grid for-skills">
+          <div class="skill-list" role="list" id="sk-list">
+            <button class="btn small new-skill" type="button" id="sk-new"><svg class="icon"><use href="#i-plus"/></svg>New Skill<span class="demo-tag">Demo</span></button>
+          </div>
+          <form class="editor" onsubmit="return false" aria-label="Skill">
+            <p class="locked-note" id="sk-locked"><svg class="icon"><use href="#i-lock"/></svg>기본 Skill — 고칠 수 없다</p>
+            <div class="editor-form">
+              <label class="field"><span>Name</span><input id="sk-name" maxlength="40"></label>
+              <label class="field"><span>What it does <small><b>사람용</b> 소개 · 목록에 보이고, AI 에게는 가지 않는다</small></span><input id="sk-summary" maxlength="120"></label>
+              <label class="field"><span>Instructions <small><b>AI 용</b> 지시문 · Agent 의 지시문 뒤에 이어 붙는다</small></span><textarea class="instructions" id="sk-instructions" rows="5"></textarea></label>
+              <div class="field"><span>Used by</span><div class="chips" id="sk-used"></div></div>
+            </div>
+            <div class="editor-foot" id="sk-foot"><button class="btn primary" type="button" id="sk-save">Save draft</button></div>
           </form>
         </div>
       </div>
@@ -848,12 +916,14 @@ html.stale .form-error.stale { display: block; }
 <script>
 (function () {
   var html = document.documentElement;
-  var state = { screen: "work", device: "desk", node: "build", agent: "planner" };
+  var state = { screen: "work", device: "desk", node: "build", agent: "planner", skill: "read-context" };
   var q = new URLSearchParams(location.search);
   if (q.get("screen")) state.screen = q.get("screen");
   if (q.get("device")) state.device = q.get("device");
   if (q.get("node")) state.node = q.get("node");
   if (q.get("agent")) state.agent = q.get("agent");
+  if (q.get("skill")) state.skill = q.get("skill");
+  state.addSkill = q.get("addskill") === "1";
   state.saved = q.get("saved") === "1";
   if (q.get("stale") === "1") html.classList.add("stale");
   if (q.get("shot") === "1") html.classList.add("shot");
@@ -863,12 +933,17 @@ html.stale .form-error.stale { display: block; }
       var key = seg.getAttribute("data-key");
       seg.querySelectorAll("button").forEach(function (b) { b.classList.toggle("on", b.getAttribute("data-v") === state[key]); });
     });
-    var tabOf = { workspace: "workspace", work: "chat", review: "chat", flow: "flow", agents: "agents" };
+    var tabOf = { workspace: "workspace", work: "chat", review: "chat", flow: "flow", agents: "agents", skills: "agents" };
     document.querySelectorAll(".mobile-tabs .nav-item[data-tab]").forEach(function (t) {
       t.classList.toggle("active", t.getAttribute("data-tab") === tabOf[state.screen]);
     });
     showNode(state.node);
     showAgent(state.agent);
+    showSkill(state.skill);
+    document.querySelectorAll("[data-tab-lib]").forEach(function (t) {
+      var on = t.getAttribute("data-tab-lib") === state.screen;
+      t.classList.toggle("on", on); if (on) t.setAttribute("aria-current", "page"); else t.removeAttribute("aria-current");
+    });
     requestAnimationFrame(placeLoop);
   }
   /* ── Flow: 노드를 고르면 오른쪽(휴대전화는 아래) 설명이 바뀐다. 끌기 · 더하기 없음 ── */
@@ -907,11 +982,70 @@ html.stale .form-error.stale { display: block; }
     document.getElementById("ag-name").value = a.name;
     document.getElementById("ag-summary").value = a.summary;
     document.getElementById("ag-instructions").value = a.instructions;
-    document.querySelectorAll("[data-skill]").forEach(function (c) { c.checked = a.skills.indexOf(c.getAttribute("data-skill")) >= 0; });
+    /* 고른 Skill 은 체크된 줄, 나머지(사용자가 만든 것 포함)는 Add Skill 안에 — 앱과 같은 모양 */
+    var rows = "", pick = "";
+    skillOrder.forEach(function (k) {
+      var row = '<label class="skill-row"><input type="checkbox" data-skill="' + k + '"' + (a.skills.indexOf(k) >= 0 ? " checked" : "") + "> " + skills[k].name + "</label>";
+      if (a.skills.indexOf(k) >= 0) rows += row; else pick += row;
+    });
+    document.getElementById("ag-skills").innerHTML = rows || '<p class="hint">고른 Skill 이 없다.</p>';
+    document.getElementById("ag-skill-pick").innerHTML = pick;
+    var add = document.getElementById("ag-add-skill");
+    add.style.display = pick ? "" : "none"; if (state.addSkill) add.open = true;
+    document.querySelectorAll("#ag-skills input, #ag-skill-pick input").forEach(function (f) { f.addEventListener("change", function () { setSaved(false); }); });
     var used = document.getElementById("ag-used");
     used.innerHTML = a.usedIn ? 'Flow 에서 쓰는 곳 · <a href="#" data-go="flow">로그인 화면 만들기 — Build</a>' : "";
     wireGo(used);
     setSaved(!!saved[state.agent]);
+  }
+  /* ── Skills: 기본 둘은 읽기 전용, 사용자가 만든 것만 고칠 수 있다. Used by 는 Agent 초안의 Skills 에서 거꾸로 읽는다 ── */
+  var skills = {
+    "read-context": { name: "Read context", builtIn: true, summary: "목표 · 대화 · PR 을 먼저 읽는다.",
+      instructions: "작업 전에 업무의 목표와 최근 대화를 읽는다.\n연결된 PR 의 제목 · 최신 커밋 · 마지막 Studio 결정을 확인한다.\n읽은 것을 세 줄로 요약한 뒤 시작한다." },
+    "code-review": { name: "Code review", builtIn: true, summary: "최신 커밋을 읽고 빠진 것을 적는다.",
+      instructions: "사람이 판단할 최신 커밋의 변경만 읽는다.\n목표와 수정 기준에 비추어 빠진 것 · 위험한 것을 목록으로 적는다.\n고칠 코드를 직접 쓰지 않는다." },
+    "release-notes": { name: "Release notes", summary: "병합된 PR 을 변경 안내로 정리한다.",
+      instructions: "병합된 PR 의 제목과 설명을 읽는다.\n사용자에게 보이는 변화만 골라 한 줄씩 적는다.\n새 기능 · 고친 것 · 바뀐 것으로 나누고, 내부 용어는 쉬운 말로 바꾼다." }
+  };
+  var skillOrder = ["read-context", "code-review", "release-notes"];
+  /* Agent 초안의 Skills 는 이름이 아니라 id 로 든다 */
+  Object.keys(agents).forEach(function (id) { agents[id].skills = agents[id].skills.map(function (n) { return n === "Read context" ? "read-context" : n === "Code review" ? "code-review" : n; }); });
+  var skSaved = {}, newCount = 0;
+  function renderSkillList() {
+    var list = document.getElementById("sk-list");
+    list.querySelectorAll(".skill-item").forEach(function (x) { x.remove(); });
+    skillOrder.forEach(function (k) {
+      var sk = skills[k], b = document.createElement("button");
+      b.type = "button"; b.className = "agent-item skill-item"; b.setAttribute("data-skill-id", k);
+      b.innerHTML = '<span class="grow"><b></b><small></small></span>';
+      b.querySelector("b").textContent = sk.name;
+      if (sk.builtIn) b.querySelector("b").insertAdjacentHTML("beforeend", '<svg class="icon lock" aria-label="기본 Skill"><title>기본 Skill</title><use href="#i-lock"/></svg>'); b.querySelector("small").textContent = sk.summary || "소개를 아직 적지 않았다.";
+      b.addEventListener("click", function () { showSkill(k); });
+      list.appendChild(b);
+    });
+  }
+  function setSkSaved(on) {
+    var btn = document.getElementById("sk-save");
+    skSaved[state.skill] = on;
+    btn.classList.toggle("primary", !on); btn.classList.toggle("saved", on);
+    btn.innerHTML = on ? '<svg class="icon"><use href="#i-check"/></svg>Saved draft' : "Save draft";
+  }
+  function showSkill(id) {
+    state.skill = skills[id] ? id : "read-context";
+    var sk = skills[state.skill], ro = !!sk.builtIn;
+    document.querySelectorAll(".skill-item").forEach(function (x) { x.classList.toggle("selected", x.getAttribute("data-skill-id") === state.skill); });
+    document.getElementById("sk-locked").style.display = ro ? "" : "none";
+    document.getElementById("sk-foot").style.display = ro ? "none" : "";
+    [["sk-name", "name"], ["sk-summary", "summary"], ["sk-instructions", "instructions"]].forEach(function (f) {
+      var el = document.getElementById(f[0]); el.value = sk[f[1]]; el.readOnly = ro;
+    });
+    var users = Object.keys(agents).filter(function (a) { return agents[a].skills.indexOf(state.skill) >= 0; });
+    var used = document.getElementById("sk-used");
+    used.innerHTML = users.length ? users.map(function (a) {
+      return '<a class="chip" href="#" data-go="agents" data-agent="' + a + '"><span class="agent-avatar">' + agents[a].name[0] + "</span>" + agents[a].name + "</a>";
+    }).join("") : '<span class="empty">아직 쓰는 Agent 없음</span>';
+    wireGo(used);
+    setSkSaved(!!skSaved[state.skill]);
   }
   function wireGo(root) {
     root.querySelectorAll("[data-go]").forEach(function (a) {
@@ -925,6 +1059,20 @@ html.stale .form-error.stale { display: block; }
   document.querySelectorAll(".fnode").forEach(function (n) { n.addEventListener("click", function () { showNode(n.getAttribute("data-node")); }); });
   document.querySelectorAll(".agent-item").forEach(function (x) { x.addEventListener("click", function () { showAgent(x.getAttribute("data-agent")); }); });
   document.getElementById("ag-save").addEventListener("click", function () { if (!saved[state.agent]) setSaved(true); });
+  renderSkillList();
+  document.getElementById("sk-save").addEventListener("click", function () {
+    var sk = skills[state.skill]; if (sk.builtIn) return;
+    sk.name = document.getElementById("sk-name").value.trim() || sk.name;
+    sk.summary = document.getElementById("sk-summary").value.trim();
+    sk.instructions = document.getElementById("sk-instructions").value;
+    renderSkillList(); showSkill(state.skill); setSkSaved(true);
+  });
+  document.getElementById("sk-new").addEventListener("click", function () {
+    newCount += 1; var id = "new-" + newCount;
+    skills[id] = { name: "새 Skill", summary: "", instructions: "" }; skillOrder.push(id);
+    renderSkillList(); showSkill(id); document.getElementById("sk-name").select();
+  });
+  document.querySelectorAll("#sk-name, #sk-summary, #sk-instructions").forEach(function (f) { f.addEventListener("input", function () { if (!skills[state.skill].builtIn) setSkSaved(false); }); });
   document.querySelectorAll("#s-agents input, #s-agents textarea").forEach(function (f) { f.addEventListener("input", function () { setSaved(false); }); });
   window.addEventListener("resize", placeLoop);
   if (document.fonts) document.fonts.ready.then(placeLoop);
