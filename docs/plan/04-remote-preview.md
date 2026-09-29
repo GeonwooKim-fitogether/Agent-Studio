@@ -27,9 +27,10 @@
 | `PREVIEW_WORKDIR` | 격리 폴더들의 부모. 절대 경로. 미리보기마다 그 아래에 새 폴더(`preview-…`)를 만들고, 미리보기를 끄거나 다음 것을 열 때 지운다. Studio 가 켜질 때 남아 있던 `preview-…` 폴더도 지우므로, 이 폴더는 Studio 하나만 쓴다 | 없음 (없으면 연결 안 됨) |
 | `PREVIEW_BIND_HOST` | 미리보기 앱에 `HOST` · `HOSTNAME` 으로 넘길 주소. 휴대전화로 보려면 사설망 주소 | `127.0.0.1` |
 | `PREVIEW_PUBLIC_HOST` | 화면에 보일 주소의 호스트 (예: Mac Pro 의 사설망 이름) | `PREVIEW_BIND_HOST` (그것이 `0.0.0.0` · `::` 이면 `127.0.0.1`) |
+| `PREVIEW_ALLOWED_DEV_ORIGINS` | Studio 자신의 개발 서버가 받아 줄 다른 주소(쉼표로 잇는다). 휴대전화로 Studio 를 열 때 사설망 주소를 적는다. 미리보기 앱에는 실행기가 `PREVIEW_PUBLIC_HOST` 와 `PREVIEW_BIND_HOST` 로 이 값을 만들어 넘긴다 — Next.js 16 의 개발 서버는 localhost 가 아닌 주소에서 온 개발용 연결을 막아, 받는 앱이 이 값을 `next.config` 의 `allowedDevOrigins` 로 읽지 않으면 화면은 보여도 버튼이 동작하지 않는다(2026-09-30 실측). 이 저장소의 `next.config.ts` 는 읽는다 | 없음 |
 | `PREVIEW_LOCAL_REPOS_DIR` | 코드를 GitHub 대신 이 폴더의 로컬 git 저장소(`<owner>/<name>`)에서 받는다. **시연과 시험용**이다 | 없음 |
 
-공개 주소 · 터널은 만들지 않는다. 휴대전화 접근은 사설망을 전제로 한다.
+공개 주소 · 터널은 만들지 않는다. 휴대전화 접근은 사설망을 전제로 한다. Windows PC 로 휴대전화까지 확인하는 순서는 [`../setup/preview-windows.md`](../setup/preview-windows.md) 에 있다.
 
 고정 시연 데이터(fixture) 모드에서는 저장소가 GitHub 에 실재하지 않으므로 `PREVIEW_LOCAL_REPOS_DIR` 이 있어야 실행기가 켜진다. 시연 저장소는 `npm run preview:demo-repo -- <폴더>` 로 만든다. 이 명령은 시연 PR `demo-org/admin-console#12` 의 최신 커밋과 **글자 하나까지 같은 SHA** 의 커밋을 만든다(작성자 · 시각을 고정해 커밋 SHA 가 어느 컴퓨터에서나 같게 나온다).
 

@@ -189,6 +189,14 @@
 - **왜**: 사용자가 Agent 와 Skill 의 관계(여러 Agent 가 같은 지시문 묶음을 함께 쓴다)를 화면에서 먼저 보고 3단계를 기획하려 한다. 실행이 없으므로 Demo 로 두고, "어느 Agent 가 쓰나" 는 한 자리(Agent 초안)에만 두어 두 곳이 어긋나지 않게 했다.
 - **되돌리기**: 쉽다. Skills 탭을 지우고, `agent_draft.skills` 에서 사용자 Skill id 를 뺀 뒤 `skill_draft` 표를 지우면 된다(다른 표가 이 표를 가리키지 않는다).
 
+### 결정 22 (2026-09-30) — 미리보기 실기기 확인(F1, 단위 2-A)을 Mac Pro 보다 먼저 사용자의 Windows PC 로 한다.
+
+- **정한 것**: 휴대전화로 PR 미리보기를 여는 첫 확인은 사용자가 지금 쓰는 Windows PC 에서 한다. 휴대전화는 Tailscale 사설망으로 PC 에 닿는다. 순서는 [`docs/setup/preview-windows.md`](docs/setup/preview-windows.md) 에 있다. 이 확인이 끝나도 결정 5 의 "Mac Pro 에서 실행" 은 따로 남는다 — Windows 확인은 그 앞 단계다.
+- **함께 고친 것**: Next.js 16 의 개발 서버는 localhost 가 아닌 주소(휴대전화가 여는 사설망 주소)에서 온 개발용 연결을 막는다. 그러면 화면은 보여도 버튼이 동작하지 않는다(이 컨테이너에서 실측). 그래서 미리보기 실행기가 앱에 `PREVIEW_ALLOWED_DEV_ORIGINS`(화면에 보일 주소와 묶는 주소)를 넘기고, 이 저장소의 `next.config.ts` 는 그 값을 `allowedDevOrigins` 로 읽는다. 다른 Next.js 저장소를 미리보기로 열 때도 그 저장소가 같은 값을 읽어야 버튼이 동작한다.
+- **왜**: 사용자가 당분간 Mac Pro 를 쓰지 않고 Windows PC 로 먼저 확인하기로 했다("당분간 Windows PC 로").
+- **남는 위험**: 미리보기는 PR 의 코드를 사용자의 Windows 계정 그대로 실행하므로, 그 코드는 `.env.local` 과 GitHub App 비밀 키를 읽을 수 있다(04 문서 §4). 믿는 사람이 쓴 PR 만 연다. 격리 실행(별도 계정 · 컨테이너)은 Mac Pro 단계의 결정으로 남긴다.
+- **되돌리기**: 쉽다. `.env.local` 의 미리보기 세 줄을 지우면 실행기가 꺼진다.
+
 ---
 
 ## 열린 결정 — 아직 정하지 않은 것
