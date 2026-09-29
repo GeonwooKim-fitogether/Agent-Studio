@@ -187,10 +187,9 @@ export function OtherWork({
         </div>
       )}
       <p className="list-foot" data-testid="other-foot">
-        <span>
-          {view.other.length} works · {new Set(view.other.map((i) => i.projectId)).size} projects
-        </span>
-        <span>{query.projectId === null ? `${projects.length} projects in Studio` : "Filtered by project"}</span>
+        {/* 프로젝트 수는 사이드바 Projects 머리글 한 곳에만 둔다(결정 19 — 사실 하나는 한 자리). 여기서 다시 세면 두 숫자가 어긋나 보인다 */}
+        <span>{view.other.length} works</span>
+        {query.projectId !== null && <span>Filtered by project</span>}
       </p>
     </section>
   );
