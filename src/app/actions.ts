@@ -19,6 +19,8 @@ import { decisionBlockOf, isReviewVerdict, readFreshHead, recordReviewDecision }
 import { setWorkGoal } from "../application/work-goal";
 import { addAgent, saveAgent } from "../application/agents";
 import { AGENT_DRAFT_COOKIE, problemsToParams } from "./agent-draft-cookie";
+import { addSkill, saveSkill } from "../application/skills";
+import { SKILL_DRAFT_COOKIE, skillProblemsToParams } from "./skill-draft-cookie";
 import { checkReviewNote } from "../domain/review-note";
 import type { ReviewProblem } from "./components/labels";
 import { REVIEW_DRAFT_COOKIE, reviewKeyOf } from "./review-draft";
@@ -362,4 +364,53 @@ export async function saveAgentDraftAction(form: FormData): Promise<void> {
   const params = new URLSearchParams({ agent: input.id });
   for (const bad of problemsToParams(result.problems)) params.append("bad", bad);
   redirect(`/agents?${params.toString()}`);
+}
+
+const skillsPath = (params: Record<string, string>, bad: readonly string[] = []) => {
+  const q = new URLSearchParams({ tab: "skills", ...params });
+  for (const b of bad) q.append("bad", b);
+  return `/agents?${q.toString()}`;
+};
+
+/**
+ * Skills 탭의 New Skill (결정 21 — Demo). 이름을 묻지 않고 "새 Skill" 초안을 만들어 고른 채 Skills 탭으로 돌아간다(시안대로).
+ * 저장만 할 뿐 아무것도 실행하지 않는다.
+ */
+export async function newSkillAction(): Promise<void> {
+  const container = getContainer();
+  await container.ensureSynced();
+  const skill = await addSkill(container.deps);
+  revalidatePath("/", "layout");
+  redirect(skillsPath({ skill: skill.id, created: "1" }));
+}
+
+/**
+ * Skills 탭의 Save draft (결정 21 — Demo). 사용자 Skill 의 이름 · 소개 · 지시문을 저장한다. 기본 Skill 은 고치지 않는다.
+ * 칸 규칙에 걸리면 적은 칸을 짧은 쿠키에 두고(주소에 싣지 않는다) 칸마다의 이유와 함께 같은 Skill 로 돌아간다.
+ */
+export async function saveSkillDraftAction(form: FormData): Promise<void> {
+  const input = {
+    id: String(form.get("id") ?? ""),
+    name: String(form.get("name") ?? ""),
+    summary: String(form.get("summary") ?? ""),
+    instructions: String(form.get("instructions") ?? ""),
+  };
+  const container = getContainer();
+  await container.ensureSynced();
+  const result = await saveSkill(container.deps, input);
+  const jar = await cookies();
+  revalidatePath("/", "layout");
+  if (result.ok) {
+    jar.delete(SKILL_DRAFT_COOKIE);
+    redirect(skillsPath({ skill: result.skill.id, saved: "1" }));
+  }
+  if (result.problems === undefined) {
+    jar.delete(SKILL_DRAFT_COOKIE);
+    redirect(skillsPath({ missing: "1" }));
+  }
+  const draft = encodeURIComponent(JSON.stringify(input));
+  // 쿠키 하나는 4KB 안이어야 한다. 넘으면 되살리지 않는다(적은 글은 잃지만 저장하지 않았다는 사실과 이유는 그대로 보인다)
+  if (draft.length < 3800) jar.set(SKILL_DRAFT_COOKIE, draft, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 600 });
+  else jar.delete(SKILL_DRAFT_COOKIE);
+  redirect(skillsPath({ skill: input.id }, skillProblemsToParams(result.problems)));
 }

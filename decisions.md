@@ -167,7 +167,7 @@
 - **사용자가 권고대로 확정한 넷** (2026-09-28, "권고대로"):
   1. **메뉴의 Flow** 는 마지막으로 연 업무의 Flow 를 연다(메뉴의 Chat 과 같은 규칙 — 마지막으로 연 업무, 없으면 Workspace 의 첫 업무). 업무가 없으면 Chat 과 같은 빈 안내를 보인다. 업무 화면 머리에는 `Conversation` · `Flow` 탭 한 쌍이 있다.
   2. **단계 이름을 Goal · Build · Review · Finish on GitHub 로 통일한다.** 업무 화면 Work details 의 Work path 도 이 이름을 쓰고, Goal 은 목표가 있을 때만 끝난 것으로 칠한다. 두 화면은 같은 순수 함수(`src/domain/work-path.ts` 의 `workPathOf`)에서 상태를 받는다 — 같은 사실을 두 화면이 다르게 말하지 않게.
-  3. **`Add Agent` · `Add Skill` 을 둔다(둘 다 Demo).** `Add Agent` 는 이름만 받아 초안을 만들고 편집 칸을 연다. `Add Skill` 은 이미 정의된 Skill(`Read context` · `Code review`)에서 고르는 것이다 — 새 Skill 을 정의하는 화면은 만들지 않는다.
+  3. **`Add Agent` · `Add Skill` 을 둔다(둘 다 Demo).** `Add Agent` 는 이름만 받아 초안을 만들고 편집 칸을 연다. `Add Skill` 은 이미 정의된 Skill(`Read context` · `Code review`)에서 고르는 것이다 — 새 Skill 을 정의하는 화면은 만들지 않는다. — **결정 21 로 대체됨**: Skill 을 정의하는 화면은 Agents 의 Skills 탭(Demo)이다.
   4. **휴대전화 아래 탭은 다섯 칸**(Workspace · Chat · Flow · Agents · Inbox)이고, `Connections` 는 휴대전화 위쪽 줄 오른쪽의 아이콘이다.
 - **Flow 의 모습**: 읽기 전용 흐름도(끌기 · 노드 더하기 없음). Build 노드는 업무의 최신 PR(첫 열린 PR, 없으면 마지막 PR)의 `#12` 와 아이콘 줄(결정 19), Review 노드는 그 PR 의 마지막 결정(이전 커밋이면 "이전 커밋"), Finish 는 병합 여부를 보인다. Request changes 고리와 Approve in Studio 선은 이 업무가 지나간 적이 있으면 실선, 없으면 점선이다. 노드를 누르면 설명 칸(Owner · Build 는 Agent · Input · Output)과 이미 있는 화면으로 가는 버튼 하나가 바뀐다 — Build 는 `Open in Agents`(Builder 초안을 고른 Agents), Review 는 기존 Review 패널, Goal 은 `Set goal`. Build 의 Owner 는 "PR 작성자 — 지금은 Studio 밖에서 커밋한다" 다.
 - **Agents 의 모습**: 초안 목록 + 편집 칸 — Name · What it does(사람용 소개) · Instructions(AI 용 지시문, 더 큰 칸 · 다른 바탕) · AI model · Skills · `Save draft`. 칸 규칙에 걸리면 그 칸 옆에 한 줄로 보이고 적은 글은 되살린다. 자바스크립트 없이 폼과 주소 파라미터로 동작한다. Builder 초안 위에는 "Flow 에서 쓰는 곳 · <업무 제목> — Build" 링크가 있다(지금은 Build 노드가 늘 Builder 를 가리키므로).
@@ -175,6 +175,19 @@
 - **`Run` 버튼은 어디에도 없다**(결정 2). 대화 · 메모 · 지시문은 AI 에게 전달되지 않는다. 실제 실행 · 모델 연결은 3단계 첫 단위(실행 경로 시험) 뒤의 일이다(결정 5 · 13).
 - **왜**: 사용자가 Flow · Agents 의 자리와 모습을 먼저 보고 3단계를 기획하려 한다. 실행이 없는 화면을 메뉴에 두는 대신, 무엇이 아직 진짜가 아닌지를 Demo 표시와 띠로 분명히 하고, 흐름도의 상태는 지어내지 않고 업무의 실제 기록에서만 가져온다.
 - **되돌리기**: 쉽다. 메뉴 두 칸과 화면 두 개를 지우면 된다. `agent_draft` 표는 다른 표가 가리키지 않아 지워도 다른 데이터가 깨지지 않는다(`drop table agent_draft`).
+
+
+### 결정 21 (2026-09-29) — Skill 을 정의하는 화면을 Agents 의 Skills 탭(Demo)으로 둔다. 기본 Skill 은 고정, 사용자 Skill 은 초안만 저장한다.
+
+- **정한 것**: `/agents` 한 화면에 탭 한 쌍 `Agents` · `Skills` 를 둔다(업무 머리의 Conversation · Flow 탭과 같은 모양, `?tab=skills&skill=<id>`). 사이드바 · 아래 탭은 그대로라 Skills 탭에서도 Agents 칸이 켜진다. 큰 제목 `Agents` 대신 탭마다 설명 한 줄이 있다(Skills: "여러 Agent 가 함께 쓰는 지시문 묶음이다."). 이 결정이 결정 20 의 3번("새 Skill 을 정의하는 화면은 만들지 않는다")을 대체한다. 화면의 모습은 [`docs/product/agent-studio-v3.html`](docs/product/agent-studio-v3.html) 의 Skills 탭이다. 사용자가 시안을 보고 "시안대로 구현해줘" 로 확정했다.
+- **Demo 띠**: Skills 탭 위에 "Demo · 실행 연결 없음 — Skill 은 저장만 되고 아직 AI 에게 가지 않는다".
+- **기본 Skill 과 사용자 Skill**: 기본 Skill 둘(`Read context` · `Code review`)은 코드에 고정된 읽기 전용이다 — "기본 Skill — 고칠 수 없다", 칸이 읽기 전용이고 `Save draft` 가 없으며 목록의 이름 옆에 자물쇠가 있다. 사용자 Skill 은 초안(이름 1~40자 · 소개 120자 이하 · 지시문 4000자 이하)으로 새 표 `skill_draft`(`db/migrations/20260929205338_skill_draft.sql`)에 저장한다. 이름은 기본 Skill · 다른 초안과 겹칠 수 없다(대소문자 · 앞뒤 공백 무시). `New Skill` 은 이름을 묻지 않고 "새 Skill"(겹치면 "새 Skill 2" …) 초안을 만들어 고른다. fixture 모드는 Skill 표가 비어 있을 때만 시연 Skill `Release notes` 하나를 심는다.
+- **편집 칸**: Name · What it does(사람용) · Instructions(AI 용, "Agent 의 지시문 뒤에 이어 붙는다") · Used by · `Save draft`. 칸 규칙에 걸리면 그 칸 옆에 한 줄로 보이고 적은 글은 되살린다. 자바스크립트 없이 폼과 주소 파라미터로 동작한다. 휴대전화는 목록이 편집 칸 위에 온다.
+- **Used by 는 계산한다**: 따로 저장하지 않고 Agent 초안의 Skills 에서 거꾸로 읽는다. 칩을 누르면 그 Agent 를 고른 Agents 탭으로 간다. 쓰는 Agent 가 없으면 "아직 쓰는 Agent 없음".
+- **Agents 탭의 Add Skill**: 기본 Skill 과 사용자 Skill 에서 고른다. 그 아래 "새 Skill 은 Skills 탭에서 만든다" 링크가 있다. Agent 초안이 받는 Skill 은 기본 Skill + 존재하는 사용자 Skill 이고, 저장 순서는 기본 Skill 먼저, 그다음 사용자 Skill 을 만든 순서다. `agent_draft.skills` 는 그대로 id 목록(text[])이며, 표의 제약은 사용자 Skill id 의 모양까지 받도록 넓혔다.
+- **하지 않는 것**: `Run` · `Test` 버튼은 없다(결정 2 · 20). 모델 칸은 바뀌지 않는다. 사용자 Skill 을 지우는 기능은 이번에 만들지 않는다 — 그래서 Agent 초안이 없는 Skill 을 가리키는 일이 없고, 읽을 때 목록에 없는 id 는 무시한다.
+- **왜**: 사용자가 Agent 와 Skill 의 관계(여러 Agent 가 같은 지시문 묶음을 함께 쓴다)를 화면에서 먼저 보고 3단계를 기획하려 한다. 실행이 없으므로 Demo 로 두고, "어느 Agent 가 쓰나" 는 한 자리(Agent 초안)에만 두어 두 곳이 어긋나지 않게 했다.
+- **되돌리기**: 쉽다. Skills 탭을 지우고, `agent_draft.skills` 에서 사용자 Skill id 를 뺀 뒤 `skill_draft` 표를 지우면 된다(다른 표가 이 표를 가리키지 않는다).
 
 ---
 

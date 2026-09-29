@@ -191,7 +191,8 @@ export type StudioErrorCode =
   | "not_linked"
   | "invalid_input"
   | "unlinked_by_user" // 사람이 연결을 푼 PR 에 표식으로 연결하려 했다
-  | "stale_commit"; // 사람이 본 커밋이 PR 의 지금 최신 커밋이 아니다 — 결정을 남기지 않았다 (결정 18)
+  | "stale_commit" // 사람이 본 커밋이 PR 의 지금 최신 커밋이 아니다 — 결정을 남기지 않았다 (결정 18)
+  | "duplicate_name"; // 기본 Skill 이나 다른 Skill 초안과 같은 이름이다 (결정 21)
 
 /** 도메인 규칙을 어기는 요청을 거절할 때 쓰는 오류. 메시지는 사용자에게 보여도 되는 한국어 문장이다. */
 export class StudioError extends Error {

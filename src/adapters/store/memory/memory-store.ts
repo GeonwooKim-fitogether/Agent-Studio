@@ -24,6 +24,7 @@ import {
   type Work,
 } from "../../../domain/model";
 import { type AgentDraft, isAcceptedAgentDraft } from "../../../domain/agent-draft";
+import { isAcceptedSkillDraft, isDuplicateSkillName, type SkillDraft } from "../../../domain/skill-draft";
 import { isAcceptedMemoBody, isValidThreadTarget, type Memo } from "../../../domain/memo";
 import { isPrEventKind, type PrEvent } from "../../../domain/pr-event";
 import { isValidWorkId } from "../../../domain/work-marker";
@@ -51,7 +52,8 @@ export function createMemoryStore(seed: StudioSeed = {}): StudioStore {
   const events: PrEvent[] = copies(seed.events ?? []);
   const memos: Memo[] = copies(seed.memos ?? []);
   const agents = new Map((seed.agents ?? []).map((a) => [a.id, copy(a)]));
-  const byCreated = (a: AgentDraft, b: AgentDraft) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
+  const skillDrafts = new Map((seed.skills ?? []).map((k) => [k.id, copy(k)]));
+  const byCreated = (a: AgentDraft | SkillDraft, b: AgentDraft | SkillDraft) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
   const memoIn = (workId: string, id: string) => memos.findIndex((m) => m.workId === workId && m.id === id);
 
   const rejectIfBadRef = (ref: PrRef) => {
@@ -261,7 +263,7 @@ export function createMemoryStore(seed: StudioSeed = {}): StudioStore {
     },
     async createAgentDraft(draft) {
       // 확인 순서는 PostgreSQL 구현과 같다: 칸 · 시각 → 같은 ID
-      if (!isAcceptedAgentDraft(draft) || draft.createdAt === "" || draft.updatedAt === "") {
+      if (!isAcceptedAgentDraft(draft, [...skillDrafts.values()]) || draft.createdAt === "" || draft.updatedAt === "") {
         throw new StudioError("invalid_input", "Agent 초안의 값이 올바르지 않다.");
       }
       if (agents.has(draft.id)) throw new StudioError("invalid_input", "같은 ID 의 Agent 초안이 이미 있다.");
@@ -269,11 +271,37 @@ export function createMemoryStore(seed: StudioSeed = {}): StudioStore {
     },
     async saveAgentDraft(update) {
       // 확인 순서는 PostgreSQL 구현과 같다: 칸 · 시각 → 없는 초안
-      if (!isAcceptedAgentDraft(update) || update.updatedAt === "") throw new StudioError("invalid_input", "Agent 초안의 값이 올바르지 않다.");
+      if (!isAcceptedAgentDraft(update, [...skillDrafts.values()]) || update.updatedAt === "") throw new StudioError("invalid_input", "Agent 초안의 값이 올바르지 않다.");
       const draft = agents.get(update.id);
       if (draft === undefined) throw new StudioError("not_found", "고칠 Agent 초안이 없다.");
       const { name, summary, instructions, skills, updatedAt } = update;
       agents.set(draft.id, copy({ ...draft, name, summary, instructions, skills, updatedAt }));
+    },
+
+    async listSkillDrafts() {
+      return copies([...skillDrafts.values()].sort(byCreated));
+    },
+    async getSkillDraft(id) {
+      const draft = skillDrafts.get(id);
+      return draft && copy(draft);
+    },
+    async createSkillDraft(draft) {
+      // 확인 순서는 PostgreSQL 구현과 같다: 칸 · 시각 → 같은 ID → 같은 이름
+      if (!isAcceptedSkillDraft(draft) || draft.createdAt === "" || draft.updatedAt === "") {
+        throw new StudioError("invalid_input", "Skill 초안의 값이 올바르지 않다.");
+      }
+      if (skillDrafts.has(draft.id)) throw new StudioError("invalid_input", "같은 ID 의 Skill 초안이 이미 있다.");
+      if (isDuplicateSkillName(draft, [...skillDrafts.values()])) throw new StudioError("duplicate_name", "같은 이름의 Skill 이 이미 있다.");
+      skillDrafts.set(draft.id, copy(draft));
+    },
+    async saveSkillDraft(update) {
+      // 확인 순서는 PostgreSQL 구현과 같다: 칸 · 시각 → 없는 초안 → 같은 이름
+      if (!isAcceptedSkillDraft(update) || update.updatedAt === "") throw new StudioError("invalid_input", "Skill 초안의 값이 올바르지 않다.");
+      const draft = skillDrafts.get(update.id);
+      if (draft === undefined) throw new StudioError("not_found", "고칠 Skill 초안이 없다.");
+      if (isDuplicateSkillName(update, [...skillDrafts.values()])) throw new StudioError("duplicate_name", "같은 이름의 Skill 이 이미 있다.");
+      const { name, summary, instructions, updatedAt } = update;
+      skillDrafts.set(draft.id, copy({ ...draft, name, summary, instructions, updatedAt }));
     },
 
     async listPreviewRecords() {

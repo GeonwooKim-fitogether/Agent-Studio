@@ -20,12 +20,14 @@
  * 그래도 PR 은 (저장소 숫자 ID, 번호) 로만 같으므로 서로 섞이지 않아야 한다 (시나리오 1).
  *
  * Agent 초안 세 개 (결정 20, Demo): Planner · Builder · Reviewer. 저장만 되고 아무것도 실행하지 않는다. Builder 는 Flow 의 Build 노드가 가리킨다.
+ * 사용자 Skill 초안 하나 (결정 21, Demo): Release notes. 아직 어느 Agent 도 쓰지 않는다.
  *
  * 내부 검토 결정 두 건:
  *   - 로그인 화면 만들기: payments#12 의 이전 커밋(9f8e7d6)에 대한 "수정 요청" → 지금은 새 커밋이 있어 "이전 버전" (시나리오 4)
  *   - 관리자 로그인 보안 점검: admin-console#12 의 최신 커밋에 대한 "내부 검토 완료" → GitHub 는 여전히 Open (시나리오 5)
  */
 import type { AgentDraft } from "../../../domain/agent-draft";
+import type { SkillDraft } from "../../../domain/skill-draft";
 import type { PrSnapshot, Repository } from "../../../domain/model";
 import type { StudioSeed } from "../../store/memory/memory-store";
 import type { FixtureData } from "./fixture-reader";
@@ -224,6 +226,19 @@ const agents: AgentDraft[] = [
   },
 ];
 
+/** 시연 Skill 초안 하나 (결정 21). 기본 Skill 둘(Read context · Code review)은 코드에 고정돼 있어 여기에 없다. 아직 어느 Agent 도 쓰지 않는다 */
+const skills: SkillDraft[] = [
+  {
+    id: "release-notes",
+    name: "Release notes",
+    summary: "병합된 PR 을 변경 안내로 정리한다.",
+    instructions:
+      "병합된 PR 의 제목과 설명을 읽는다.\n사용자에게 보이는 변화만 골라 한 줄씩 적는다.\n새 기능 · 고친 것 · 바뀐 것으로 나누고, 내부 용어는 쉬운 말로 바꾼다.",
+    createdAt: SEEDED_AT,
+    updatedAt: SEEDED_AT,
+  },
+];
+
 /** Studio 쪽 처음 상태. 연결(PrLink)은 넣지 않는다 — 첫 동기화가 표식 규칙으로 만든다. */
 export function demoStudioSeed(): StudioSeed {
   return structuredClone({
@@ -261,5 +276,6 @@ export function demoStudioSeed(): StudioSeed {
       },
     ],
     agents,
+    skills,
   } satisfies StudioSeed);
 }

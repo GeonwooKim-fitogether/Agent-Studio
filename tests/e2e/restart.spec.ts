@@ -46,7 +46,7 @@ async function stopServer(child: ChildProcess): Promise<void> {
 test.describe("서버 재시작", () => {
   test.skip(!POSTGRES, "PostgreSQL 모드(E2E_STORAGE=postgres)에서만 돈다");
 
-  test("사람이 만든 연결 · 새 업무 · 연결 해제 · 메모 · Agent 초안이 서버를 껐다 켠 뒤에도 그대로 보인다", async ({ page }) => {
+  test("사람이 만든 연결 · 새 업무 · 연결 해제 · 메모 · Agent · Skill 초안이 서버를 껐다 켠 뒤에도 그대로 보인다", async ({ page }) => {
     test.setTimeout(120_000);
     let server = await startServer();
     try {
@@ -96,6 +96,14 @@ test.describe("서버 재시작", () => {
       await page.getByTestId("agent-editor").getByRole("textbox", { name: /^What it does/ }).fill("다시 켜도 남는 초안");
       await page.getByTestId("agent-editor").getByRole("button", { name: "Save draft" }).click();
       await expect(page.getByTestId("agent-saved")).toContainText("Saved draft");
+      // Skill 초안 (결정 21): 하나를 만들어 이름을 붙인다
+      await page.getByTestId("tab-skills").click();
+      await page.getByTestId("new-skill").click();
+      await expect(page.getByTestId("skill-saved")).toContainText("Created draft");
+      await hydrated(page);
+      await page.getByTestId("skill-editor").getByRole("textbox", { name: "Name", exact: true }).fill("Kept skill");
+      await page.getByTestId("skill-editor").getByRole("button", { name: "Save draft" }).click();
+      await expect(page.getByTestId("skill-saved")).toContainText("Saved draft");
 
       await stopServer(server); // 서버를 끈다
       await expect(page.goto(BASE)).rejects.toThrow(); // 정말 꺼졌다
@@ -124,6 +132,8 @@ test.describe("서버 재시작", () => {
       // Agent 초안이 남았고, 시연 초안을 다시 심지 않았다
       await nav(page).getByRole("link", { name: /^Agents/ }).click();
       await expect(page.getByTestId("agent-list").locator(".agent-item")).toHaveText([/Planner/, /Builder/, /Reviewer/, /Keeper.*다시 켜도 남는 초안/]);
+      await page.getByTestId("tab-skills").click(); // Skill 초안도 남았고, 시연 Skill 을 다시 심지 않았다
+      await expect(page.getByTestId("skill-list").locator(".skill-item")).toHaveText([/Read context/, /Code review/, /Release notes/, /Kept skill/]);
       expect(newWorkUrl).toMatch(/^\/works\//);
     } finally {
       await stopServer(server);

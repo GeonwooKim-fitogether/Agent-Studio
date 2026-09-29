@@ -9,29 +9,22 @@
  *   name          1 ~ MAX_AGENT_NAME_LENGTH 글자. 한 줄이다(줄바꿈 · 제어 문자 없음). 목록에 보이는 이름이다
  *   summary       0 ~ MAX_AGENT_SUMMARY_LENGTH 글자. 한 줄이다. 사람용 소개 — 목록에 보이고 AI 에게는 가지 않는다
  *   instructions  0 ~ MAX_AGENT_INSTRUCTIONS_LENGTH 글자. 줄바꿈은 받는다. AI 용 지시문 — 실행이 연결되면 이 글이 그대로 간다
- *   skills        AGENT_SKILLS 안의 것만, 겹치지 않게. 저장할 때는 AGENT_SKILLS 의 순서로 맞춘다
+ *   skills        고를 수 있는 Skill 의 id 만, 겹치지 않게 — 기본 Skill + 존재하는 사용자 Skill (결정 21).
+ *                 저장할 때는 기본 Skill 먼저, 그다음 사용자 Skill 을 만든 순서로 맞춘다(skill-draft.ts 의 skillIdOrder)
  * 받지 않는 이유는 칸마다 하나다: empty(이름이 빔) · too_long · control_char · unknown_skill.
  */
 import { CONTROL_BUT_NEWLINE } from "./memo";
+import { type SkillDraft, skillIdOrder } from "./skill-draft";
 
 export const MAX_AGENT_NAME_LENGTH = 40;
 export const MAX_AGENT_SUMMARY_LENGTH = 120;
 export const MAX_AGENT_INSTRUCTIONS_LENGTH = 4000;
 
 /**
- * 고를 수 있는 Skill — 이미 정의된 것뿐이다. 새 Skill 을 정의하는 화면은 없다(결정 20).
- * id 는 저장되는 값, name 은 화면에 보이는 이름이다(버튼 · 기능 이름은 영어, 결정 2).
+ * 고를 수 있는 Skill 은 기본 Skill 둘(read_context · code_review)과 Skills 탭에서 만든 사용자 Skill 이다(결정 21 — 결정 20 의 3번을 대체).
+ * 목록과 순서는 skill-draft.ts 가 정한다. 여기서는 사용자 Skill 목록(id · 만든 시각)을 받아 허용 목록을 넓힌다.
  */
-export const AGENT_SKILLS = [
-  { id: "read_context", name: "Read context" },
-  { id: "code_review", name: "Code review" },
-] as const;
-
-export type AgentSkillId = (typeof AGENT_SKILLS)[number]["id"];
-
-export function isAgentSkillId(value: unknown): value is AgentSkillId {
-  return typeof value === "string" && AGENT_SKILLS.some((s) => s.id === value);
-}
+export type SkillChoice = Pick<SkillDraft, "id" | "createdAt">;
 
 export interface AgentDraft {
   /** 영문 소문자 · 숫자. 시연 초안은 planner · builder · reviewer, 새 초안은 Studio 가 발급한 ID */
@@ -39,7 +32,7 @@ export interface AgentDraft {
   readonly name: string;
   readonly summary: string;
   readonly instructions: string;
-  readonly skills: readonly AgentSkillId[];
+  readonly skills: readonly string[];
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -75,12 +68,15 @@ function lineProblem(text: string, max: number, required: boolean): AgentDraftPr
  * 사람이 적은 칸을 규칙에 맞춘다. 통과하면 맞춘 값(앞뒤 공백을 뗀 글, 순서를 맞춘 Skill)을, 걸리면 칸마다의 이유를 돌려준다.
  * 화면은 걸린 칸 옆에 이유를 한 줄씩 보인다.
  */
-export function checkAgentDraft(input: {
-  readonly name: string;
-  readonly summary: string;
-  readonly instructions: string;
-  readonly skills: readonly string[];
-}): { readonly ok: true; readonly fields: AgentDraftFields } | { readonly ok: false; readonly problems: AgentDraftProblems } {
+export function checkAgentDraft(
+  input: {
+    readonly name: string;
+    readonly summary: string;
+    readonly instructions: string;
+    readonly skills: readonly string[];
+  },
+  userSkills: readonly SkillChoice[] = [],
+): { readonly ok: true; readonly fields: AgentDraftFields } | { readonly ok: false; readonly problems: AgentDraftProblems } {
   const name = normalize(input.name);
   const summary = normalize(input.summary);
   const instructions = normalize(input.instructions);
@@ -91,22 +87,27 @@ export function checkAgentDraft(input: {
   if (summaryProblem !== null) problems.summary = summaryProblem;
   if (CONTROL_BUT_NEWLINE.test(instructions)) problems.instructions = "control_char";
   else if (length(instructions) > MAX_AGENT_INSTRUCTIONS_LENGTH) problems.instructions = "too_long";
-  if (!input.skills.every(isAgentSkillId)) problems.skills = "unknown_skill";
+  const order = skillIdOrder(userSkills);
+  if (!input.skills.every((id) => order.includes(id))) problems.skills = "unknown_skill";
   if (Object.keys(problems).length > 0) return { ok: false, problems };
   const chosen = new Set(input.skills);
-  const skills = AGENT_SKILLS.map((s) => s.id).filter((id) => chosen.has(id));
+  const skills = order.filter((id) => chosen.has(id));
   return { ok: true, fields: { name, summary, instructions, skills } };
 }
 
 /**
  * 저장소가 받아도 되는 초안인가 — ID 모양이 맞고, 칸이 이미 규칙대로 맞춰진 모양이어야 한다(checkAgentDraft 를 한 번 거친 값).
+ * userSkills 는 저장소에 있는 사용자 Skill 이다 — 없는 Skill 을 고른 초안은 받지 않는다.
  * 두 저장 구현(메모리 · PostgreSQL)이 같은 값에 같은 답을 내도록 이 함수 하나로 판정한다.
  */
-export function isAcceptedAgentDraft(draft: Pick<AgentDraft, "id" | "name" | "summary" | "instructions" | "skills">): boolean {
+export function isAcceptedAgentDraft(
+  draft: Pick<AgentDraft, "id" | "name" | "summary" | "instructions" | "skills">,
+  userSkills: readonly SkillChoice[] = [],
+): boolean {
   if (!isValidAgentId(draft.id)) return false;
   if (typeof draft.name !== "string" || typeof draft.summary !== "string" || typeof draft.instructions !== "string") return false;
   if (!Array.isArray(draft.skills)) return false;
-  const checked = checkAgentDraft(draft);
+  const checked = checkAgentDraft(draft, userSkills);
   if (!checked.ok) return false;
   const f = checked.fields;
   return (

@@ -11,6 +11,7 @@ import { getPrNotice, getWorkspace } from "../../src/application/queries";
 import { syncAll } from "../../src/application/sync";
 import type { PrLink, PrSnapshot, Work } from "../../src/domain/model";
 import type { AgentDraft } from "../../src/domain/agent-draft";
+import type { SkillDraft } from "../../src/domain/skill-draft";
 import type { Memo } from "../../src/domain/memo";
 import type { PrEvent } from "../../src/domain/pr-event";
 import type { StatusChange } from "../../src/domain/work-status";
@@ -723,6 +724,61 @@ export function describeStoreContract(kind: string, make: StoreFactory): void {
         const one = (await store.getAgentDraft("a")) as { name: string };
         one.name = "고침";
         expect(await store.listAgentDrafts()).toEqual([draft("a", { skills: ["read_context"] })]);
+      });
+    });
+
+    describe("Skill 초안 (결정 21)", () => {
+      const at = "2026-09-29T00:00:00.000Z";
+      const skill = (id: string, fields: Partial<SkillDraft> = {}): SkillDraft => ({
+        id,
+        name: `Skill ${id}`,
+        summary: "",
+        instructions: "",
+        createdAt: at,
+        updatedAt: at,
+        ...fields,
+      });
+      const agent = (id: string, skills: string[]): AgentDraft => ({ id, name: `Agent ${id}`, summary: "", instructions: "", skills, createdAt: at, updatedAt: at });
+
+      it("심은 시연 Skill(Release notes)이 돌아온다. 기본 Skill 은 저장소에 없다", async () => {
+        const store = await make(demoStudioSeed());
+        expect((await store.listSkillDrafts()).map((k) => [k.id, k.name])).toEqual([["release-notes", "Release notes"]]);
+        expect(await store.getSkillDraft("read_context")).toBeUndefined();
+      });
+
+      it("만든 그대로 돌아오고, 고치면 세 칸과 고친 시각만 바뀐다. 만든 순서(같은 시각이면 ID 순)다", async () => {
+        const store = await make({});
+        const b = skill("b", { instructions: "첫 줄\n둘째 줄" });
+        await store.createSkillDraft(b);
+        await store.createSkillDraft(skill("a"));
+        expect(await store.listSkillDrafts()).toEqual([skill("a"), b]);
+        const update = { id: "b", name: "Changelog", summary: "소개", instructions: "", updatedAt: "2026-09-29T01:00:00.000Z" };
+        await store.saveSkillDraft(update);
+        expect(await store.getSkillDraft("b")).toEqual({ ...b, ...update, createdAt: at });
+        await store.saveSkillDraft({ ...update, name: "CHANGELOG" }); // 자기 이름의 대소문자만 바꾸는 것은 겹침이 아니다
+        expect((await store.getSkillDraft("b"))?.name).toBe("CHANGELOG");
+      });
+
+      it("규칙 밖 · 같은 ID → invalid_input, 같은 이름(기본 Skill 포함, 대소문자 무시) → duplicate_name, 없는 초안 → not_found. 아무것도 쓰지 않는다", async () => {
+        const store = await make({});
+        await store.createSkillDraft(skill("a", { name: "Release notes" }));
+        const bad: SkillDraft[] = [skill("b", { name: "" }), skill("b", { name: " 앞 공백" }), skill("b", { summary: "가".repeat(121) }), skill("B"), skill("read_context"), skill("a")];
+        for (const k of bad) await expect(store.createSkillDraft(k)).rejects.toMatchObject({ code: "invalid_input" });
+        await expect(store.createSkillDraft(skill("b", { name: "release NOTES" }))).rejects.toMatchObject({ code: "duplicate_name" });
+        await expect(store.createSkillDraft(skill("b", { name: "Code Review" }))).rejects.toMatchObject({ code: "duplicate_name" });
+        await store.createSkillDraft(skill("c"));
+        await expect(store.saveSkillDraft({ id: "c", name: "RELEASE notes", summary: "", instructions: "", updatedAt: at })).rejects.toMatchObject({ code: "duplicate_name" });
+        await expect(store.saveSkillDraft({ id: "zz", name: "X", summary: "", instructions: "", updatedAt: at })).rejects.toMatchObject({ code: "not_found" });
+        expect((await store.listSkillDrafts()).map((k) => k.name)).toEqual(["Release notes", "Skill c"]);
+      });
+
+      it("Agent 초안은 존재하는 사용자 Skill 을 고를 수 있고(기본 Skill 먼저, 그다음 만든 순서), 없는 Skill 은 받지 않는다", async () => {
+        const store = await make({ skills: [skill("late", { name: "Late", createdAt: "2026-09-29T02:00:00.000Z" }), skill("early", { name: "Early" })] });
+        await store.createAgentDraft(agent("p", ["code_review", "early", "late"]));
+        await expect(store.createAgentDraft(agent("q", ["ghost"]))).rejects.toMatchObject({ code: "invalid_input" });
+        await expect(store.createAgentDraft(agent("q", ["late", "early"]))).rejects.toMatchObject({ code: "invalid_input" }); // 순서가 틀렸다
+        await store.saveAgentDraft({ id: "p", name: "Agent p", summary: "", instructions: "", skills: ["read_context", "late"], updatedAt: at });
+        expect((await store.getAgentDraft("p"))?.skills).toEqual(["read_context", "late"]);
       });
     });
   });

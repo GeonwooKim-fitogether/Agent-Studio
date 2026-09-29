@@ -86,7 +86,7 @@ test("Agents: Add Agent 로 이름만 적어 만들고, 칸을 채워 Save draft
   const serverErrors = watchServerErrors(page);
   await page.goto("/");
   await nav(page).getByRole("link", { name: /^Agents/ }).click();
-  await expect(page.getByRole("heading", { level: 1, name: "Agents" })).toBeVisible();
+  await expect(page.getByTestId("tab-agents")).toHaveAttribute("aria-current", "page"); // 큰 제목 대신 Agents · Skills 탭 (결정 21)
   await expect(page.getByTestId("agent-list").locator(".agent-item")).toHaveText([/Planner/, /Builder/, /Reviewer/]);
   await expect(page.getByTestId("agent-used-in")).toHaveCount(0); // Planner 는 Flow 에서 쓰이지 않는다
 

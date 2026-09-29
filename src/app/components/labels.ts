@@ -5,6 +5,7 @@
  * 모두 "Internal:" 로 시작한다. 한 카드에 둘이 함께 보여도 어느 쪽 것인지 글자만 보고 가릴 수 있어야 한다.
  */
 import type { AgentDraftProblem } from "../../domain/agent-draft";
+import type { SkillDraftProblem } from "../../domain/skill-draft";
 import type { AttentionItem, AttentionKind } from "../../application/attention";
 import type { MemoProblem } from "../../application/memo";
 import type { NewWorkProblem } from "../../application/new-work";
@@ -399,4 +400,14 @@ export const AGENT_PROBLEM: Record<AgentDraftProblem, string> = {
   too_long: "너무 길다 — 칸의 글자 수 안으로 줄인다.",
   control_char: "보이지 않는 제어 문자(탭 · 방향 제어 문자 등)나, 한 줄 칸에 줄바꿈이 들어 있다.",
   unknown_skill: "정의되지 않은 Skill 이다 — 목록에 있는 Skill 만 고른다.",
+};
+
+// ── Skills (결정 21, Demo) ─────────────────────────────────────────────────
+
+/** Skill 의 Save draft 가 걸린 이유 — 칸 옆에 한 줄로 보인다 */
+export const SKILL_PROBLEM: Record<SkillDraftProblem, string> = {
+  empty: AGENT_PROBLEM.empty,
+  too_long: AGENT_PROBLEM.too_long,
+  control_char: AGENT_PROBLEM.control_char,
+  duplicate: "같은 이름의 Skill 이 이미 있다 — 기본 Skill 과 다른 Skill 의 이름은 쓸 수 없다(대소문자 무시).",
 };

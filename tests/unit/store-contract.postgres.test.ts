@@ -35,7 +35,20 @@ describe.skipIf(!HAS_POSTGRES)("PostgreSQL", () => {
     expect((await store.getAgentDraft("builder"))?.summary).toBe("고친 소개"); // 사람이 고친 초안을 덮어쓰지 않는다
     // 표의 제약도 칸 규칙의 바깥 경계를 지킨다
     await expect(pool.query("insert into agent_draft (id, name, skills, created_at, updated_at) values ('x', '', '{}', now(), now())")).rejects.toThrow();
-    await expect(pool.query("insert into agent_draft (id, name, skills, created_at, updated_at) values ('x', 'X', '{deploy}', now(), now())")).rejects.toThrow();
+    await expect(pool.query("insert into agent_draft (id, name, skills, created_at, updated_at) values ('x', 'X', '{Deploy}', now(), now())")).rejects.toThrow(); // Skill id 의 모양이 아니다
+  });
+
+  it("Skill 초안도 Skill 표가 비어 있을 때만 심고, 사람이 고친 것을 덮어쓰지 않는다. 표도 같은 이름(대소문자 무시)을 막는다 (결정 21)", async () => {
+    await seedIfEmpty(pool, { projects: [{ id: "p", name: "p", repoIds: [1] }] });
+    const seed = demoStudioSeed();
+    await seedIfEmpty(pool, seed);
+    const store = createPostgresStore(pool);
+    await store.saveSkillDraft({ id: "release-notes", name: "Release notes", summary: "고친 소개", instructions: "", updatedAt: "2026-09-29T01:00:00.000Z" });
+    await seedIfEmpty(pool, seed);
+    expect((await store.listSkillDrafts()).map((k) => [k.id, k.summary])).toEqual([["release-notes", "고친 소개"]]);
+    await expect(pool.query("insert into skill_draft (id, name, created_at, updated_at) values ('x', 'RELEASE NOTES', now(), now())")).rejects.toThrow();
+    await expect(pool.query("insert into skill_draft (id, name, created_at, updated_at) values ('read_context', 'Y', now(), now())")).rejects.toThrow();
+    await pool.query("insert into agent_draft (id, name, skills, created_at, updated_at) values ('x', 'X', '{read_context,release-notes}', now(), now())"); // 사용자 Skill id 도 받는다
   });
 
   it("두 연결의 경쟁: 연결 해제가 커밋되기 전에 들어온 표식 연결은, 해제가 커밋된 뒤 해제 기록을 보고 거절된다", async () => {

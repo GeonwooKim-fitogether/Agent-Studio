@@ -21,6 +21,7 @@ import type {
 } from "../domain/model";
 import type { AgentDraft } from "../domain/agent-draft";
 import type { Memo } from "../domain/memo";
+import type { SkillDraft } from "../domain/skill-draft";
 import type { PrEvent } from "../domain/pr-event";
 import type { PrFingerprint, StatusChange } from "../domain/work-status";
 
@@ -55,6 +56,11 @@ export interface StudioSeed {
    * PostgreSQL 은 초안 표가 비어 있을 때만 심는다(프로젝트가 이미 있는 데이터베이스라도) — 사람이 고친 초안을 덮어쓰지 않는다.
    */
   readonly agents?: readonly AgentDraft[];
+  /**
+   * 사용자 Skill 초안 (결정 21). fixture 모드의 시연 데이터는 Release notes 하나를 심는다.
+   * PostgreSQL 은 Skill 표가 비어 있을 때만 심는다(Agent 초안과 같은 규칙).
+   */
+  readonly skills?: readonly SkillDraft[];
 }
 
 /**
@@ -190,6 +196,23 @@ export interface StudioStore {
    * 확인 순서: 칸이 규칙 밖 → invalid_input, 없는 초안 → not_found. 모델 칸은 없다 — 연결된 모델이 없으므로 저장하지 않는다.
    */
   saveAgentDraft(update: Pick<AgentDraft, "id" | "name" | "summary" | "instructions" | "skills" | "updatedAt">): Promise<void>;
+
+  /**
+   * 사용자 Skill 초안 전부 (결정 21). 만든 순서(오래된 것부터, 같은 시각이면 ID 순)다. 기본 Skill 둘은 코드에 고정돼 있어 여기에 없다.
+   * Agent 초안의 skills 는 이 목록에 있는 id(와 기본 Skill 의 id)만 받는다 — create · saveAgentDraft 가 이 목록으로 판정한다.
+   */
+  listSkillDrafts(): Promise<SkillDraft[]>;
+  getSkillDraft(id: string): Promise<SkillDraft | undefined>;
+  /**
+   * Skill 초안 하나를 만든다 (New Skill). 확인 순서: 칸이 규칙 밖(isAcceptedSkillDraft)이거나 시각이 비었다 → invalid_input,
+   * 같은 ID → invalid_input, 기본 Skill · 다른 초안과 같은 이름(대소문자 무시) → duplicate_name. 걸리면 아무것도 쓰지 않는다.
+   */
+  createSkillDraft(draft: SkillDraft): Promise<void>;
+  /**
+   * 초안의 칸(이름 · 소개 · 지시문)을 고친다 (Save draft). 확인 순서: 칸이 규칙 밖 → invalid_input, 없는 초안 → not_found,
+   * 같은 이름 → duplicate_name. 지우는 기능은 없다 — 그래서 Agent 초안이 가리키는 Skill 이 사라지는 일이 없다.
+   */
+  saveSkillDraft(update: Pick<SkillDraft, "id" | "name" | "summary" | "instructions" | "updatedAt">): Promise<void>;
 
   /** 미리보기 실행은 2단계에서 붙으므로 이번 단위에는 읽기만 있다. */
   listPreviewRecords(): Promise<PreviewRecord[]>;
