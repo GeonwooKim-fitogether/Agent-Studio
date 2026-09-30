@@ -12,7 +12,7 @@ import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { DEMO_REPO, DEMO_SHA } from "../../src/adapters/github/fixture/demo-scenario";
 import { createGitHubTarballSource } from "../../src/adapters/github/tarball/tarball-source";
 import { createLocalRepoSource } from "../../src/adapters/preview/local/local-repo-source";
-import { createLocalPreviewRunner, type LocalPreviewRunner } from "../../src/adapters/preview/local/local-runner";
+import { createLocalPreviewRunner, devOriginsOf, type LocalPreviewRunner } from "../../src/adapters/preview/local/local-runner";
 import { getPreviewCards, startPreview } from "../../src/application/preview";
 import { syncAll } from "../../src/application/sync";
 import type { PreviewSession, PreviewTarget } from "../../src/domain/preview";
@@ -158,6 +158,7 @@ describe("로컬 실행기 — 실제 프로세스", { timeout: 120_000 }, () =>
     expect(res.body).not.toContain("studioSecretToken");
     expect(env["PORT"]).toBe(new URL(done.url!).port);
     expect(env["HOST"]).toBe("127.0.0.1");
+    expect(env["PREVIEW_ALLOWED_DEV_ORIGINS"]).toBe("127.0.0.1");
   });
 
   it("다른 PR 을 열면 이전 미리보기가 꺼지고(포트가 닫힌다) 새 기록에 종료한 것을 남긴다. Stop 은 프로세스를 끈다", async () => {
@@ -466,5 +467,14 @@ describe("GitHub 에서 받는 경로 — 가짜 GitHub 응답", { timeout: 120_
     const error = await source.archive(target("acme/web", "e".repeat(40))).catch((e: unknown) => e as Error);
     expect(String(error)).toContain("상한");
     expect(String(error)).not.toContain("ghs_secretSecret999");
+  });
+});
+
+describe("devOriginsOf — 개발 서버가 받아 줄 주소", () => {
+  it("화면에 보이는 주소와 묶는 주소를 겹치지 않게 잇고, 모든 주소(0.0.0.0 · ::)는 뺀다", () => {
+    expect(devOriginsOf("100.64.1.2", "100.64.1.2")).toBe("100.64.1.2");
+    expect(devOriginsOf("100.64.1.2", "studio-pc.tail1234.ts.net")).toBe("studio-pc.tail1234.ts.net,100.64.1.2");
+    expect(devOriginsOf("0.0.0.0", "127.0.0.1")).toBe("127.0.0.1");
+    expect(devOriginsOf("::", "::1")).toBe("::1");
   });
 });

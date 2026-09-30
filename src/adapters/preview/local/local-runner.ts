@@ -69,6 +69,17 @@ const hostForUrl = (host: string) => (host.includes(":") ? `[${host}]` : host);
 /** 준비 확인을 보낼 곳. 모든 주소에 묶었으면 이 컴퓨터 자신으로 확인한다 */
 const probeHostOf = (bindHost: string) => (bindHost === "0.0.0.0" ? "127.0.0.1" : bindHost === "::" ? "::1" : bindHost);
 
+/**
+ * 미리보기 앱에 PREVIEW_ALLOWED_DEV_ORIGINS 로 넘길 호스트 목록(쉼표로 잇는다).
+ * Next.js 16 의 개발 서버는 localhost 가 아닌 주소(휴대전화가 여는 사설망 주소)에서 온 개발용 연결을 막아, 화면은 보여도
+ * 버튼이 동작하지 않는다(2026-09-30 실측). 앱이 이 값을 next.config 의 allowedDevOrigins 로 읽으면 풀린다.
+ * 화면에 보이는 주소(publicHost)와 묶는 주소(bindHost)를 넣고, "모든 주소" 는 호스트가 아니므로 뺀다.
+ */
+export function devOriginsOf(bindHost: string, publicHost: string): string {
+  const hosts = [publicHost, bindHost].filter((h) => h !== "0.0.0.0" && h !== "::");
+  return [...new Set(hosts)].join(",");
+}
+
 const sleep = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
 
 /**
@@ -383,7 +394,12 @@ export function createLocalPreviewRunner(options: LocalRunnerOptions): LocalPrev
       "npm",
       ["run", script],
       srcDir,
-      previewChildEnv(options.parentEnv, "run", { PORT: String(port), HOST: options.bindHost, HOSTNAME: options.bindHost }),
+      previewChildEnv(options.parentEnv, "run", {
+        PORT: String(port),
+        HOST: options.bindHost,
+        HOSTNAME: options.bindHost,
+        PREVIEW_ALLOWED_DEV_ORIGINS: devOriginsOf(options.bindHost, options.publicHost),
+      }),
     );
     app.once("error", () => run.log.note("[studio] npm 을 시작하지 못했다"));
     app.once("exit", (code) => {

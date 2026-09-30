@@ -22,6 +22,7 @@ Agent Studio 는 여러 프로젝트를 Claude 클라우드 · 로컬 · 동료�
 | 2단계 첫 단위의 범위 (PR 하나의 커밋을 이 컴퓨터에서 실행해 미리보기로 열기) | [`docs/plan/04-remote-preview.md`](docs/plan/04-remote-preview.md) |
 | GitHub App 을 만드는 사람용 안내 | [`docs/setup/github-app.md`](docs/setup/github-app.md) |
 | 조직 저장소용 토큰을 만드는 사람용 안내 | [`docs/setup/org-token.md`](docs/setup/org-token.md) |
+| Windows PC 에서 PR 미리보기를 켜고 휴대전화로 여는 안내 | [`docs/setup/preview-windows.md`](docs/setup/preview-windows.md) |
 | 실행 · 테스트 명령 | [`README.md`](README.md) 의 "실행하기" |
 | 체계의 어색함을 발견했을 때 적는 곳 | [`docs/lessons.md`](docs/lessons.md) |
 
