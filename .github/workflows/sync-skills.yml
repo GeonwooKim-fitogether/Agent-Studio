@@ -52,6 +52,19 @@ jobs:
              && ! cmp -s .skills-src/.github/workflows/sync-skills.yml .github/workflows/sync-skills.yml; then
             echo "::warning title=동기화 봇이 창고 판과 다릅니다::.github/workflows/sync-skills.yml 이 창고(Template-repository)의 최신판과 다릅니다. 이 파일은 동기화 대상이 아니라 저장소마다 사람이 한 번 옮겨야 합니다 — 창고의 파일로 교체하는 PR 을 여세요."
           fi
+          # 같은 대조를 다른 워크플로에도 한다(2026-10-02). 창고에도 있고 이 저장소에도 있는 워크플로가
+          # 내용이 다르면 경고한다 — 복사해 온 날부터 조용히 갈라지는 것을 적어도 보이게 하려는 것이다.
+          # 이 저장소만의 워크플로(창고에 없는 이름)는 대조하지 않는다. `pr-gate-check.yml` 은 아래
+          # 저장소에서는 창고를 부르는 10줄짜리 호출부라 창고 본체와 당연히 다르므로 뺀다 — 그 파일은
+          # 갈라지지 않는 것이 설계다(호출부 견본: 창고의 templates/workflows/pr-checks.yml).
+          for wf in .skills-src/.github/workflows/*.yml; do
+            [ -f "$wf" ] || continue
+            name=$(basename "$wf")
+            case "$name" in sync-skills.yml|pr-gate-check.yml) continue;; esac
+            if [ -f ".github/workflows/$name" ] && ! cmp -s "$wf" ".github/workflows/$name"; then
+              echo "::warning title=워크플로가 창고 판과 다릅니다::.github/workflows/$name 이 창고(Template-repository)의 판과 다릅니다. 이 폴더는 동기화 대상이 아니라 저장소마다 사람이 옮깁니다 — 의도한 차이가 아니면 창고의 파일로 교체하는 PR 을 여세요."
+            fi
+          done
 
           # 스킬은 "폴더 하나가 스킬 하나"라서, 창고에 있는 스킬 폴더는 창고가 통째로 소유한다.
           # 그래서 덮어쓰기가 아니라 폴더째 지우고 다시 깔아 창고와 똑같이 맞춘다.
