@@ -17,11 +17,19 @@
 # ── 남은 두 가지 사건 ───────────────────────────────────────────────────────
 #   (PR 열림·제목 수정    → pr-gate-check.yml 의 gate 잡이 이름과 제목 형식을 검사한다)
 #   PR 머지됨           → head 브랜치를 지운다 (`claude/…` 포함). 저장소 설정의 자동 삭제가
-#                         켜져 있으면 이미 지워져 있으므로 조용히 지나간다.
+#                         켜져 있으면 이미 지워져 있으므로 조용히 지나간다. 머지 뒤 그
+#                         브랜치에 새 커밋이 올라왔으면 지우지 않는다.
 #   매주 월요일 + 수동   → 머지된 채 남은 브랜치를 전부 지우고(main 의 조상인 것과, PR 이
 #                         squash 로 머지돼 git 은 모르는 것 둘 다), 14일 이상 활동 없는
 #                         열린 PR 과 21일 이상 활동 없는 브랜치를 잡 요약에 나열한다.
 #                         열린 PR 이 걸린 브랜치는 지우지 않는다 — 닫는 것은 사람이다.
+#
+# ── 지우는 것은 "잃을 것이 없는" 브랜치뿐이다 ─────────────────────────────
+# 브랜치의 끝 커밋이 main 에 들어 있거나, 머지된 PR 의 마지막 커밋과 같을 때만 지운다.
+# "이 브랜치로 연 PR 이 머지된 적이 있다"만으로는 지우지 않는다 — 머지 뒤 같은 브랜치에
+# 커밋을 더 올렸으면 그 커밋은 main 에도 어느 PR 에도 없어서, 지우면 사라진다.
+# (2026-10-02 atelier 실측: PR 다섯 개가 머지된 브랜치 끝에 결정 기록 커밋 하나가 붙어
+# 있었고, 그 전 판정은 이 브랜치를 지울 대상으로 봤다.)
 #
 # ── API 키가 필요하지 않다 ──────────────────────────────────────────────────
 # 판단하지 않고 형식과 날짜만 본다. git 과 gh 만으로 돌고, 시크릿이 없어도 언제나 돈다.
@@ -62,6 +70,7 @@ jobs:
           REPO: ${{ github.repository }}
           BRANCH: ${{ github.head_ref }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          MERGED_HEAD: ${{ github.event.pull_request.head.sha }}
         shell: bash
         run: |
           set -uo pipefail
@@ -71,6 +80,17 @@ jobs:
             exit 0
           fi
           if [ "$BRANCH" = "main" ]; then exit 0; fi
+          # 머지된 커밋과 지금 끝 커밋이 다르면 머지 뒤에 누가 새 커밋을 올린 것이다 — 남긴다.
+          # 끝 커밋을 읽지 못하면 지우지 않는다 — 남은 것은 주간 정리가 같은 대조로 다시 본다.
+          tip=$(gh api "repos/$REPO/git/ref/heads/$BRANCH" --jq .object.sha 2>/dev/null || true)
+          if [ -z "$tip" ]; then
+            echo "브랜치 \`$BRANCH\` 은(는) 이미 없거나(저장소 설정의 자동 삭제) 조회하지 못해 그대로 둡니다." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ "$tip" != "$MERGED_HEAD" ]; then
+            echo "브랜치 \`$BRANCH\` 에 머지 뒤 새 커밋이 있어 지우지 않았습니다 (머지 ${MERGED_HEAD:0:8}, 지금 ${tip:0:8})." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           if gh api -X DELETE "repos/$REPO/git/refs/heads/$BRANCH" >/dev/null 2>&1; then
             echo "머지된 브랜치 \`$BRANCH\` 을(를) 지웠습니다." >> "$GITHUB_STEP_SUMMARY"
           else
@@ -104,11 +124,11 @@ jobs:
 
           # (a) 머지된 채 남은 브랜치를 지운다. "머지됐다"는 두 가지로 잰다.
           #   ① git 이 보기에 main 의 조상이다 (merge commit 방식으로 머지된 것).
-          #   ② 그 브랜치를 head 로 한 PR 이 하나 이상 머지됐다 (squash 방식으로 머지된 것 —
+          #   ② 브랜치의 끝 커밋이 머지된 PR 의 마지막 커밋과 같다 (squash 방식으로 머지된 것 —
           #      브랜치의 커밋이 main 에 들어가지 않고 새 커밋 하나로 합쳐지므로 git 은 "머지 안 됨"으로
           #      본다. 첫 실행(2026-09-29)에서 ①만 보다가 창고에 이런 브랜치 19개가 그대로 남았다).
           #   어느 쪽이든 **열린 PR 이 걸려 있으면 절대 지우지 않는다.**
-          deleted=(); deleted_squash=(); failed=()
+          deleted=(); deleted_squash=(); failed=(); kept_after_merge=()
           : > /tmp/deleted.txt
           # refs/remotes/origin/HEAD 는 short 이름이 `origin` 으로 나와 브랜치처럼 보인다 — 함께 거른다.
           for ref in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin); do
@@ -120,8 +140,15 @@ jobs:
             if git merge-base --is-ancestor "$ref" origin/main 2>/dev/null; then
               how="ancestor"
             else
-              merged_n=$(gh pr list --head "$b" --state merged --limit 1 --json number --jq 'length' 2>/dev/null || echo 0)
-              [ "${merged_n:-0}" -gt 0 ] || continue
+              # "머지된 PR 이 있다"만으로 지우지 않는다 — 끝 커밋이 그 PR 들의 마지막 커밋 중
+              # 하나와 같아야 한다. 다르면 끝 커밋이 main 에도 머지된 PR 에도 없다는 뜻이라 남기고
+              # 요약에 적는다.
+              tip=$(git rev-parse "$ref")
+              merged_heads=$(gh pr list --head "$b" --state merged --limit 100 --json headRefOid --jq '.[].headRefOid' 2>/dev/null || true)
+              if ! grep -qx "$tip" <<< "$merged_heads"; then
+                [ -n "$merged_heads" ] && kept_after_merge+=("$b")
+                continue
+              fi
               how="squash"
             fi
             if gh api -X DELETE "repos/$REPO/git/refs/heads/$b" >/dev/null 2>&1; then
@@ -172,6 +199,13 @@ jobs:
             if [ "${#failed[@]}" -gt 0 ]; then
               echo ""
               echo "지우지 못한 것: $(printf '`%s` ' "${failed[@]}") — 보호 규칙이나 권한을 확인한다."
+            fi
+            if [ "${#kept_after_merge[@]}" -gt 0 ]; then
+              echo ""
+              echo "### 머지된 PR 이 있지만 끝 커밋이 main 에 없는 브랜치 — 지우지 않았다"
+              echo ""
+              echo "이 브랜치로 연 PR 은 머지된 적이 있지만, 지금 끝 커밋은 main 에도 머지된 PR 에도 없다(보통 머지 뒤에 커밋을 더 올린 경우). 살리려면 PR 을 열고, 버리려면 사람이 지운다."
+              printf -- '- `%s`\n' "${kept_after_merge[@]}"
             fi
             echo ""
             echo "### ${STALE_PR_DAYS}일 이상 활동 없는 열린 PR — 사람이 머지하거나 닫는다"
