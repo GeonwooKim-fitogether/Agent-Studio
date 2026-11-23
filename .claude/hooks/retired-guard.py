@@ -87,7 +87,11 @@ def path_matches(rel: str, glob: str) -> bool:
     """
     if not glob:
         return False
-    glob = glob.replace("\\", "/").lstrip("./")
+    glob = glob.replace("\\", "/")
+    # 앞의 "./" 만 뗀다. lstrip("./") 는 글자 집합을 지워 `.claude/...` 의 첫 점까지 없애,
+    # 점으로 시작하는 폐기 경로가 조용히 걸리지 않았다(2026-11-13 발견).
+    while glob.startswith("./"):
+        glob = glob[2:]
     if fnmatch.fnmatch(rel, glob):
         return True
     if "*" not in glob and "?" not in glob and "[" not in glob:
@@ -207,6 +211,16 @@ def judge(payload: dict, root: str):
 
 
 def main() -> int:
+    # 한국어 Windows 는 파이프의 기본 인코딩이 cp949 다. 그대로 두면 판정문의 줄표(—) 같은
+    # 글자를 내보내다 훅이 죽고(exit 1 — Claude Code 는 판정 없이 도구를 그대로 실행한다),
+    # 입력의 한글이 깨져 명령·경로 대조가 빗나간다. Claude Code 는 UTF-8 JSON 으로 주고받으므로
+    # 세 통로를 모두 UTF-8 로 고정한다. (2026-11-09 실측, 규칙 부록 db-write-permission-history.md)
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
     # 세션 시작 훅이 부르는 안내 모드. 판정과 무관하게 목록을 사람과 세션에 보여 준다.
     if "--announce" in sys.argv:
         text = announce(repo_root())

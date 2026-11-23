@@ -11,10 +11,17 @@
 
 import importlib.util
 import json
+import os
 import pathlib
 import subprocess
 import sys
 import time
+
+for _stream in (sys.stdout, sys.stderr):  # Windows 콘솔(cp949)에서도 한글·기호가 깨지지 않게
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
 
 HERE = pathlib.Path(__file__).parent
 GUARD = HERE / "sql-write-guard.py"
@@ -81,10 +88,84 @@ def run_hook(payload: dict) -> str:
         [sys.executable, str(GUARD)],
         input=json.dumps(payload),
         capture_output=True,
-        text=True,
+        # 훅은 UTF-8 로 내보낸다. 읽는 쪽도 맞춰야 Windows 기본 코드페이지에서 깨지지 않는다.
+        encoding="utf-8",
+        errors="replace",
     )
     assert result.returncode == 0, f"훅이 0 이 아닌 코드로 끝났다: {result.returncode}"
     return result.stdout.strip()
+
+
+# 한국어 Windows 와 같은 조건 — 파이프의 기본 인코딩이 cp949 다. Linux 에서도 이 환경
+# 변수로 같은 조건을 만들 수 있어, 어디서 돌려도 같은 회귀를 잡는다.
+CP949_ENV = {**os.environ, "PYTHONIOENCODING": "cp949", "PYTHONUTF8": "0"}
+
+
+def run_hook_cp949(payload: dict, script=GUARD, args=()):
+    """훅을 파이프 기본 인코딩이 cp949 인 조건으로 돌려 (종료 코드, 표준 출력 바이트)를 낸다.
+
+    Claude Code 는 UTF-8 JSON 을 넘기고 UTF-8 로 읽는다. 훅이 스스로 입출력을 UTF-8 로
+    고정하지 않으면 판정문의 줄표(—)를 내보내다 죽거나(exit 1 — Claude Code 는 판정 없이
+    도구를 그대로 실행한다) 입력의 한글이 깨진다. 2026-11-09 에 이 PC 에서 실제로 그랬다.
+    """
+    proc = subprocess.run(
+        [sys.executable, str(script), *args],
+        input=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        capture_output=True,
+        env=CP949_ENV,
+        timeout=30,
+    )
+    return proc.returncode, proc.stdout
+
+
+def utf8_verdict(code: int, raw: bytes):
+    """훅이 0 으로 끝나고 UTF-8 로 읽히는 판정 JSON 을 냈으면 (판정, 사유)를, 아니면 실패 사유를 낸다."""
+    if code != 0:
+        return None, f"종료 코드 {code} — Claude Code 는 이 판정을 무시하고 도구를 실행한다"
+    try:
+        out = json.loads(raw.decode("utf-8"))["hookSpecificOutput"]
+    except Exception as exc:  # noqa: BLE001 — 무엇이든 실패로 보고한다
+        return None, f"UTF-8 판정 JSON 이 아니다 ({exc}): {raw[:200]!r}"
+    return (out["permissionDecision"], out["permissionDecisionReason"]), None
+
+
+def check_windows_encoding() -> int:
+    """파이프 기본 인코딩이 cp949 여도 훅이 판정을 내는지 본다(한국어 Windows 회귀 방지)."""
+    failures = 0
+    print("[인코딩] 파이프 기본 인코딩이 cp949 여도 판정을 낸다")
+
+    cases = [
+        # 조회 자동 승인 — 판정문에 줄표가 있다. 고치기 전에는 여기서 죽었다.
+        ("한글이 든 조회", {
+            "tool_name": "mcp__Supabase__execute_sql",
+            "tool_input": {"query": "select * from item where name = '인코딩 시험';"},
+        }, "allow"),
+        # 아래 둘은 열쇠를 지나는 경로다. 열쇠가 있으면 소비하지 않도록 건너뛴다.
+        ("한글이 든 삭제 쿼리", {
+            "tool_name": "mcp__Supabase__execute_sql",
+            "tool_input": {"query": "delete from item where name = '인코딩 시험';"},
+        }, "deny"),
+        # 고치기 전에는 입력의 한글이 깨져 지문을 만들다 죽었다. 없는 경로라 실행돼도 무해하다.
+        ("한글 주석이 붙은 셸 적용 명령", {
+            "tool_name": "Bash",
+            "tool_input": {"command": "sh /c/nonexistent-hook-probe/apply-migration.sh # 인코딩 시험"},
+        }, "deny"),
+    ]
+    key_exists = pathlib.Path(guard.unlock_path()).exists()
+    for label, payload, expected in cases:
+        if expected == "deny" and key_exists:
+            print(f"  [건너뜀] 열쇠 파일이 이미 있어 '{label}' 은(는) 돌리지 않는다")
+            continue
+        verdict, problem = utf8_verdict(*run_hook_cp949(payload))
+        if problem:
+            print(f"  [실패] {label}: {problem}")
+            failures += 1
+            continue
+        decision, reason = verdict
+        if decision != expected or "—" not in reason:
+            print(f"  [실패] {label}: {expected} 와 줄표가 든 사유를 기대했는데 {decision!r}: {reason!r}")
+            failures += 1
+    return failures
 
 
 def decision_of(out: str):
@@ -323,6 +404,17 @@ def check_bash_gate() -> int:
         'bash -c "sh selfhost/apply-migration.sh"',
         "python3 selfhost/ssm-sql.py apply",
         "./selfhost/ssm-sql.py query",
+        # 도구의 하위 명령 통로 (2026-11-05, FitOps 의 Prisma 와 Fitstack 의 옛 supabase CLI)
+        "npx prisma db push",
+        "DIRECT_URL=postgres://x npx prisma db push --accept-data-loss",
+        "npx prisma --schema prisma/schema.prisma db push",
+        "pnpm exec prisma migrate deploy",
+        "npx prisma migrate reset --force",
+        "npx prisma migrate resolve --applied 0_init",
+        "npx prisma db execute --file x.sql",
+        "cd /home/user/fitops && npx prisma db push",
+        "npx supabase db push",
+        "supabase db push",
     ):
         out = run_hook({"tool_name": "Bash", "tool_input": {"command": command}})
         if decision_of(out) != "deny":
@@ -344,6 +436,17 @@ def check_bash_gate() -> int:
         "python3 scripts/migration-object-probe.mjs --emit-sql",
         'python3 -c "print(1)"',
         "cat selfhost/ssm-sql.py",
+        # 패키지 실행기를 감싸개로 본 뒤에도 평범한 작업은 그대로 통과해야 한다.
+        "pnpm check",
+        "npm run test",
+        "npx vitest run",
+        "npx prisma generate",
+        "npx prisma migrate diff --from-url x --to-schema-datamodel prisma/schema.prisma --script",
+        "npx prisma migrate status",
+        "npx prisma migrate dev --create-only",
+        "supabase start",
+        'grep -n "db push" CLAUDE.md',
+        "cat prisma/schema.prisma",
     ):
         out = run_hook({"tool_name": "Bash", "tool_input": {"command": command}})
         if out:
@@ -471,9 +574,151 @@ def check_actions_gate() -> int:
     return failures
 
 
+# 데스크톱 앱이 실제로 붙이는 커넥터 이름(2026-11-19 이 PC 에서 본 것)과 다른 환경의 이름.
+DESKTOP_SERVER = "2697e772-cf1b-40ff-9116-9515d43dc978"
+CONNECTOR_SERVERS = (DESKTOP_SERVER, "Supabase", "claude_ai_Supabase")
+
+
+def check_connector_names() -> int:
+    """서버 이름과 무관하게 끝말로 커넥터를 알아보는가 (2026-11-19 데스크톱 앱 실측).
+
+    이름 전체로 대조하던 동안 데스크톱 앱에서는 훅이 한 번도 불리지 않았다. 판정 함수만이
+    아니라 **설정의 matcher** 도 함께 본다 — 둘 중 하나만 넓히면 훅은 여전히 불리지 않는다.
+    """
+    print("[커넥터 이름] 서버 이름이 UUID 여도 같은 판정을 낸다")
+    failures = 0
+    for server in CONNECTOR_SERVERS:
+        out = run_hook({"tool_name": f"mcp__{server}__execute_sql",
+                        "tool_input": {"project_id": "p-other", "query": "select 1 as \"set\""}})
+        if decision_of(out) != "deny":
+            print(f"  [실패] {server} 의 쓰기 판정 쿼리가 막히지 않았다: {out!r}")
+            failures += 1
+        out = run_hook({"tool_name": f"mcp__{server}__execute_sql",
+                        "tool_input": {"project_id": "p-other", "query": "select 1;"}})
+        if decision_of(out) != "allow":
+            print(f"  [실패] {server} 의 조회가 자동 승인되지 않았다: {out!r}")
+            failures += 1
+        out = run_hook({"tool_name": f"mcp__{server}__apply_migration",
+                        "tool_input": {"project_id": "p-other", "name": pushed_migration_name(),
+                                       "query": "select 1;"}})
+        if decision_of(out) != "deny":
+            print(f"  [실패] {server} 의 마이그레이션 적용이 막히지 않았다: {out!r}")
+            failures += 1
+
+    # 읽기 전용 서버와, 끝말이 다른 도구에는 참견하지 않는다.
+    for tool in ("mcp__supabase-readonly__execute_sql", f"mcp__{DESKTOP_SERVER}__list_tables",
+                 f"mcp__{DESKTOP_SERVER}__execute_sql_extra", "execute_sql"):
+        out = run_hook({"tool_name": tool, "tool_input": {"query": "delete from item;"}})
+        if out:
+            print(f"  [실패] 보지 않아야 할 도구에 판정이 나왔다: {tool} -> {out!r}")
+            failures += 1
+
+    # 설정의 matcher — Claude Code 는 이 정규식으로 훅을 부를지 정한다.
+    settings = json.loads((HERE.parent / "settings.json").read_text(encoding="utf-8"))
+    import re as _re
+
+    def matchers_for(event, script):
+        return [e.get("matcher", "") for e in settings.get("hooks", {}).get(event, [])
+                if any(script in h.get("command", "") for h in e.get("hooks", []))]
+
+    pre = matchers_for("PreToolUse", "sql-write-guard.py")
+    must_call = [f"mcp__{s}__{t}" for s in CONNECTOR_SERVERS
+                 for t in ("execute_sql", "apply_migration")]
+    must_call += ["mcp__github__actions_run_trigger", "Bash"]
+    for tool in must_call:
+        if not any(_re.fullmatch(m, tool) for m in pre):
+            print(f"  [실패] 설정의 matcher 가 {tool} 에서 sql-write-guard 를 부르지 않는다: {pre!r}")
+            failures += 1
+
+    post = matchers_for("PostToolUse", "dev-verify-reminder.py")
+    for server in CONNECTOR_SERVERS:
+        if not any(_re.fullmatch(m, f"mcp__{server}__apply_migration") for m in post):
+            print(f"  [실패] 적용 뒤 검증 훅이 {server} 의 apply_migration 에서 불리지 않는다: {post!r}")
+            failures += 1
+        if any(_re.fullmatch(m, f"mcp__{server}__execute_sql") for m in post):
+            print(f"  [실패] 적용 뒤 검증 훅이 조회에도 불린다(검증 중 매번 끼어든다): {post!r}")
+            failures += 1
+    return failures
+
+
+def run_copied_hook(root: pathlib.Path, payload: dict) -> str:
+    """훅을 root/.claude/hooks/ 에 복사해 돌린다. 훅은 자기 위치로 저장소 뿌리를 잡으므로,
+    이렇게 하면 진짜 저장소를 건드리지 않고 dev-db.json 과 git 상태를 시험용으로 꾸밀 수 있다."""
+    hooks = root / ".claude" / "hooks"
+    hooks.mkdir(parents=True, exist_ok=True)
+    (hooks / GUARD.name).write_bytes(GUARD.read_bytes())
+    code, raw = run_hook_cp949(payload, script=hooks / GUARD.name)
+    assert code == 0, f"훅이 0 이 아닌 코드로 끝났다: {code}"
+    return raw.decode("utf-8").strip()
+
+
+def check_dev_delegation() -> int:
+    """저장소가 .claude/dev-db.json 에 적은 개발 DB 만 열쇠 없이 통과하는가."""
+    import tempfile
+    print("[개발 DB 위임] dev-db.json 에 적힌 프로젝트만 열쇠 없이 통과한다")
+    failures = 0
+    dev_cfg = json.dumps({"dev_projects": [{"id": "p-dev", "name": "시험-dev"}]},
+                         ensure_ascii=False)
+    sql = f"mcp__{DESKTOP_SERVER}__execute_sql"
+    mig = f"mcp__{DESKTOP_SERVER}__apply_migration"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        # ① 위임 파일이 없으면 개발 DB 라도 예전처럼 막힌다.
+        out = run_copied_hook(root, {"tool_name": sql,
+                                     "tool_input": {"project_id": "p-dev", "query": "delete from x;"}})
+        if decision_of(out) != "deny":
+            print(f"  [실패] 위임 파일이 없는데 쓰기가 통과했다: {out!r}")
+            failures += 1
+
+        (root / ".claude" / "dev-db.json").write_text(dev_cfg, encoding="utf-8")
+        # ② 위임된 개발 DB 의 쓰기 — 적용 뒤 검증(do $$ … raise exception $$)도 여기로 온다.
+        for query in ("delete from x;", "do $$ begin perform 1; raise exception '결과'; end $$;"):
+            out = run_copied_hook(root, {"tool_name": sql,
+                                         "tool_input": {"project_id": "p-dev", "query": query}})
+            if decision_of(out) != "allow" or "개발 DB(시험-dev)" not in reason_of(out):
+                print(f"  [실패] 개발 DB 쓰기가 위임으로 통과하지 않았다 ({query!r}): {out!r}")
+                failures += 1
+        # ③ 다른 프로젝트는 그대로 막힌다 — 위임은 적힌 프로젝트에만 닿는다.
+        for project in ("p-live", "", None):
+            out = run_copied_hook(root, {"tool_name": sql,
+                                         "tool_input": {"project_id": project, "query": "delete from x;"}})
+            if decision_of(out) != "deny":
+                print(f"  [실패] 위임 밖 프로젝트({project!r})의 쓰기가 통과했다: {out!r}")
+                failures += 1
+        # ④ git 이 없어 push 를 잴 수 없는 곳에서는 개발 DB 적용이 통과한다.
+        out = run_copied_hook(root, {"tool_name": mig,
+                                     "tool_input": {"project_id": "p-dev", "name": "x", "query": "select 1;"}})
+        if decision_of(out) != "allow":
+            print(f"  [실패] 개발 DB 마이그레이션 적용이 통과하지 않았다: {out!r}")
+            failures += 1
+        # ⑤ 깨진 위임 파일은 "위임 없음"이다.
+        (root / ".claude" / "dev-db.json").write_text("{깨짐", encoding="utf-8")
+        out = run_copied_hook(root, {"tool_name": sql,
+                                     "tool_input": {"project_id": "p-dev", "query": "delete from x;"}})
+        if decision_of(out) != "deny":
+            print(f"  [실패] 깨진 위임 파일인데 쓰기가 통과했다: {out!r}")
+            failures += 1
+
+    # ⑥ 위임이 있어도 push 되지 않은 마이그레이션은 막힌다 — 위임은 push 를 대신하지 않는다.
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        (root / ".claude").mkdir()
+        (root / ".claude" / "dev-db.json").write_text(dev_cfg, encoding="utf-8")
+        out = run_copied_hook(root, {"tool_name": mig,
+                                     "tool_input": {"project_id": "p-dev", "name": "없는_파일",
+                                                    "query": "select 1;"}})
+        if decision_of(out) != "deny" or "적용 전 push 판정" not in reason_of(out):
+            print(f"  [실패] 개발 DB 라도 push 되지 않은 적용이 막히지 않았다: {out!r}")
+            failures += 1
+    return failures
+
+
 if __name__ == "__main__":
     total = (check_classify() + check_hook_output() + check_unlock()
-             + check_push_gate() + check_bash_gate() + check_actions_gate())
+             + check_push_gate() + check_bash_gate() + check_actions_gate()
+             + check_windows_encoding() + check_connector_names() + check_dev_delegation())
     if total:
         print(f"\n실패 {total}건")
         sys.exit(1)
@@ -483,4 +728,7 @@ if __name__ == "__main__":
           f"열쇠는 같은 지문의 재판정만 통과시켰고 다른 쿼리·만료 영수증은 막았으며, "
           f"push 되지 않은 마이그레이션은 열쇠로도 넘어가지 못했으며, "
           f"셸로 라이브 데이터베이스를 바꾸는 명령은 막히고 평범한 셸 명령은 그대로 통과했으며, "
-          f"라이브 데이터베이스를 바꾸는 워크플로 실행 요청은 막히고 다른 워크플로 요청은 그대로 통과했습니다.")
+          f"라이브 데이터베이스를 바꾸는 워크플로 실행 요청은 막히고 다른 워크플로 요청은 그대로 통과했으며, "
+          f"파이프 기본 인코딩이 cp949 인 조건(한국어 Windows)에서도 판정을 UTF-8 JSON 으로 냈으며, "
+          f"커넥터 이름이 UUID 여도(데스크톱 앱) 설정의 matcher 와 판정이 모두 커넥터를 잡았고, "
+          f"dev-db.json 에 적힌 개발 DB 만 열쇠 없이 통과하되 push 판정은 넘지 못했습니다.")
